@@ -1,0 +1,52 @@
+Get started
+PeerPay is a server-to-server payment API for Ethiopian bank transfers and mobile wallets. Your backend creates deposit or withdrawal orders; PeerPay hosts checkout, verifies each submitted transaction ID or reference against the assigned receiving account through bank and wallet APIs, and notifies you with signed webhooks.
+
+Base URL: https://api.peerpayment.org · API version: 2026-06-01
+
+Complete deposit flow
+Set up an approved workspace and at least one active, approved receiving account before creating an order.
+Your backend creates a dynamic or fixed deposit with an Idempotency-Key and receives a checkout_url.
+PeerPay generates merchant_order_id, assigns an eligible masked receiving-account option, and starts the expiry timer.
+You redirect the customer to hosted checkout. They choose the shown method, transfer outside PeerPay, and submit the provider reference.
+PeerPay verifies the transaction ID or reference against the assigned receiving account, amount, currency, transaction age, and duplicate use through bank and wallet APIs.
+Your backend consumes signed webhooks or polls the deposit and event timeline through a terminal result.
+Your system credits its own wallet only after succeeded or manually_succeeded; PeerPay does not know your internal ledger.
+PeerPay does not know whether you credited the customer wallet. It exposes deposit outcome, verification evidence, and webhook delivery state only.
+
+Core withdrawal flow
+Add receiving accounts and attach withdrawal agents in the dashboard. Automatic routing needs those agents to already have spendable float.
+Your backend creates a withdrawal with a locked amount and an Idempotency-Key.
+You redirect the customer to checkout_url so they can confirm the destination account.
+PeerPay assigns an eligible agent, or leaves the request in review for you to assign manually.
+The agent sends the transfer and submits the transaction ID. PeerPay verifies it.
+You receive withdrawal.succeeded, withdrawal.expired, or another signed event, and can also poll GET /v1/withdrawals/:id.
+Do not treat create or checkout return as success. Debit your customer wallet only after withdrawal.succeeded.
+
+Before you start
+Request merchant access and get approved.
+Complete your business profile in the dashboard.
+Create an API key with deposits:create / deposits:read (and withdrawal scopes if needed).
+Add at least one receiving account.
+Add a public HTTPS webhook URL in Developer Controls. PeerPay tests it automatically; save the signing secret.
+Approved merchants receive 150 successful-order credits (deposits + withdrawals). Failed, pending, expired, cancelled, and review-required orders do not consume credits. After the allowance, PeerPay reports your negotiated percentage (default 3%) without blocking transactions.
+
+Browse guides
+Authentication
+API keys, PeerPay-Version, and idempotency keys.
+Accept Payments
+Set up accounts, create deposits, use checkout, and reconcile success.
+Hosted Checkout
+Redirect customers to PeerPay-hosted checkout.
+Withdrawals
+Set up accounts and agents, then create and confirm withdrawals.
+Webhooks
+Register a URL, verify signatures, and debug deliveries.
+Errors & OpenAPI
+Stable error envelopes and the OpenAPI contract.
+Recommended integration path
+1.Read Authentication.
+2.Create a deposit via Accept Payments.
+3.Understand Hosted Checkout.
+4.Register a URL and verify signatures in Webhooks.
+5.Follow Withdrawals for payout setup, confirmation, and status handling.
+6.Handle Errors & OpenAPI.

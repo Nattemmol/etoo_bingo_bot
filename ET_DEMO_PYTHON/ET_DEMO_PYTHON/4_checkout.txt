@@ -1,0 +1,54 @@
+Step 4: Checkout
+After creating the order, a checkOutUrl is ultimately returned to the front-end page, The backend return a complete checkOutUrl to the frontend for opening.
+
+4.1 Call the create order interface
+The front-end page calls the back-end create order API to retrieve order information. checkOutUrl.
+
+Create Order
+
+    const title = "add your own title here"; // Replace with your desired title
+    const amount = "add your own amount here"; // Replace with your desired amount
+
+    function createOrder() {
+     
+        if (!amount) {
+            return;
+        }
+        // call your backend create order api
+        window.fetch(baseUrl + "/create/order", {
+                method: "post",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    title: title,
+                    amount: amount,
+                }),
+            })
+            .then((res) => {
+                res.text()
+                .then((checkOutUrl) => {
+                    //open check out url
+                    this.startPay(checkOutUrl)
+                })
+                .catch((error) => {
+                console.log("error occur", error);
+                })
+                .finally(() => {});
+            });
+        }
+
+
+4.2 Start Pay
+After obtaining the checkOutUrl, initiate the checkout process.
+
+Start Pay
+
+    function startPay(checkOutUrl) {  // rawRequest get from create order api
+        let anchorEle = document.createElement("a");
+        anchorEle.setAttribute("href", checkOutUrl);
+        anchorEle.setAttribute("target", "_blank");
+        anchorEle.setAttribute("rel", "external");
+        anchorEle.style.display = "none";
+        anchorEle.click();
+    }

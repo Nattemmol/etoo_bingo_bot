@@ -1,0 +1,43 @@
+Step 7: Notify
+After the completion of the payment on the SuperApp, the payment notification (callback) will be sent to the end point that you passed on the createOrder request notify_url parameter in a post method. This endpoint must be whitelisted and configured on the SuperApp server in order to be sent properly. Here is a sample of the payment notification(callback)
+
+Note: Please ensure that your Notify API includes the following fields to guarantee the proper reception of callback information.
+
+Example HTTP Response (200: Processed successful)
+{
+   notify_url: 'your notification url', // example: http://197.156.68.29:5050/v2/api/order-v2/mini/payment
+   appid: '853694808089634',
+   notify_time: '1670575472482',
+   merch_code: '245445',
+   merch_order_id: '1670575560882',
+   payment_order_id: '00801104C911443200001002',
+   total_amount: '10.00',
+   "trans_id":"49485948475845",
+   trans_currency: 'ETB',
+   trade_status: 'Completed',
+   trans_end_time: '1670575472000',
+   sign: 'AOwWQF0QDg0jzzs5otLYOunoR65GGgC3hyr+oYn8mm1Qph6Een7C…',
+   sign_type: 'SHA256WithRSA'
+}
+
+
+REQUEST BODY SCHEMA
+Parameter	Data Type	M/O	Description
+notify_url	String(512)	O	<= 512 characters \S+, Specifies the callback address for receiving payment notifications if payment is successful.
+appid	String(32)	O	Length <= 32 characters ^[A-Za-z0-9]* $, Application ID allocated to a merchant by Mobile Payment system.
+notify_time	string	O	string <= 13 characters ^[0-9][1-9][0-9]$, Notification sending time. The timestamp is of the long type. The time is the UTC format. The unit is second.
+merch_code	String(16)	O	Length <= 16 characters ^[1-9][0-9]+$, Short code registered by a merchant with the Mobile Money.
+merch_order_id	String(64)	M	<= 64 characters ^[A-Za-z0-9]+$, Order ID on the merchant side.
+payment_order_id	String(64)	M	string <= 64 characters, Order ID on the Payment side.
+total_amount	String(20)	O	<= 20 characters ^((0{1}.\d{1,2})
+trans_currency	String(3)	O	<= 3 characters \S+, Transaction currency type.
+trade_status	String(4)	M	<= 4 characters \S+, String Transaction status.
+Paying: The user has paid, but the cards and coupons and other transactions have been agreed paid.
+Expired:The status after reconciliation is not obvious.
+Pending:Payment completed, awaiting order synchronization.
+Completed: Payment Completed.
+Failure: Payment failed
+trans_end_time	String	M	<= 13 characters ^[0-9][1-9][0-9]$, Time when a transaction ends. The unit is second.
+callback_info	String	O	Callback information. If this parameter is transferred when a merchant places an order, the parameter is returned to the merchant during asynchronous notification.
+sign	String(512)	M	<= 512 characters \S+, Response signature.
+sign_type	string	M	Value = "SHA256WithRSA", Signature type of the response

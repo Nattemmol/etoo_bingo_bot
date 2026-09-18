@@ -1,0 +1,284 @@
+Developer docs
+
+Webhooks
+Register a public HTTPS URL. PeerPay sends a signed webhook.test immediately, activates the endpoint after a 2xx response, and then posts deposit and withdrawal events as they happen. Polling remains supported for reconciliation. Delivery is at least once — process idempotently.
+
+Register a URL
+Open Developer Controls → Webhook Endpoints.
+Paste a public HTTPS URL that accepts PeerPay POST requests. Keep the default deposit and withdrawal events, or change the selection.
+Save the signing secret when it appears. PeerPay shows it only once on create or rotate.
+No extra configuration is required. Saving the URL queues webhook.test automatically. The endpoint stays pending_verification until your receiver returns 2xx, then becomes active and starts receiving subscribed production events. Use Send Test only if that first attempt fails.
+
+Only events created after activation are eligible for this endpoint. The checkout return URL controls browser navigation and does not confirm server-to-server webhook delivery.
+
+Receiver requirements
+HTTPS only. The host must be publicly routable — not localhost, private, or link-local addresses, and the URL cannot include credentials.
+Accept POST with JSON. Return 2xx within 10 seconds, then process wallet updates asynchronously.
+Do not redirect. PeerPay does not follow endpoint redirects.
+Verify PeerPay-Signature before acting on the body. Treat webhook.test as a connectivity check, not a deposit or withdrawal.
+Endpoint status
+pending_verification — URL saved, waiting for a successful test 2xx.
+active — subscribed production events are delivered automatically.
+paused — delivery is held until you resume.
+disabled — the endpoint is retired. You can reuse the same URL on a new endpoint.
+You can configure up to five enabled endpoints per merchant.
+
+Debug deliveries
+Each endpoint card shows recent attempts, 24-hour delivered / retrying / failed counts, and last response status. Use the eye action to open a delivery and inspect HTTP status, the bounded response excerpt, duration, and transport error.
+
+pending or sending — the worker has not finished this attempt yet. Wait, then refresh.
+delivered — your receiver returned 2xx.
+retry — a later attempt is scheduled. PeerPay retries failures for at least 24 hours and does not re-POST endpoints that already succeeded for the same event.
+failed — retries are exhausted. Fix the receiver, then use Send Test if the endpoint is still pending.
+If the endpoint stays pending:
+
+Confirm the URL is public HTTPS and reachable from the internet.
+Return 2xx with no redirect, including for webhook.test.
+Check the delivery error: timeouts, DNS failures, TLS errors, and blocked private hosts appear there.
+Use Send Test after you fix the receiver. PeerPay does not replay historical production events created before activation.
+Request headers
+Headers
+PeerPay-Event: deposit.succeeded
+PeerPay-Event-Id: evt_4d8e2a71
+PeerPay-Delivery-Id: whd_6b1c9e03
+PeerPay-Timestamp: 1781881815
+PeerPay-Signature: v2=<64-char-hex-hmac-sha256>
+PeerPay-Api-Version: 2026-06-01
+Content-Type: application/json
+Verify the signature
+Signing base string:
+
+Base string
+<PeerPay-Event-Id>.<PeerPay-Timestamp>.<raw request body>
+Algorithm: HMAC-SHA256 over the base string using your endpoint secret (shown once on create/rotate).
+Header value: v2=<lowercase hex digest> (64 hex chars).
+PeerPay-Timestamp is Unix seconds. Reject stale timestamps with your own replay window.
+Compare with a timing-safe equality check.
+Node.js example
+import crypto from "node:crypto";
+
+function verifyPeerPaySignature({
+  secret,
+  eventId,
+  timestamp,
+  rawBody,
+  signatureHeader,
+}) {
+  const timestampSeconds = Number(timestamp);
+  if (
+    !Number.isFinite(timestampSeconds) ||
+    Math.abs(Date.now() / 1000 - timestampSeconds) > 300
+  ) {
+    return false;
+  }
+
+  const expected =
+    "v2=" +
+    crypto
+      .createHmac("sha256", secret)
+      .update(`${eventId}.${timestamp}.${rawBody}`)
+      .digest("hex");
+
+  const a = Buffer.from(expected);
+  const b = Buffer.from(signatureHeader);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+Payload shape
+Webhook bodies use data.object. This is different from GET /v1/deposits/:id/events timeline rows.
+
+deposit.succeeded
+{
+  "id": "evt_4d8e2a71",
+  "type": "deposit.succeeded",
+  "api_version": "2026-06-01",
+  "sequence": 7,
+  "created_at": "2026-06-19T15:10:15Z",
+  "data": {
+    "object": {
+      "id": "dep_7k2m9nq4",
+      "merchant_order_id": "pp_ord_7k2m9nq4a1b2c3d4e5f678901234",
+      "merchant_customer_id": "cust_abebe_kebede",
+      "environment": "live",
+      "status": "succeeded",
+      "amount": "150.00",
+      "currency": "ETB",
+      "payment_method": "telebirr",
+      "transaction": {
+        "reference": "CHK7M2P9QX",
+        "verified_at": "2026-06-19T15:10:14Z"
+      },
+      "verification": {
+        "provider": "bank",
+        "status": "succeeded",
+        "verified": true,
+        "amount_match": true,
+        "currency_match": true,
+        "receiver_match": true,
+        "receiver_match_confidence": "high",
+        "confirmed_before": false,
+        "peerpay_first_use": true
+      },
+      "metadata": {},
+      "created_at": "2026-06-19T15:05:00Z",
+      "expires_at": "2026-06-19T16:05:00Z"
+    }
+  }
+}
+On deposit.succeeded (or deposit.manually_succeeded), credit your customer wallet idempotently by PeerPay deposit data.object.id. On withdrawal.succeeded, debit that wallet by the withdrawal data.object.id. Do not treat withdrawal.created, withdrawal.assigned, or the checkout return URL as completion. Do not branch business logic on the deprecated environment: "live" field.
+
+Deposit reconciliation
+Use a deposit webhook as a prompt notification that state changed, not as a guarantee that the delivered payload is the newest snapshot. Read GET /v1/deposits/:id whenever you need the latest deposit state currently known to PeerPay. Use GET /v1/deposits/:id/events for audit and recovery.
+
+For deposits, verify the raw-body HMAC before parsing, return 2xx within 10 seconds, and deduplicate by PeerPay-Event-Id (and the deposit resource ID). Credit your internal wallet only for deposit.succeeded or deposit.manually_succeeded. Pending, review, failed, expired, and cancelled events must never credit a wallet.
+
+Event	Merchant action
+deposit.created	Create a local pending record; do not credit.
+deposit.assigned	Store the assigned account and show checkout.
+deposit.reference_submitted	Mark verification in progress; do not credit.
+deposit.verification_pending	Keep pending and await the terminal event.
+deposit.succeeded	Credit the merchant wallet idempotently by data.object.id.
+deposit.manually_succeeded	Credit idempotently after an operator-approved success.
+deposit.failed	Do not credit; persist the failure reason.
+deposit.manually_failed	Do not credit; persist the operator failure reason.
+deposit.expired	Close the checkout and do not credit.
+deposit.cancelled	Close the order and do not credit.
+deposit.review_required	Place the order in manual review; do not credit.
+deposit.review_resolved	Re-read the deposit and act only on its resolved terminal status.
+If a delivery is missed, poll GET /v1/deposits/:id and GET /v1/deposits/:id/events to reconcile, then continue processing retries idempotently. A checkout return URL is never a webhook or settlement signal.
+
+Withdrawal Reconciliation
+Create one reversible wallet hold after withdrawal creation. Capture that hold only for withdrawal.succeeded. Release it only for withdrawal.failed, withdrawal.expired, or withdrawal.cancelled. Keep it unchanged for every other event, including withdrawal.verification_failed and withdrawal.review_required.
+
+Event	Merchant action
+withdrawal.created	Create one reversible wallet hold keyed by data.object.id, then wait for customer confirmation.
+withdrawal.customer_confirmed	Destination locked. PeerPay will assign an agent or mark the request for review.
+withdrawal.assigned	An agent now owns the transfer. Automatic or manual assignment both emit this event.
+withdrawal.review_required	Needs a dashboard action: assign an agent, or correct a rejected transaction reference.
+withdrawal.transfer_submitted	The agent submitted a transaction ID. Wait for verification.
+withdrawal.verification_pending	PeerPay is verifying the submitted transfer against the bank or wallet APIs.
+withdrawal.verification_failed	Keep the hold unchanged. This attempt failed but remains correctable before the deadline; inspect data.object.verification.decision_code.
+withdrawal.succeeded	Capture the existing wallet hold exactly once, keyed by data.object.id.
+withdrawal.expired	Release the existing wallet hold exactly once; the withdrawal did not complete.
+withdrawal.failed	Release the existing wallet hold exactly once; this outcome is terminal.
+withdrawal.cancelled	Release the existing wallet hold exactly once; this outcome is terminal.
+withdrawal.review_resolved	A review case was resolved. Recheck the current status before acting.
+A negative attempt is an activity signal, not a terminal wallet instruction. Inspect verification_attempt_id, provider_request_id, and decision_code for operations and support.
+
+withdrawal.verification_failed
+{
+  "id": "evt_wd_verify_failed_01",
+  "type": "withdrawal.verification_failed",
+  "api_version": "2026-06-01",
+  "sequence": 6,
+  "created_at": "2026-06-19T15:15:20Z",
+  "data": {
+    "object": {
+      "id": "wd_3p8r1xs6",
+      "merchant_withdrawal_id": "pp_wd_3p8r1xs6a1b2c3d4e5f678901234",
+      "merchant_customer_id": "cust_sara_hailu",
+      "status": "transfer_submitted",
+      "verification_status": "amount_mismatch",
+      "amount": "250.00",
+      "currency": "ETB",
+      "verification": {
+        "provider": "bank",
+        "status": "amount_mismatch",
+        "verified": false,
+        "provider_request_id": "req_verify_01",
+        "verification_attempt_id": "wva_01",
+        "decision_code": "amount_mismatch"
+      },
+      "created_at": "2026-06-19T15:05:00Z",
+      "expires_at": "2026-06-19T16:05:00Z"
+    }
+  }
+}
+Verify against the raw body, enqueue once by event ID, acknowledge within 10 seconds, and process the wallet transition in a database transaction.
+
+Webhook receiver
+// Keep the raw request body. Parsing it before verification breaks the HMAC.
+export async function receivePeerPayWebhook(request) {
+  const rawBody = await request.text();
+  const eventId = request.headers.get("PeerPay-Event-Id") ?? "";
+  const timestamp = request.headers.get("PeerPay-Timestamp") ?? "";
+  const signatureHeader = request.headers.get("PeerPay-Signature") ?? "";
+
+  if (!verifyPeerPaySignature({
+    secret: process.env.PEERPAY_WEBHOOK_SECRET,
+    eventId,
+    timestamp,
+    rawBody,
+    signatureHeader,
+  })) {
+    return new Response("Invalid signature", { status: 401 });
+  }
+
+  // Enqueue once by eventId, then acknowledge quickly. The queue worker below
+  // performs wallet changes outside the webhook request.
+  await enqueueWebhookOnce({ eventId, rawBody });
+  return new Response(null, { status: 204 });
+}
+Withdrawal event worker
+const releaseEvents = new Set([
+  "withdrawal.failed",
+  "withdrawal.expired",
+  "withdrawal.cancelled",
+]);
+
+export async function processPeerPayWithdrawalEvent(event) {
+  const withdrawal = event.data.object;
+
+  await db.transaction(async (tx) => {
+    // Insert has a unique constraint on event.id. A duplicate delivery exits.
+    const inserted = await recordWebhookEventOnce(tx, event.id);
+    if (!inserted) return;
+
+    if (event.type === "withdrawal.succeeded") {
+      await captureWithdrawalHoldOnce(tx, withdrawal.id);
+      return;
+    }
+
+    if (releaseEvents.has(event.type)) {
+      await releaseWithdrawalHoldOnce(tx, withdrawal.id);
+      return;
+    }
+
+    // created, assigned, verification_pending, verification_failed,
+    // review_required, and review_resolved never move customer funds.
+    await updateWithdrawalProgress(tx, withdrawal.id, {
+      status: withdrawal.status,
+      verificationStatus: withdrawal.verification_status,
+      decisionCode: withdrawal.verification?.decision_code ?? null,
+      sequence: event.sequence,
+    });
+  });
+}
+If delivery is missed or events arrive out of order, read GET /v1/withdrawals/:id for current state and GET /v1/withdrawals/:id/events for the ordered audit timeline. Never use checkout callback parameters as payout proof.
+
+Withdrawal notification_status describes PeerPay delivery of the latest event—pending, delivered, retrying, exhausted, or disabled—not whether your wallet worker finished processing it.
+
+Event types
+Deposits:
+
+deposit.created, deposit.assigned, deposit.reference_submitted, deposit.verification_pending, deposit.succeeded, deposit.manually_succeeded, deposit.failed, deposit.manually_failed, deposit.expired, deposit.cancelled, deposit.review_required, deposit.review_resolved
+
+Withdrawals:
+
+withdrawal.created, withdrawal.customer_confirmed, withdrawal.assigned, withdrawal.transfer_submitted, withdrawal.verification_pending, withdrawal.verification_failed, withdrawal.succeeded, withdrawal.failed, withdrawal.expired, withdrawal.cancelled, withdrawal.review_required, withdrawal.review_resolved
+
+webhook.test is operational. You do not subscribe to it; PeerPay sends it on create and when you click Send Test.
+
+Idempotent handling
+Dedupe on PeerPay-Event-Id or payload id.
+Also track PeerPay-Delivery-Id for delivery debugging.
+Wallet credit must be idempotent by PeerPay resource ID even if the same event is delivered twice.
+Delivery behavior
+Events are delivered at least once and ordering is not guaranteed.
+Return 2xx within 10 seconds, then process wallet updates asynchronously.
+PeerPay does not follow endpoint redirects and retries failures for at least 24 hours. Endpoints that already returned 2xx for an event are not retried.
+Use deposit/withdrawal polling as a reconciliation fallback during an extended receiver outage.
+What PeerPay reports
+Deposit / withdrawal outcome
+Verification evidence when present
+Webhook delivery state in the dashboard: delivered, retrying, failed, or disabled
+PeerPay does not know whether you credited your internal customer wallet. See also Errors & OpenAPI.

@@ -1,0 +1,62 @@
+Step 3: Generate Checkout Url
+After create an order, the prepayId will be obtained from the backend, and the checkoutUrl will be generated using the prepayId.
+
+Get prepayId from Create Order API.
+Use the prepayId returned by the backend to generate the rawRequest.
+webBaseUrl, rawRequest, and otherParams are concatenated together to form the URL.
+3.1 Prepare basic information
+Create a file at ..\service\config.js :
+
+..\service\config.js
+  module.exports = {
+    // testbed
+    webBaseUrl:"https://developerportal.ethiotelebirr.et:38443/payment/web/paygate?",
+    // production
+    webBaseUrl: "https://superapp.ethiomobilemoney.et:38443/apiaccess/payment/gateway";
+    
+    otherParams:"&version=1.0&trade_type=Checkout"
+  };
+
+
+3.2 Create rawRequest
+Create rawRequest Demo Code
+
+const tools = require("../utils/tools");
+const config = require("../config/config");
+
+// 1. prepayId get from [create order](./requestCreateOrder.md)
+function createRawRequest(prepayId) {
+  let map = {
+    appid: config.merchantAppId,
+    merch_code: config.merchantCode,
+    nonce_str: tools.createNonceStr(), // tools code you can download form demo
+    prepay_id: prepayId,
+    timestamp: tools.createTimeStamp(), // tools code you can download form demo
+  };
+  let sign = tools.signRequestObject(map); // tools code you can download form demo
+  // order by ascii in array
+  let rawRequest = [
+    "appid=" + map.appid,
+    "merch_code=" + map.merch_code,
+    "nonce_str=" + map.nonce_str,
+    "prepay_id=" + map.prepay_id,
+    "timestamp=" + map.timestamp,
+    "sign=" + sign,
+    "sign_type=SHA256WithRSA",
+  ].join("&");
+  return rawRequest;
+}
+
+
+
+3.3 Generate string URL
+Generate string URL demo code
+
+function createCheckoutUrl(prepayId){
+  let rawRequest = createRawRequest(prepayId);
+  return config.webBaseUrl + rawRequest + config.otherParams
+}
+
+
+
+Note: ../utils/tools.js you can get from Demo code

@@ -1,0 +1,82 @@
+Step 8: refundOrder
+The Refund Order interface can be used to process refunds for previously successful payments. This allows merchants to return funds to customers when necessary.
+
+Note: You are advised to integrate backend services and provide APIs for your frontend applications.
+
+8.1 API Information
+BaseURL: https://developerportal.ethiotelebirr.et:38443/apiaccess/payment/gateway
+BaseURL(Production): https://superapp.ethiomobilemoney.et:38443/apiaccess/payment/gateway
+Endpoint: /payment/v1/merchant/refund
+Method: POST
+Content-Type: application/json
+
+8.2 Request Parameters
+HEADER PARAMETERS
+Parameter	Data Type	M/O	Description
+X-APP-Key	String	M	Fabric App ID, provided by fabric portal of Ethio telecom (Get)
+Authorization	String	M	App Fabric Token for authentication
+REQUEST BODY SCHEMA
+Parameter	Data Type	M/O	Description
+timestamp	String	M	string <= 13 characters ^[0-9][1-9][0-9]$, Time when a request is sent. UTC timestamp. The unit is second.
+method	String	M	string Value: "payment.refund" Set to 'payment.refund', fixed for this interface
+nonce_str	String	M	<= 32 characters \S+, Random character string containing a maximum of 32 characters, including uppercase letters, lowercase letters, digits, but not special characters.
+sign_type	String	M	Value: "SHA256WithRSA", Signature type.
+sign	String	M	<= 512 characters \S+, This signature is the sign of all the request parameters except the sign and sign_type. First ordered in alphabetical order and joined in a key=value format and joined together with '&' and are signed with the SHA256RSA algorithm.
+version	String	M	<= 4 characters \S+, Interface version number. Only support 1.0 now
+biz_content	Object	M	object (RefundRequestInfo)
+Request biz_content RefundRequestInfo Object parameters
+
+Parameter	Data Type	M/O	Description
+appid	string(32)	M	Application ID allocated to a merchant by Mobile Payment system.
+merch_code	string(16)	M	Short code registered by a merchant with the Mobile Money.
+merch_order_id	string(64)	M	The original order number from the merchant side that needs to be refunded.
+refund_request_no	string(64)	M	The unique refund order number request or Transaction Id of the payment going to be refunded. Sample Value:CJD7GBPXIP
+refund_reason	string(256)	O	Reason for the refund.
+actual_amount	string	M	Refund amount. Must be less than or equal to the original transaction amount.
+trans_currency	string(3)	M	Refund currency code (e.g., ETB). Must match the original transaction currency.
+Request Example Value:
+
+{
+    
+    "timestamp": "175938855330",
+    "nonce_str": "sdnoe9ufqbe4uuib7subschqg3gjrm8t",
+    "method": "payment.refund",
+    "sign_type": "SHA256WithRSA",
+    "sign": "JKc//uJevJVAelpc9LfQpHm/GoExSkGQ9hNuQwQLnSmRhZSeKPVnMMxh/AuobPuNmeBGmHH/3gk+FxVCsqOmvUZDOUYhdZZbdBZh6dqDYfXfMGj9pZ9xLipeUv0DU4nzVF2Posu5r3MVLVNOSN6zXzgohQc3wsOXi1Pkw9+MgsHiDtlT4K/5m6VOf/iE1zv9DJZQiFzC/ts3HoSEzFVpsCbwW5aeaX2EfMkGTrsMy0yePLhHAa5TIt777Vfjm16nsXnZDtGD6zULuhPJWkU8qogqy1kwDh+l4ojCYHo70YPg1B4bY9WxPeRWmxe4DcEQTWf/ylUxU75S/E9KFPdEvw==",
+    "version": "1.0",
+    "biz_content": {
+      "merch_order_id": "{{merch_order_id}}",
+      "appid": "{{MerchantId}}",
+      "trans_currency": "ETB",
+      "actual_amount": "amount",
+      "merch_code": "{{MerchantCode}}",
+      "refund_request_no": "{{refund_request_no}}", 
+      "refund_reason": "refund test"
+    }
+}
+
+
+8.3 Response Parameters
+Parameter	Data Type	M/O	Description
+result	String	M	SUCCESS or FAIL. When this field is FAIL, the code field is a specific business error code.
+code	String	M	Return code. 0 is successful, the rest is the business error code
+msg	String	M	Return information, simple error description.
+nonce_str	String(256)	M	Random character string. 256 characters or fewer.
+sign	String(512)	M	Specifies a signature.
+sign_type	String	M	Signature type. Currently, HmacSHA256 and SHA256WithRSA are supported.
+biz_content	Object	O	object (RefundResponseInfo)
+Response biz_content RefundResponseInfo Object parameters
+
+Parameter	Data Type	M/O	Description
+merch_code	string(16)	M	Short code registered by a merchant with the Mobile Money.
+merch_order_id	string(64)	M	Order ID on the merchant side. When return_code is SUCCESS, this value will return
+trans_order_id	string	M	Original transaction order ID on the Payment side.
+refund_order_id	string	M	Refund transaction order ID on the Payment side.
+refund_amount	string	M	Refund amount.
+refund_currency	string	M	Refund currency.
+refund_status	string	M	Refund Status:
+REFUND_SUCCESS: Refund successful
+REFUNDING: Refund in progress
+REFUND_FAILED: Refund failed
+REFUND_DUPLICATED: Duplicate refund request
+refund_time	string(13)	O	Refund success timestamp. This parameter is valid only when the refund is successful.

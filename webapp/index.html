@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>GoodBingo</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Top Balance & Role Bar -->
+    <div class="user-bar">
+      <div class="balance-pill" id="btn-open-wallet" role="button" tabindex="0" title="Deposit / Withdraw">
+        <span class="wallet-icon">💰</span>
+        <span id="user-balance">0.00</span> <span class="currency">ETB</span>
+        <span class="balance-add-icon">+</span>
+      </div>
+      <div class="user-bar-right">
+        <div id="role-pill" class="role-pill role-spectator">
+          <span class="role-dot"></span>
+          <span id="role-text">Spectating</span>
+        </div>
+        <button id="theme-toggle-btn" class="theme-toggle-btn" title="Toggle Light / Dark Mode" aria-label="Toggle Theme">
+          <span class="theme-icon">🌙</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Loading -->
+    <section id="screen-loading" class="screen active">
+      <div class="spinner"></div>
+      <p>Connecting to game...</p>
+    </section>
+
+    <!-- Error -->
+    <section id="screen-error" class="screen">
+      <div class="error-icon">⚠️</div>
+      <p id="error-message">Something went wrong.</p>
+      <button class="btn btn-secondary" onclick="Telegram.WebApp.close()">Close</button>
+    </section>
+
+    <!-- Lobby -->
+    <section id="screen-lobby" class="screen">
+      <!-- Schedule Banner (for superBingo outside 1:00 LT night) -->
+      <div id="schedule-banner" class="schedule-banner hidden">
+        <div class="schedule-icon">⏰</div>
+        <div class="schedule-content">
+          <div class="schedule-title">superBingo Schedule</div>
+          <div class="schedule-desc">Daily at 1:00 LT Night (7:00 PM EAT)</div>
+          <div id="schedule-countdown" class="schedule-countdown">Starts in: --:--:--</div>
+        </div>
+      </div>
+
+      <header class="game-header">
+        <h1>🎱 GoodBingo</h1>
+        <p id="lobby-room-name">PLAY</p>
+      </header>
+      <div class="stats-row">
+        <div class="stat">
+          <span class="stat-value" id="lobby-players">0</span>
+          <span class="stat-label">ተጫዋች (Cards)</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="lobby-pot">0</span>
+          <span class="stat-label">ደራሽ (ETB)</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="lobby-countdown">00:00</span>
+          <span class="stat-label">Starts in</span>
+        </div>
+      </div>
+
+      <!-- Card Pool Selection Section -->
+      <div id="card-selection-wrap" class="card-selection-wrap">
+        <div class="card-action-bar">
+          <span id="card-action-title" class="card-action-title">Card Pool</span>
+          <span id="my-cards-badge" class="my-cards-badge">የተመረጡ መጫወቻዎች: 0</span>
+        </div>
+
+        <div class="quick-pick-row">
+          <input type="number" id="quick-card-input" placeholder="መጫወቻ ቁጥር" min="1" max="1500" class="quick-input" />
+          <button id="btn-quick-pick" class="btn-sm btn-quick">ይምረጡ</button>
+          <button id="btn-random-pick" class="btn-sm btn-random">🎲 በዘፈቀደ</button>
+        </div>
+
+        <div id="card-pool" class="card-pool"></div>
+
+        <div id="card-error-notice" class="card-error-notice hidden"></div>
+        <p class="hint">👆 መጫወቻ ለመምረጥ ይንኩ። አንድ ተጫዋች ከአንድ በላይ መጫወቻ መምረጥ ይችላል። Each selected card is charged the entry fee separately, one pick at a time.</p>
+        <p class="hint">👀 Watching the board is free. Only players who select a card join the round.</p>
+      </div>
+    </section>
+
+    <!-- Playing -->
+    <section id="screen-game" class="screen">
+      <header class="game-header-bar">
+        <div class="header-left">
+          <div class="room-pill" id="game-room-name">PLAY</div>
+          <div class="header-stats">
+            <div class="h-stat stat-derash">
+              <span class="h-stat-label">ደራሽ</span>
+              <span class="h-stat-value" id="game-pot">0 ETB</span>
+            </div>
+            <div class="h-stat stat-players">
+              <span class="h-stat-label">ተጫዋች</span>
+              <span class="h-stat-value" id="game-players">0</span>
+            </div>
+            <div class="h-stat stat-balls">
+              <span class="h-stat-label">ኳሶች</span>
+              <span class="h-stat-value" id="game-balls">0/75</span>
+            </div>
+          </div>
+        </div>
+        <div class="called-ball" id="last-call">
+          <span class="ball-letter">-</span>
+          <span class="ball-number">-</span>
+        </div>
+      </header>
+
+      <div id="game-banner" class="game-banner hidden"></div>
+
+      <div class="game-layout" id="game-layout">
+        <!-- Board: one side -->
+        <div class="board-panel">
+          <div class="panel-title">Game Board</div>
+          <div class="called-board" id="called-board"></div>
+        </div>
+
+        <!-- Player's cards: the other side -->
+        <div class="cards-panel">
+          <div class="panel-title" id="cards-panel-title">Your Cards</div>
+          <div id="card-list" class="card-list"></div>
+          <p class="auto-bingo-hint">👆 የተጠሩትን ቁጥሮች ምልክት ያድርጉ፤ ሲሟላ "BINGO!" ይጫኑ። ሳያሸንፉ BINGO ከተባለ ያ መጫወቻ ይቆለፋል!</p>
+
+          <div id="game-spectator-section" class="spectator-section hidden">
+            <div class="spectator-card">
+              <div class="spectator-icon">👁️</div>
+              <h3>Watching the Game Board</h3>
+              <p>You did not select a card for this round, so you are spectating.</p>
+              <p class="spectator-hint">Watch the numbers light up on the board! You can select a card in the lobby when the next round starts.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Confirmation Modal: available card -->
+  <div id="modal-confirm" class="modal-backdrop hidden">
+    <div class="modal">
+      <div class="modal-title" id="confirm-title">መጫወቻ</div>
+      <div id="confirm-card-preview" class="modal-card-preview"></div>
+      <p class="modal-prompt">ይህንን መጫወቻ መምረጥዎን ያረጋግጡ</p>
+      <p class="modal-fee" id="confirm-fee"></p>
+      <div class="modal-actions">
+        <button class="btn btn-confirm-yes" id="btn-confirm-yes">አዎ</button>
+        <button class="btn btn-confirm-no" id="btn-confirm-no">አይ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Unselect & Refund Modal -->
+  <div id="modal-unselect" class="modal-backdrop hidden">
+    <div class="modal">
+      <div class="modal-icon">↩️</div>
+      <div class="modal-title" id="unselect-title">መጫወቻ መሰረዝ</div>
+      <div id="unselect-card-preview" class="modal-card-preview"></div>
+      <p class="modal-prompt" id="unselect-prompt">ይህንን መጫወቻ መሰረዝ ይፈልጋሉ?</p>
+      <p class="modal-fee" id="unselect-fee">የተከፈለው ገንዘብ ሙሉ በሙሉ ይመለሳል።</p>
+      <div class="modal-actions">
+        <button class="btn btn-danger" id="btn-unselect-yes" style="background:#e74c3c;color:#fff;">አዎ፣ ሰርዝ</button>
+        <button class="btn btn-confirm-no" id="btn-unselect-no">ይቅር</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Taken Card Modal -->
+  <div id="modal-taken" class="modal-backdrop hidden">
+    <div class="modal">
+      <div class="modal-icon">🔒</div>
+      <div class="modal-title taken-title" id="taken-title">መጫወቻ</div>
+      <p class="modal-prompt">ይህ መጫወቻ ተይዞአል</p>
+      <button class="btn btn-primary" id="btn-taken-ok">እሺ</button>
+    </div>
+  </div>
+
+  <!-- Winner Modal (floating celebration, animated & scrollable for multiple winners) -->
+  <div id="modal-winner" class="modal-backdrop hidden">
+    <div class="modal modal-winner-box">
+      <div class="winner-trophy-badge">🏆</div>
+      <h2 class="winner-head-title" id="winner-title">እንኳን ደስ አላችሁ!</h2>
+      <p class="winner-sub-message" id="winner-message">የዙሩ አሸናፊ</p>
+      
+      <div id="winner-cards-scroll" class="winner-cards-scroll">
+        <!-- Dynamically rendered winner cards -->
+      </div>
+
+      <div class="winner-timer-bar">
+        <span id="winner-countdown-text">ቀጣዩ ዙር በ 10 ሰከንድ ይጀምራል...</span>
+        <div class="timer-progress-track">
+          <div id="winner-progress-fill" class="timer-progress-fill"></div>
+        </div>
+      </div>
+
+      <div class="modal-actions" style="margin-top: 12px;">
+        <button class="btn btn-primary" id="btn-winner-continue">ወደ መጫወቻ ምርጫ ቀጥል</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Wallet Modal (Deposit & Withdraw) -->
+  <div id="modal-wallet" class="modal-backdrop hidden">
+    <div class="modal modal-wallet-box">
+      <div class="wallet-header">
+        <h2>💳 የሂሳብ አስተዳደር (Wallet)</h2>
+        <button class="modal-close-btn" id="btn-wallet-close">&times;</button>
+      </div>
+      <div class="wallet-balance-display">
+        <span class="label">ያለዎት ቀሪ ሂሳብ:</span>
+        <span class="val"><strong id="modal-user-balance">0.00</strong> ETB</span>
+      </div>
+      <div class="wallet-tabs">
+        <button class="wallet-tab-btn active" id="tab-deposit">ገንዘብ ማስገቢያ (Deposit)</button>
+        <button class="wallet-tab-btn" id="tab-withdraw">ገንዘብ ማውጫ (Withdraw)</button>
+      </div>
+
+      <!-- Deposit Panel -->
+      <div id="panel-deposit" class="wallet-panel active">
+        <p class="panel-subtitle">ከታች ወዳሉት አካውንቶች ገንዘብ ያስተላልፉ:</p>
+        
+        <div class="deposit-accounts-list">
+          <div class="account-card" data-copy="096357327">
+            <div class="account-icon">🔵</div>
+            <div class="account-info">
+              <div class="account-name">Telebirr (ቴሌብር)</div>
+              <div class="account-number"><code>096357327</code></div>
+              <div class="account-holder">Habtamu Melese</div>
+            </div>
+            <button class="btn-copy-acc" title="Copy Number">📋</button>
+          </div>
+
+          <div class="account-card" data-copy="093490411">
+            <div class="account-icon">🟢</div>
+            <div class="account-info">
+              <div class="account-name">CBE Birr (ሲቢኢ ብር)</div>
+              <div class="account-number"><code>093490411</code></div>
+              <div class="account-holder">Natnael Temesegen</div>
+            </div>
+            <button class="btn-copy-acc" title="Copy Number">📋</button>
+          </div>
+
+          <div class="account-card" data-copy="1000413343538">
+            <div class="account-icon">🏦</div>
+            <div class="account-info">
+              <div class="account-name">CBE Bank (ንግድ ባንክ)</div>
+              <div class="account-number"><code>1000413343538</code></div>
+              <div class="account-holder">Natnael Temesegen</div>
+            </div>
+            <button class="btn-copy-acc" title="Copy Number">📋</button>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 14px;">
+          <label for="deposit-reference-input">የከፈሉበት የ SMS መልዕክት፣ Receipt Link ወይም Transaction ID:</label>
+          <textarea id="deposit-reference-input" class="wallet-input wallet-textarea" rows="3" placeholder="ከባንክ የደረሰዎትን የ SMS መልእክት፣ የደረሰኝ ሊንክ (https://transactioninfo.ethiotelecom.et/receipt/...) ወይም Transaction ID (ለምሳሌ: DIH3TFMD7H) እዚህ paste ያድርጉ"></textarea>
+        </div>
+        <div class="form-group" style="margin-top: 10px;">
+          <label for="deposit-amount-optional-input">የከፈሉት መጠን (ETB) - አማራጭ (Optional):</label>
+          <input type="number" id="deposit-amount-optional-input" class="wallet-input" placeholder="መጠኑን ያስገቡ (አስፈላጊ ከሆነ ብቻ፣ ለምሳሌ: 50)" min="5" step="1">
+        </div>
+        <button class="btn btn-primary btn-block" id="btn-submit-deposit-ref" style="margin-top: 12px;">ማስረጃውን አረጋግጥ (Verify)</button>
+        <div id="deposit-status-msg" class="wallet-status-msg hidden"></div>
+      </div>
+
+      <!-- Withdraw Panel -->
+      <div id="panel-withdraw" class="wallet-panel">
+        <div class="form-group">
+          <label for="withdraw-bank-select">የመቀበያ መንገድ ይምረጡ:</label>
+          <select id="withdraw-bank-select" class="wallet-input">
+            <option value="telebirr">🔵 Telebirr (ቴሌብር)</option>
+            <option value="cbebirr">🟢 CBE Birr (ሲቢኢ ብር)</option>
+            <option value="cbe">🏦 Mobile Banking (የንግድ ባንክ አካውንት)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="withdraw-amount-input">የሚወጣው መጠን (Amount ETB, ዝቅተኛ: 10):</label>
+          <input type="number" id="withdraw-amount-input" class="wallet-input" placeholder="ለምሳሌ: 200" min="10" />
+        </div>
+        <div class="form-group">
+          <label for="withdraw-account-input" id="withdraw-account-label">የስልክ ወይም የአካውንት ቁጥር:</label>
+          <input type="text" id="withdraw-account-input" class="wallet-input" placeholder="ለምሳሌ: 0911223344" />
+        </div>
+        <button class="btn btn-primary btn-block" id="btn-request-withdraw">ገንዘብ አውጣ (Request Withdrawal)</button>
+        <div id="withdraw-status-msg" class="wallet-status-msg hidden"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

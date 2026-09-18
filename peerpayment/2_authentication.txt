@@ -1,0 +1,38 @@
+Developer docs
+
+Authentication
+Merchant API keys are machine credentials for your backend. They are not dashboard login credentials and must never appear in browser or checkout clients.
+
+Base URL
+Production API
+https://api.peerpayment.org
+# Local development typically uses http://localhost:3000
+There is no separate sandbox API mode. Approved merchants use one runtime; the first 150 successful deposits/withdrawals are credit-covered.
+
+API key
+Send your key with either header (both are accepted):
+
+Auth headers
+Authorization: Bearer $PEERPAY_API_KEY
+# or: x-api-key: $PEERPAY_API_KEY
+PeerPay-Version: 2026-06-01
+Authorization: Bearer <api_key> (recommended)
+x-api-key: <api_key>
+Create keys in the merchant dashboard. Required scopes for public routes:
+
+deposits:create — POST /v1/deposits
+deposits:read — get/list deposits and events
+withdrawals:create — POST /v1/withdrawals
+withdrawals:read — get/list withdrawals and events
+API version
+Supported value: PeerPay-Version: 2026-06-01. The header is optional on most requests (defaults to 2026-06-01) and is validated on create deposit / withdrawal. An unsupported version returns 400 invalid_api_version.
+
+Idempotency
+Idempotency-Key is required on POST /v1/deposits and POST /v1/withdrawals (1–256 characters). Use a stable unique key per logical order.
+
+Same key + same body → 200 with the stored response (replay).
+First successful create → 201.
+Same key + different body → 409 idempotency_conflict.
+Keys are retained for 24 hours.
+Request tracing
+Every response includes PeerPay-Request-Id. Log it with your merchant-side correlation IDs. Error bodies also include meta.requestId.

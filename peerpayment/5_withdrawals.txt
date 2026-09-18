@@ -1,0 +1,343 @@
+Developer docs
+
+Withdrawals
+A PeerPay withdrawal is a merchant-created payout request. Your backend locks the amount, the customer confirms the destination account on hosted checkout, then one of your agents sends the money from a receiving account they already hold. PeerPay verifies the transaction and tells you the result.
+
+PeerPay does not hold funds or execute the bank transfer. Your API integration is create, redirect, then wait for a signed webhook or poll. Requires withdrawals:create / withdrawals:read.
+
+Before you call the API
+These are fulfillment prerequisites. The create call may still return a created withdrawal before the workspace is ready, but PeerPay cannot route it automatically until an eligible agent and account exist:
+
+Add at least one approved receiving account in Workspace (https://peerpayment.org/dashboard/workspace). This is the account your agent will send from.
+Invite a withdrawal agent from the same Workspace page (https://peerpayment.org/dashboard/workspace). The agent signs in, accepts the invite, then waits for you to attach a receiving account.
+Attach each accepted agent to one active, approved receiving account. Automatic routing only considers attached agents.
+Give those accounts withdrawal float. Succeeded deposits increase spendable capacity; succeeded withdrawals and recorded drains reduce it. An agent with too little remaining float is skipped.
+Create an API key with withdrawal scopes and register a webhook URL in Developer Controls (https://peerpayment.org/dashboard/developers).
+Dashboard home: https://peerpayment.org. Open live requests later at Withdrawals (https://peerpayment.org/dashboard/withdrawals).
+
+How a withdrawal moves
+Your backend creates the request with a locked amount and receives checkout_url.
+You redirect the customer to that URL. They must confirm the destination account themselves. Creating the request is not enough.
+After confirmation, PeerPay picks an eligible attached agent automatically, or leaves the request in review for you to assign manually.
+The selected agent copies the customer-confirmed account and amount, sends the transfer from their attached receiving account, then pastes the transaction ID on the withdrawal.
+PeerPay verifies that transaction. When it matches, you get withdrawal.succeeded. Eligible pre-transfer orders get withdrawal.expired at the deadline. Active verification can finish after the deadline and emits withdrawal.failed if its result is negative.
+1. Create the withdrawal
+Request
+POST /v1/withdrawals
+Authorization: Bearer $PEERPAY_API_KEY
+PeerPay-Version: 2026-06-01
+Idempotency-Key: habesha-withdraw-556621
+Content-Type: application/json
+Required: merchant_customer_id, amount (decimal string only). Optional: destination, return_url, metadata, legacy merchant_withdrawal_id. currency defaults to ETB.
+
+Prefill a destination if you already know it. The customer can still change it on checkout:
+
+Body
+{
+  "merchant_customer_id": "cust_sara_hailu",
+  "amount": "250.00",
+  "currency": "ETB",
+  "destination": {
+    "bank": "telebirr",
+    "account_number": "0933445566"
+  },
+  "return_url": "https://app.habeshagames.et/withdrawals/return",
+  "metadata": {}
+}
+Or omit destination and let the customer enter it on checkout:
+
+Body
+{
+  "merchant_customer_id": "cust_sara_hailu",
+  "amount": "250.00",
+  "currency": "ETB",
+  "return_url": "https://app.habeshagames.et/withdrawals/return"
+}
+cURL
+curl -X POST "https://api.peerpayment.org/v1/withdrawals" \
+  -H "Authorization: Bearer $PEERPAY_API_KEY" \
+  -H "PeerPay-Version: 2026-06-01" \
+  -H "Idempotency-Key: habesha-withdraw-556621" \
+  -H "Content-Type: application/json" \
+  --data '{
+    "merchant_customer_id": "cust_sara_hailu",
+    "amount": "250.00",
+    "currency": "ETB",
+    "destination": {
+      "bank": "telebirr",
+      "account_number": "0933445566"
+    },
+    "return_url": "https://app.habeshagames.et/withdrawals/return",
+    "metadata": {}
+  }'
+What you get back
+201 on create, 200 on idempotent replay. Always redirect to checkout_url. Status at this point is created.
+
+201 Created
+{
+  "data": {
+    "id": "wd_3p8r1xs6",
+    "merchant_withdrawal_id": "pp_wd_3p8r1xs6a1b2c3d4e5f678901234",
+    "merchant_customer_id": "cust_sara_hailu",
+    "status": "created",
+    "verification_status": "not_started",
+    "notification_status": "not_ready",
+    "amount": "250.00",
+    "currency": "ETB",
+    "destination": {
+      "bank": "telebirr",
+      "masked_account_number": "****5566"
+    },
+    "checkout_url": "https://checkout.peerpayment.org/w/ptk_wr5n8vj2",
+    "support_reference": "PP-WD-556621",
+    "metadata": {},
+    "created_at": "2026-06-19T15:05:00Z",
+    "expires_at": "2026-06-19T16:05:00Z"
+  },
+  "meta": {
+    "requestId": "req_9f3a2c1b",
+    "apiVersion": "2026-06-01"
+  }
+}
+id — PeerPay withdrawal ID. Use this for wallet hold, capture, and release idempotency.
+merchant_withdrawal_id — PeerPay generates pp_wd_… when omitted; store the returned value.
+checkout_url — https://checkout.peerpayment.org/w/{public_token}
+destination.masked_account_number when a destination was provided.
+expires_at is 60 minutes from creation. After that the customer cannot confirm and the request expires.
+2. Send the customer to checkout
+Redirect the customer to the checkout_url PeerPay returned. That page is where they confirm which account should receive the money. Do not skip this step, even if you already sent a destination in the create call.
+
+The amount is locked. Checkout cannot change it.
+The customer must submit a bank and account number. Prefill is only a starting value.
+The hosted page submits confirmation to POST /checkout-api/w/{token}/confirm:
+Checkout confirm body
+{
+  "destination": {
+    "bank": "telebirr",
+    "account_number": "0933445566"
+  }
+}
+Until that confirm succeeds, the withdrawal stays created and no agent is assigned. If the customer never opens or never confirms the page before expiry, the request becomes expired.
+
+3. Agent assignment
+Confirmation is the trigger. PeerPay then chooses between agents that already exist in your workspace.
+
+Automatic: PeerPay selects an active agent attached to an approved receiving account with enough spendable float, preferring the agent who has waited longest.
+Review / manual: If no agent qualifies, routing is manual-only, or the policy is disabled, the request becomes review_required. Assign an agent from Withdrawals.
+There is no public API parameter for choosing an agent. Manual assignment is an operator action on the existing request; do not create a second withdrawal or ask the customer to confirm again.
+Deposits into those receiving accounts are what create float. If agents have no recent succeeded deposits and you have not recorded capacity, automatic assignment will keep landing in review.
+You can reassign only before the agent submits a transaction reference.
+4. Agent sends and verifies
+The assigned agent works from the withdrawal detail page. They copy the customer-confirmed destination and locked amount, send that transfer from the attached receiving account, then paste the transaction ID into the withdrawal verification form. This is a dashboard/agent action, not a second public /v1/withdrawals request.
+
+PeerPay checks that the transaction is unused, matches the exact amount, happened after customer confirmation, and landed on the confirmed destination.
+A good match becomes succeeded and emits withdrawal.succeeded.
+A mismatch, duplicate, or provider problem usually becomes review_required (or remains retryable while verification is pending) so the agent can correct and resubmit the reference.
+5. Listen for the outcome
+Prefer signed webhooks. Poll GET /v1/withdrawals/:id only as a reconciliation fallback. Webhook delivery is at least once and may arrive out of order, so deduplicate by PeerPay-Event-Id and store the greatest sequence processed for each withdrawal.
+
+withdrawal.succeeded
+{
+  "id": "evt_4d8e2a71",
+  "type": "withdrawal.succeeded",
+  "api_version": "2026-06-01",
+  "sequence": 6,
+  "created_at": "2026-06-19T15:18:40Z",
+  "data": {
+    "object": {
+      "id": "wd_3p8r1xs6",
+      "merchant_withdrawal_id": "pp_wd_3p8r1xs6a1b2c3d4e5f678901234",
+      "merchant_customer_id": "cust_sara_hailu",
+      "status": "succeeded",
+      "verification_status": "succeeded",
+      "amount": "250.00",
+      "currency": "ETB",
+      "destination": {
+        "bank": "telebirr",
+        "masked_account_number": "****5566"
+      },
+      "assigned_agent": {
+        "id": "agt_04",
+        "display_name": "Agent Bole 02"
+      },
+      "assignment_method": "automatic",
+      "metadata": {},
+      "created_at": "2026-06-19T15:05:00Z",
+      "customer_confirmed_at": "2026-06-19T15:07:12Z",
+      "assigned_at": "2026-06-19T15:07:13Z",
+      "succeeded_at": "2026-06-19T15:18:39Z",
+      "expires_at": "2026-06-19T16:05:00Z"
+    }
+  }
+}
+Use a reversible wallet hold when you create the request. Then apply exactly one of these actions:
+
+withdrawal.succeeded — verified and complete. Capture the existing hold exactly once, keyed by data.object.id.
+withdrawal.expired — the eligible pre-transfer request reached its deadline. Release the hold exactly once.
+withdrawal.failed — unsuccessful terminal outcome after the deadline. Release the hold exactly once.
+withdrawal.cancelled — a workspace administrator cancelled before transfer submission. Release the hold exactly once. The normal verification path uses review_required for bad or ambiguous references, so treat that event as an operator queue, not as a successful payout.
+withdrawal.verification_failed — the latest verification attempt was negative or could not be completed. It is non-terminal before the deadline; use decision_code and keep the wallet hold unchanged while evidence is corrected.
+withdrawal.review_required — not finished. Someone in your workspace still has to assign an agent or correct the transfer evidence.
+withdrawal.verification_failed
+{
+  "id": "evt_wd_verify_failed_01",
+  "type": "withdrawal.verification_failed",
+  "api_version": "2026-06-01",
+  "sequence": 6,
+  "created_at": "2026-06-19T15:15:20Z",
+  "data": {
+    "object": {
+      "id": "wd_3p8r1xs6",
+      "merchant_withdrawal_id": "pp_wd_3p8r1xs6a1b2c3d4e5f678901234",
+      "merchant_customer_id": "cust_sara_hailu",
+      "status": "transfer_submitted",
+      "verification_status": "amount_mismatch",
+      "amount": "250.00",
+      "currency": "ETB",
+      "verification": {
+        "provider": "bank",
+        "status": "amount_mismatch",
+        "verified": false,
+        "provider_request_id": "req_verify_01",
+        "verification_attempt_id": "wva_01",
+        "decision_code": "amount_mismatch"
+      },
+      "created_at": "2026-06-19T15:05:00Z",
+      "expires_at": "2026-06-19T16:05:00Z"
+    }
+  }
+}
+A configured withdrawal return_url must match an active workspace return domain. After destination confirmation, checkout returns with peerpay_withdrawal_id, merchant_withdrawal_id, and checkout_status=customer_confirmed. These values are informational; use signed webhooks for transfer outcomes.
+
+The API field notification_status reports delivery of the latest withdrawal event: pending, delivered, retrying, exhausted, or disabled. It does not mean your application has processed the wallet change.
+
+See the full envelope and signature rules in Webhooks.
+
+Recommended Wallet Flow
+When POST /v1/withdrawals succeeds, create one reversible hold for the exact amount. Key it by the PeerPay withdrawal id, not by a browser session.
+Keep the hold unchanged for every non-terminal event, including withdrawal.verification_failed, withdrawal.review_required, and withdrawal.review_resolved.
+Capture the hold only for a signature-verified withdrawal.succeeded event or an authenticated read that returns status=succeeded.
+Release the hold only for a signature-verified withdrawal.failed, withdrawal.expired, or withdrawal.cancelled event, or the matching authenticated terminal status.
+Make hold creation, capture, and release idempotent by withdrawal ID. Make webhook ingestion idempotent by event ID. These are separate guards and you need both.
+
+Copyable Webhook Handler
+Verify the signature against the raw body, enqueue the event once, and return 2xx within 10 seconds. Perform wallet changes in a worker transaction.
+
+Webhook receiver
+// Keep the raw request body. Parsing it before verification breaks the HMAC.
+export async function receivePeerPayWebhook(request) {
+  const rawBody = await request.text();
+  const eventId = request.headers.get("PeerPay-Event-Id") ?? "";
+  const timestamp = request.headers.get("PeerPay-Timestamp") ?? "";
+  const signatureHeader = request.headers.get("PeerPay-Signature") ?? "";
+
+  if (!verifyPeerPaySignature({
+    secret: process.env.PEERPAY_WEBHOOK_SECRET,
+    eventId,
+    timestamp,
+    rawBody,
+    signatureHeader,
+  })) {
+    return new Response("Invalid signature", { status: 401 });
+  }
+
+  // Enqueue once by eventId, then acknowledge quickly. The queue worker below
+  // performs wallet changes outside the webhook request.
+  await enqueueWebhookOnce({ eventId, rawBody });
+  return new Response(null, { status: 204 });
+}
+Withdrawal event worker
+const releaseEvents = new Set([
+  "withdrawal.failed",
+  "withdrawal.expired",
+  "withdrawal.cancelled",
+]);
+
+export async function processPeerPayWithdrawalEvent(event) {
+  const withdrawal = event.data.object;
+
+  await db.transaction(async (tx) => {
+    // Insert has a unique constraint on event.id. A duplicate delivery exits.
+    const inserted = await recordWebhookEventOnce(tx, event.id);
+    if (!inserted) return;
+
+    if (event.type === "withdrawal.succeeded") {
+      await captureWithdrawalHoldOnce(tx, withdrawal.id);
+      return;
+    }
+
+    if (releaseEvents.has(event.type)) {
+      await releaseWithdrawalHoldOnce(tx, withdrawal.id);
+      return;
+    }
+
+    // created, assigned, verification_pending, verification_failed,
+    // review_required, and review_resolved never move customer funds.
+    await updateWithdrawalProgress(tx, withdrawal.id, {
+      status: withdrawal.status,
+      verificationStatus: withdrawal.verification_status,
+      decisionCode: withdrawal.verification?.decision_code ?? null,
+      sequence: event.sequence,
+    });
+  });
+}
+The persistence helper names are illustrative. Back them with unique constraints on webhook event ID and withdrawal hold ID in your own database.
+
+Status map
+Status	What it means
+created	Your backend created the request. Redirect the customer to checkout_url before anything else happens.
+customer_confirmed	The customer confirmed the destination account on hosted checkout. PeerPay now tries to assign an agent.
+assigned	An eligible agent received the request and can copy the destination, send the transfer, then submit the transaction ID.
+review_required	No eligible agent was available, routing is manual, or verification needs a merchant/agent decision. Assign or correct from the dashboard.
+transfer_submitted	The assigned agent submitted a transaction reference. Verification has started or can be retried.
+verification_pending	PeerPay is checking the submitted transaction ID or reference against the bank or wallet APIs.
+succeeded	The transfer matched the confirmed destination and locked amount. Capture the existing wallet hold once by PeerPay withdrawal ID.
+expired	An eligible pre-transfer request reached the 60-minute deadline. Release the existing wallet hold once.
+failed	A negative or exhausted verification became terminal at or after the deadline. Release the existing wallet hold once.
+cancelled	A workspace administrator cancelled the request before transfer submission. Release the existing wallet hold once.
+Webhook events
+Event	What you should do
+withdrawal.created	Create one reversible wallet hold keyed by data.object.id, then wait for customer confirmation.
+withdrawal.customer_confirmed	Destination locked. PeerPay will assign an agent or mark the request for review.
+withdrawal.assigned	An agent now owns the transfer. Automatic or manual assignment both emit this event.
+withdrawal.review_required	Needs a dashboard action: assign an agent, or correct a rejected transaction reference.
+withdrawal.transfer_submitted	The agent submitted a transaction ID. Wait for verification.
+withdrawal.verification_pending	PeerPay is verifying the submitted transfer against the bank or wallet APIs.
+withdrawal.verification_failed	Keep the hold unchanged. This attempt failed but remains correctable before the deadline; inspect data.object.verification.decision_code.
+withdrawal.succeeded	Capture the existing wallet hold exactly once, keyed by data.object.id.
+withdrawal.expired	Release the existing wallet hold exactly once; the withdrawal did not complete.
+withdrawal.failed	Release the existing wallet hold exactly once; this outcome is terminal.
+withdrawal.cancelled	Release the existing wallet hold exactly once; this outcome is terminal.
+withdrawal.review_resolved	A review case was resolved. Recheck the current status before acting.
+Edge cases that confuse first integrations
+Create does not assign an agent. Assignment starts only after checkout confirmation.
+Prefill is not confirmation. A destination in POST /v1/withdrawals is a hint. The customer still has to confirm.
+No eligible agent becomes review, not failure. Check attachments, account approval, and spendable float, then assign manually.
+Return URL is browser navigation only. Do not treat the customer coming back as proof the withdrawal succeeded.
+Expiry is state-aware. Eligible pre-transfer orders expire after 1 hour. Active verification is allowed to finish; a negative result at or after the deadline becomes failed.
+Do not capture on created or assigned. Keep the hold until withdrawal.succeeded, or poll until status is succeeded.
+Get, list, and event timeline
+GET /v1/withdrawals/:id and GET /v1/withdrawals support filters: status, merchant_withdrawal_id, merchant_customer_id, created_from, created_to, cursor, limit (default 25, max 100).
+
+GET /v1/withdrawals/:id
+curl "https://api.peerpayment.org/v1/withdrawals/wd_3p8r1xs6" \
+  -H "Authorization: Bearer $PEERPAY_API_KEY" \
+  -H "PeerPay-Version: 2026-06-01"
+List response meta
+{
+  "data": [ /* Withdrawal[] */ ],
+  "meta": {
+    "requestId": "req_9f3a2c1b",
+    "apiVersion": "2026-06-01",
+    "pagination": {
+      "nextCursor": "eyJjcmVhdGVkQXQiOiIyMDI2LTA2LTE5VDE1OjA1OjAwLjAwMFoiLCJpZCI6IndkXzNwOHIxeHM2In0",
+      "hasMore": true,
+      "limit": 25
+    }
+  }
+}
+GET /v1/withdrawals/:id/events is an ordered audit timeline. It is not the webhook payload shape.
+
+GET /v1/withdrawals/:id/events
+GET /v1/withdrawals/wd_3p8r1xs6/events
+PeerPay-Version: 2026-06-01

@@ -1,0 +1,52 @@
+Developer docs
+
+Errors & OpenAPI
+Errors use a stable envelope. Always log meta.requestId (and the PeerPay-Request-Id response header) so support can reconcile calls with PeerPay audit trails.
+
+OpenAPI JSON
+Download spec
+Error envelope
+Example error
+{
+  "error": {
+    "code": "duplicate_transaction",
+    "message": "This transaction has already been used for a deposit.",
+    "type": "conflict_error",
+    "retryable": false
+  },
+  "meta": {
+    "requestId": "req_9f3a2c1b",
+    "apiVersion": "2026-06-01"
+  }
+}
+code — stable machine code
+type — category such as request_error, conflict_error, provider_error
+retryable — whether a later retry may succeed
+details — optional structured context
+Common error codes
+Code	HTTP	Type	Retry
+invalid_request	400	request_error	no
+invalid_api_version	400	request_error	no
+validation_failed	422	request_error	no
+authentication_required	401	authentication_error	no
+invalid_api_key	401	authentication_error	no
+forbidden	403	authorization_error	no
+resource_not_found	404	not_found_error	no
+idempotency_conflict	409	conflict_error	no
+duplicate_transaction	409	conflict_error	no
+checkout_expired	410	conflict_error	no
+rate_limited	429	rate_limit_error	yes
+order_routing_unavailable	503	availability_error	yes
+provider_unavailable	503	provider_error	yes
+provider_timeout	504	provider_error	yes
+internal_server_error	500	server_error	yes
+Also watch for 429 rate_limited with RateLimit-* / Retry-After headers, and 413 request_body_too_large when the body exceeds 1 MB.
+
+OpenAPI contract
+Versioned OpenAPI 3.1 document (unauthenticated):
+
+OpenAPI URL
+GET https://api.peerpayment.org/openapi/public-api.json
+API version: 2026-06-01
+Paths: create/list/get deposits + events; create/list/get withdrawals + events
+Documents bearer auth, idempotency, error envelopes, and polling filters

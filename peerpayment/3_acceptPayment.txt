@@ -1,0 +1,247 @@
+Developer docs
+
+Accept Payments (Deposits)
+A deposit moves money from your customer to a PeerPay receiving account. Your backend creates the order, PeerPay assigns an eligible account, the customer transfers outside PeerPay and submits the reference, and PeerPay verifies it against the assigned receiving account through bank and wallet APIs. Credit your own wallet only after a successful status or webhook. Requires deposits:create and deposits:read.
+
+The deposit flow at a glance
+Prepare approved receiving accounts, API scopes, and a webhook.
+Create a dynamic or fixed deposit with an idempotency key.
+Redirect the customer to the returned hosted checkout URL.
+The customer chooses a shown method, transfers externally, and submits the reference.
+PeerPay verifies the transaction ID or reference against the assigned receiving account, amount, currency, age, and duplicate use through bank and wallet APIs.
+Reconcile by webhook or REST polling, then credit only a successful deposit.
+Recommended production integration
+Use signed webhooks for prompt change notifications and the deposit API for current-state reconciliation. PeerPay's deposit resource is the source of truth for the latest deposit state known to PeerPay.
+
+Create the deposit with one stable Idempotency-Key per logical order.
+Save deposit.id, merchant_order_id, and checkout_url with your order.
+Redirect the customer to the hosted checkout URL.
+Receive and verify signed PeerPay webhook events.
+Treat each webhook as a notification that state may have changed; process it idempotently because delivery can be duplicated or out of order.
+Read GET /v1/deposits/:id whenever you need the newest state currently known to PeerPay.
+Periodically reconcile deposits that remain in non-terminal states; use GET /v1/deposits/:id/events for audit history and missed-delivery investigation.
+A webhook is usually the fastest notification, but it is not a guaranteed latest snapshot. The events endpoint is an audit and recovery timeline. The checkout return_url is browser navigation only, and customer checkout status is progress feedback—not your backend's settlement signal.
+
+1. Prepare the dashboard
+Before creating an order, finish these setup steps. Routing is evaluated at create time, so an empty or unapproved workspace returns order_routing_unavailable instead of a usable checkout.
+
+Have an approved PeerPay merchant and a completed workspace profile.
+Add at least one active, approved receiving account in Workspace (https://peerpayment.org/dashboard/workspace). The account must support the payment method and amount limits you intend to offer.
+Create an API key with deposits:create and deposits:read.
+Register a public HTTPS webhook in Developer Controls (https://peerpayment.org/dashboard/developers) and save its signing secret.
+If no eligible account exists for a requested fixed method/amount, add or approve an account (or change the request) and retry. Reuse the sameIdempotency-Key when safely retrying a timed-out create.
+
+2. Create the deposit
+Request headers
+POST /v1/deposits
+Authorization: Bearer $PEERPAY_API_KEY
+PeerPay-Version: 2026-06-01
+Idempotency-Key: habesha-deposit-784291
+Content-Type: application/json
+Call POST /v1/deposits from your server. Required fields aremerchant_customer_id and an allowlisted return_url (it must match a configured return domain, including http://localhost when that origin is allowlisted for local development); currency defaults to ETB. Amounts may be decimal strings or numbers and are normalized to two decimals.
+
+Dynamic checkout omits amount and payment_method so customers choose from the eligible options and limits. Fixed checkout sends both fields and verifies the exact amount on the selected method.
+
+Dynamic amount and method
+{
+  "merchant_customer_id": "cust_abebe_kebede",
+  "currency": "ETB",
+  "return_url": "https://app.habeshagames.et/deposits/return"
+}
+Fixed amount and method
+{
+  "merchant_customer_id": "cust_abebe_kebede",
+  "amount": "150.00",
+  "currency": "ETB",
+  "payment_method": "telebirr",
+  "return_url": "https://app.habeshagames.et/deposits/return"
+}
+cURL
+curl -X POST "https://api.peerpayment.org/v1/deposits" \
+  -H "Authorization: Bearer $PEERPAY_API_KEY" \
+  -H "PeerPay-Version: 2026-06-01" \
+  -H "Idempotency-Key: habesha-deposit-784291" \
+  -H "Content-Type: application/json" \
+  --data '{
+    "merchant_customer_id": "cust_abebe_kebede",
+    "amount": "150.00",
+    "currency": "ETB",
+    "payment_method": "telebirr",
+    "return_url": "https://app.habeshagames.et/deposits/return"
+  }'
+Use one idempotency key per logical order. The first request returns 201; replaying that key with the same body returns 200 and the original deposit. Reusing a key for a different body is an idempotency_conflict.
+
+3. Read the create response
+201 Created
+{
+  "data": {
+    "id": "dep_7k2m9nq4",
+    "merchant_order_id": "pp_ord_7k2m9nq4a1b2c3d4e5f678901234",
+    "merchant_customer_id": "cust_abebe_kebede",
+    "status": "awaiting_transfer",
+    "verification_status": "not_started",
+    "notification_status": "not_ready",
+    "amount": "150.00",
+    "currency": "ETB",
+    "payment_method": "telebirr",
+    "checkout_url": "https://checkout.peerpayment.org/c/ptk_hk9m2qx7",
+    "support_reference": "PP-784291",
+    "payment_options": [
+      {
+        "payment_method": "telebirr",
+        "institution_code": "telebirr",
+        "institution_name": "Telebirr",
+        "masked_identifier": "****3344",
+        "min_amount": "1.00",
+        "max_amount": "30000.00"
+      },
+      {
+        "payment_method": "cbebirr",
+        "institution_code": "cbebirr",
+        "institution_name": "CBE Birr",
+        "masked_identifier": "****6677",
+        "min_amount": "1.00",
+        "max_amount": "30000.00"
+      }
+    ],
+    "metadata": {},
+    "created_at": "2026-06-19T15:05:00Z",
+    "expires_at": "2026-06-19T16:05:00Z"
+  },
+  "meta": {
+    "requestId": "req_9f3a2c1b",
+    "apiVersion": "2026-06-01"
+  }
+}
+id is the PeerPay deposit ID. Use it for polling and wallet-credit idempotency.
+merchant_order_id is PeerPay-generated; store it with your order.
+checkout_url is the customer URL: https://checkout.peerpayment.org/c/{public_token}.
+payment_options contains masked receiving accounts, method names, and min/max limits. Never expose another merchant's data.
+For a fixed request, amount and payment_method are locked. For a dynamic request, the customer selects an eligible option within its limits.
+expires_at is normally 60 minutes after creation. Expiry is not a failed payment and never proves success.
+4. Redirect to hosted checkout
+Redirect the customer's browser to checkout_url (the /c/{public_token} route). PeerPay displays the selected or available payment methods, the assigned receiving account, amount limits, instructions, a reference form, and pending/retry/review/expiry states.
+
+Do not build a second payment form or pass your API key to the browser. The checkout token is the only credential used by the public checkout API.
+
+5. Customer transfers and submits a reference
+The customer chooses one of the payment options shown by PeerPay (or uses the fixed method).
+They copy the assigned receiving account and transfer funds in their bank or wallet app, outside PeerPay.
+They return to checkout and submit the provider transaction reference plus any required supplementary field, such as a phone number.
+POST /checkout-api/c/{token}/references
+{
+  "payment_method": "telebirr",
+  "reference": "CHK7M2P9QX",
+  "supplementary_fields": {
+    "phone": "0911223344"
+  }
+}
+The reference submission moves the order through reference_submitted and verification_pending. A customer may retry a rejected reference while the checkout is still valid, but should not submit again while verification is already running.
+
+6. PeerPay verifies the transfer
+PeerPay checks the submitted transaction ID or reference against the bank or wallet APIs and continues checking when the first response is pending. Verification compares the transaction identity, receiver account, amount, currency, transaction age, and whether the reference was already used by another deposit. Bank outages and ambiguous evidence remain pending or move to review; they are not success.
+
+All matches pass: the deposit becomes succeeded.
+A mismatch (receiver, amount, currency, duplicate, or stale transaction) fails or requires review.
+Provider timeout/unavailability is retryable; wait for a later status or webhook.
+7. Reconcile with REST
+Use REST from your backend alongside webhooks. GET /v1/deposits/:id returns PeerPay's current resource and is the source of truth for the latest deposit state known to PeerPay. Never trust browser navigation to return_url as a settlement signal.
+
+GET /v1/deposits/:id
+curl "https://api.peerpayment.org/v1/deposits/dep_7k2m9nq4" \
+  -H "Authorization: Bearer $PEERPAY_API_KEY" \
+  -H "PeerPay-Version: 2026-06-01"
+List filters
+GET /v1/deposits?status=succeeded&payment_method=telebirr&limit=25
+PeerPay-Version: 2026-06-01
+cURL list
+curl "https://api.peerpayment.org/v1/deposits?status=succeeded&payment_method=telebirr&limit=25" \
+  -H "Authorization: Bearer $PEERPAY_API_KEY" \
+  -H "PeerPay-Version: 2026-06-01"
+List supports status, verification_status, notification_status, payment_method, merchant_order_id, created_from, created_to, cursor pagination via cursor, and limit (default 25, maximum 100). Use GET /v1/deposits/:id/events for the ordered audit timeline (up to 100 rows); it is not the outbound webhook envelope.
+
+Deposit events
+GET /v1/deposits/dep_7k2m9nq4/events
+PeerPay-Version: 2026-06-01
+Event timeline response
+{
+  "data": [
+    {
+      "id": "ordevt_a1",
+      "deposit_id": "dep_7k2m9nq4",
+      "type": "deposit.created",
+      "sequence": 1,
+      "actor_type": "system",
+      "data": {},
+      "created_at": "2026-06-19T15:05:00Z"
+    },
+    {
+      "id": "ordevt_a7",
+      "deposit_id": "dep_7k2m9nq4",
+      "type": "deposit.succeeded",
+      "sequence": 7,
+      "actor_type": "system",
+      "data": {},
+      "created_at": "2026-06-19T15:10:15Z"
+    }
+  ],
+  "meta": {
+    "requestId": "req_9f3a2c1b",
+    "apiVersion": "2026-06-01"
+  }
+}
+8. Reconcile with webhooks and credit
+Verify the signature from the raw request body, deduplicate by event ID and deposit ID, return 2xx quickly, and process wallet changes asynchronously. Credit your own wallet exactly once on deposit.succeeded or deposit.manually_succeeded. Do not credit pending, review, failed, expired, or cancelled events.
+
+Webhook delivery is at least once and ordering is not guaranteed. If your receiver is unavailable, poll GET /v1/deposits/:id and then resume idempotent webhook processing.
+
+Deposit status actions
+Status	Meaning	Merchant action
+created	Deposit order was created and is being prepared for routing.	Wait for the customer or the next webhook; do not credit.
+assigned	PeerPay selected an eligible receiving account.	Wait for the assigned account and show checkout.
+awaiting_transfer	Checkout is ready and no reference has been submitted yet.	Redirect the customer and wait for an external transfer.
+reference_submitted	The customer submitted a payment reference.	Wait for verification; do not credit yet.
+verification_pending	PeerPay is verifying the submitted transaction ID or reference against the bank or wallet APIs.	Keep the order pending and reconcile the next event/status.
+succeeded	Payment was verified successfully.	Credit your internal wallet exactly once by deposit ID.
+failed	Verification or processing ended unsuccessfully.	Do not credit; show a failure or ask the customer to retry if allowed.
+expired	The checkout window ended without a completed deposit.	Do not credit; ask the customer to start a new checkout.
+cancelled	The deposit was cancelled before success.	Do not credit; treat the order as closed.
+review_required	Evidence is ambiguous or needs an operator decision.	Hold funds and wait for review_resolved or a manual outcome.
+Deposit webhook events and actions
+Event	Action
+deposit.created	Create a local pending record; do not credit.
+deposit.assigned	Store the assigned account and show checkout.
+deposit.reference_submitted	Mark verification in progress; do not credit.
+deposit.verification_pending	Keep pending and await the terminal event.
+deposit.succeeded	Credit the merchant wallet idempotently by data.object.id.
+deposit.manually_succeeded	Credit idempotently after an operator-approved success.
+deposit.failed	Do not credit; persist the failure reason.
+deposit.manually_failed	Do not credit; persist the operator failure reason.
+deposit.expired	Close the checkout and do not credit.
+deposit.cancelled	Close the order and do not credit.
+deposit.review_required	Place the order in manual review; do not credit.
+deposit.review_resolved	Re-read the deposit and act only on its resolved terminal status.
+Advanced edge cases
+No eligible account: order_routing_unavailable is a retryable create error. Fix dashboard routing and retry; there is no checkout to redirect.
+Fixed versus dynamic: fixed requests reject amount/method mismatches; dynamic requests let the customer select only an option returned in payment_options.
+Different method: the customer must use the method selected or allowed by checkout. A reference from another rail can be rejected as a method/receiver mismatch; do not silently change the order.
+Duplicate or in-flight reference: reference_already_submitted means wait and read the existing order. duplicate_transaction means the provider reference was already used; ask for a new payment.
+Verification mismatch: receiver, amount, currency, duplicate, ambiguous, stale, or provider failures are not proof of payment. Follow the error action and wait for a terminal status or review.
+Review is not failure: review_required holds funds for evidence. An operator may emit deposit.manually_succeeded after approval or deposit.manually_failed after rejection.
+Expiry: an expired checkout returns checkout_expired (HTTP 410). Ask the customer to start a new order; do not reuse the token.
+Late payment: a reference submitted after expiry can create a replacement exception deposit and urgent review. Keep the original expired order, and credit only the replacement after its successful event.
+Return URL: return_url is browser navigation only. A customer can close the tab, replay it, or visit it directly; it is never proof of success.
+Wallet credit: credit only once after succeeded or manually_succeeded, keyed by the PeerPay deposit ID.
+Error	HTTP	Meaning	Action
+order_routing_unavailable	503	No eligible receiving account is available for this amount/method.	Add or reactivate an approved receiving account, then retry with the same idempotency key.
+checkout_expired	410	The hosted checkout window has expired.	Start a new checkout; never submit a reference to an expired token.
+reference_already_submitted	409	A reference is already attached or verification is running.	Read the existing deposit and wait for its verification result.
+duplicate_transaction	409	The provider reference was already used by another deposit.	Ask for a new, unused provider transaction reference.
+receiver_mismatch	409	The transfer was sent to a different receiver.	Ask the customer to use the assigned receiving account.
+amount_mismatch	409	The verified amount does not match the order.	Ask the customer to send the exact fixed amount.
+currency_mismatch	409	The transfer currency does not match the order.	Ask for a transfer in ETB and submit its reference.
+transaction_too_old / verification_ambiguous	409 / 202	The provider cannot safely prove that the reference is a current match.	Do not credit; open or await review for an old or ambiguous transfer.
+provider_unavailable / provider_timeout	503 / 504	Bank or wallet verification is temporarily unavailable.	Retry with backoff and use webhooks or polling for the eventual result.
+Related guides
+Hosted Checkout — customer-facing deposit behavior and public-token routes.
+Webhooks — raw-body signature verification, retries, and idempotent reconciliation.
