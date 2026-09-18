@@ -1,0 +1,6 @@
+{
+  "outputDirectory": "webapp",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/webapp/$1" }
+  ]
+}
