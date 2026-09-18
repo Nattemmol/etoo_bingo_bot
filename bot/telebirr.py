@@ -1,4 +1,4 @@
-﻿"""
+"""
 Telebirr H5 Checkout integration for GoodBingo.
 
 Flow:
@@ -16,9 +16,15 @@ import uuid
 from base64 import b64decode, b64encode
 
 import httpx
-from Crypto.Hash import SHA256
-from Crypto.PublicKey import RSA
-from Crypto.Signature import pkcs1_15
+
+try:
+    from Crypto.Hash import SHA256
+    from Crypto.PublicKey import RSA
+    from Crypto.Signature import pkcs1_15
+    _HAS_CRYPTO = True
+except ImportError:
+    SHA256 = RSA = pkcs1_15 = None  # type: ignore[assignment]
+    _HAS_CRYPTO = False
 
 from bot.config import settings
 
