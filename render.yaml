@@ -1,0 +1,25 @@
+# render.yaml – Render.com service definition
+services:
+  - type: web
+    name: etoobingo-backend
+    env: docker
+    dockerfilePath: Dockerfile
+    startCommand: 'python run.py'
+    healthCheckPath: /healthz
+    envVars:
+      - key: SERVER_PORT
+        value: '8080'
+      - key: DATABASE_PATH
+        value: '/data/goodbingo.db'
+      - key: BOT_TOKEN
+        sync: false
+      - key: PEERPAY_API_KEY
+        sync: false
+      - key: PEERPAY_WEBHOOK_SECRET
+        sync: false
+      - key: WEBAPP_URL
+        sync: false
+    disk:
+      name: goodbingo-data
+      mountPath: /data
+      sizeGB: 1
