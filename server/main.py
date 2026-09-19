@@ -1273,10 +1273,17 @@ def _as_amount(value) -> float:
         return 0.0
 
 
-@app.post("/peerpay/webhook")
-@app.post("/api/payment/peerpay/webhook")
+@app.api_route("/peerpay/webhook", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT"])
+@app.api_route("/peerpay/webhook/", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT"])
+@app.api_route("/api/payment/peerpay/webhook", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT"])
+@app.api_route("/api/payment/peerpay/webhook/", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT"])
+@app.api_route("/api/peerpay/webhook", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT"])
+@app.api_route("/api/peerpay/webhook/", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT"])
 async def peerpay_webhook(request: Request) -> Response:
     """Receive PeerPay deposit/withdrawal notifications (at-least-once)."""
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return JSONResponse({"status": "ok", "message": "PeerPay webhook endpoint ready"}, status_code=200)
+
     raw = await request.body()
 
     event_id = request.headers.get("PeerPay-Event-Id", "")
@@ -1285,16 +1292,24 @@ async def peerpay_webhook(request: Request) -> Response:
     timestamp = request.headers.get("PeerPay-Timestamp", "")
     signature = request.headers.get("PeerPay-Signature", "")
 
-    if event_type == "webhook.test":
-        logger.info("PeerPay webhook.test received (delivery %s) — returning 204 to activate endpoint", delivery_id)
+    try:
+        payload = json.loads(raw) if raw else {}
+    except Exception:
+        payload = {}
+
+    if not event_type and isinstance(payload, dict):
+        event_type = payload.get("event") or payload.get("type") or ""
+
+    if event_type == "webhook.test" or (isinstance(payload, dict) and payload.get("type") == "webhook.test"):
+        logger.info("PeerPay webhook.test received (delivery %s) — returning 200 to activate endpoint", delivery_id)
         await db.record_webhook_event_once(
             event_id or "evt_test",
             delivery_id or f"whd_{event_id}",
-            event_type,
+            event_type or "webhook.test",
             "",
             raw.decode("utf-8", "ignore") if raw else "{}",
         )
-        return Response(status_code=204)
+        return Response(status_code=200)
 
     if not verify_peerpay_signature(
         settings.peerpay_webhook_secret,
