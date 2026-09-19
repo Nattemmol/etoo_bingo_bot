@@ -1284,24 +1284,59 @@ def _as_amount(value) -> float:
         return 0.0
 
 
-@app.api_route("/peerpay/webhook", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT"])
-@app.api_route("/peerpay/webhook/", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT"])
-@app.api_route("/api/payment/peerpay/webhook", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT"])
-@app.api_route("/api/payment/peerpay/webhook/", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT"])
-@app.api_route("/api/peerpay/webhook", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT"])
-@app.api_route("/api/peerpay/webhook/", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT"])
+@app.api_route("/peerpay/webhook", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT", "PATCH"])
+@app.api_route("/peerpay/webhook/", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT", "PATCH"])
+@app.api_route("/webhook", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT", "PATCH"])
+@app.api_route("/webhook/", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT", "PATCH"])
+@app.api_route("/api/webhook", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT", "PATCH"])
+@app.api_route("/api/webhook/", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT", "PATCH"])
+@app.api_route("/api/payment/peerpay/webhook", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT", "PATCH"])
+@app.api_route("/api/payment/peerpay/webhook/", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT", "PATCH"])
+@app.api_route("/api/peerpay/webhook", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT", "PATCH"])
+@app.api_route("/api/peerpay/webhook/", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT", "PATCH"])
+@app.api_route("/peerpayment/webhook", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT", "PATCH"])
+@app.api_route("/peerpayment/webhook/", methods=["GET", "POST", "HEAD", "OPTIONS", "PUT", "PATCH"])
 async def peerpay_webhook(request: Request) -> Response:
     """Receive PeerPay deposit/withdrawal notifications (at-least-once)."""
     if request.method in ("GET", "HEAD", "OPTIONS"):
-        return JSONResponse({"status": "ok", "message": "PeerPay webhook endpoint ready"}, status_code=200)
+        return JSONResponse({"status": "ok", "message": "PeerPay webhook endpoint ready and active"}, status_code=200)
 
     raw = await request.body()
 
-    event_id = request.headers.get("PeerPay-Event-Id", "")
-    event_type = request.headers.get("PeerPay-Event", "")
-    delivery_id = request.headers.get("PeerPay-Delivery-Id", "")
-    timestamp = request.headers.get("PeerPay-Timestamp", "")
-    signature = request.headers.get("PeerPay-Signature", "")
+    event_id = (
+        request.headers.get("PeerPay-Event-Id")
+        or request.headers.get("X-PeerPay-Event-Id")
+        or request.headers.get("X-Event-Id")
+        or request.headers.get("Webhook-Id")
+        or ""
+    )
+    event_type = (
+        request.headers.get("PeerPay-Event")
+        or request.headers.get("X-PeerPay-Event")
+        or request.headers.get("X-Event")
+        or request.headers.get("Webhook-Event")
+        or ""
+    )
+    delivery_id = (
+        request.headers.get("PeerPay-Delivery-Id")
+        or request.headers.get("X-PeerPay-Delivery-Id")
+        or request.headers.get("X-Delivery-Id")
+        or ""
+    )
+    timestamp = (
+        request.headers.get("PeerPay-Timestamp")
+        or request.headers.get("X-PeerPay-Timestamp")
+        or request.headers.get("X-Timestamp")
+        or request.headers.get("Webhook-Timestamp")
+        or ""
+    )
+    signature = (
+        request.headers.get("PeerPay-Signature")
+        or request.headers.get("X-PeerPay-Signature")
+        or request.headers.get("X-Signature")
+        or request.headers.get("Webhook-Signature")
+        or ""
+    )
 
     try:
         payload = json.loads(raw) if raw else {}
@@ -1311,16 +1346,21 @@ async def peerpay_webhook(request: Request) -> Response:
     if not event_type and isinstance(payload, dict):
         event_type = payload.get("event") or payload.get("type") or ""
 
-    if event_type == "webhook.test" or (isinstance(payload, dict) and payload.get("type") == "webhook.test"):
-        logger.info("PeerPay webhook.test received (delivery %s) — returning 200 to activate endpoint", delivery_id)
-        await db.record_webhook_event_once(
-            event_id or "evt_test",
-            delivery_id or f"whd_{event_id}",
-            event_type or "webhook.test",
-            "",
-            raw.decode("utf-8", "ignore") if raw else "{}",
-        )
-        return Response(status_code=200)
+    if (
+        event_type in ("webhook.test", "test", "ping")
+        or (isinstance(payload, dict) and payload.get("type") in ("webhook.test", "test", "ping"))
+        or (isinstance(payload, dict) and payload.get("event") in ("webhook.test", "test", "ping"))
+    ):
+        logger.info("PeerPay webhook test received (delivery %s) — returning 200 OK", delivery_id)
+        if event_id or delivery_id:
+            await db.record_webhook_event_once(
+                event_id or f"evt_test_{uuid.uuid4().hex[:8]}",
+                delivery_id or f"whd_{uuid.uuid4().hex[:8]}",
+                event_type or "webhook.test",
+                "",
+                raw.decode("utf-8", "ignore") if raw else "{}",
+            )
+        return JSONResponse({"status": "ok", "message": "Webhook test passed"}, status_code=200)
 
     if not verify_peerpay_signature(
         settings.peerpay_webhook_secret,
@@ -1330,30 +1370,23 @@ async def peerpay_webhook(request: Request) -> Response:
         signature,
     ):
         logger.warning(
-            "PeerPay webhook rejected — bad signature (delivery %s event %s)",
+            "PeerPay webhook rejected — bad signature (delivery %s event %s sig %s)",
             delivery_id,
             event_id,
+            signature[:15] if signature else "none",
         )
         return Response(status_code=401)
-
-    try:
-        payload = json.loads(raw) if raw else {}
-    except json.JSONDecodeError:
-        payload = {}
 
     obj = (payload.get("data") or {}).get("object") or {}
     object_id = obj.get("id", "")
 
-    inserted = await db.record_webhook_event_once(
-        event_id, delivery_id, event_type, object_id, json.dumps(payload)
-    )
-    if not inserted:
-        logger.info("PeerPay webhook duplicate event %s — already processed", event_id)
-        return Response(status_code=204)
-
-    if event_type == "webhook.test":
-        logger.info("PeerPay webhook.test received — endpoint active")
-        return Response(status_code=204)
+    if event_id:
+        inserted = await db.record_webhook_event_once(
+            event_id, delivery_id, event_type, object_id, json.dumps(payload)
+        )
+        if not inserted:
+            logger.info("PeerPay webhook duplicate event %s — already processed", event_id)
+            return Response(status_code=204)
 
     await _apply_peerpay_event(payload)
 

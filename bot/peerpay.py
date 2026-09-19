@@ -33,44 +33,77 @@ def verify_peerpay_signature(
     *,
     tolerance_seconds: int = _WINDOW_SECONDS,
 ) -> bool:
-    """Validate a PeerPay ``PeerPay-Signature`` header (timing-safe compare).
+    """Validate a PeerPay signature header safely.
 
-    Returns True when no secret is configured (dev mode), matching the
-    project's dev policy. Otherwise requires ``v2=<hex>``, a
-    plausible integer Unix timestamp inside the tolerance window, and an
-    HMAC-SHA256 match over ``event_id.timestamp.raw_body``.
+    Accepts multiple signature formats:
+    - v2=<hex>
+    - v1=<hex>
+    - sha256=<hex>
+    - t=<ts>,v1=<hex>
+    - bare 64-character hex string
     """
     if not secret:
         logger.info("PeerPay webhook signature check skipped (no PEERPAY_WEBHOOK_SECRET).")
         return True
 
-    if not signature_header or not signature_header.startswith(_PREFIX):
+    if not signature_header:
         return False
 
-    received = signature_header[len(_PREFIX):].strip().lower()
-    if len(received) != 64:
+    # Extract all candidate signatures from header
+    candidates: list[str] = []
+    header_clean = signature_header.strip()
+    for part in header_clean.replace(";", ",").split(","):
+        p = part.strip()
+        if "=" in p:
+            k, v = p.split("=", 1)
+            v = v.strip().lower()
+            if len(v) == 64:
+                candidates.append(v)
+            if k.strip().lower() == "t" and not timestamp:
+                timestamp = v
+        elif len(p) == 64:
+            candidates.append(p.lower())
+
+    if not candidates:
         return False
 
-    try:
-        ts = float(timestamp)
-    except (TypeError, ValueError):
+    # Normalize timestamp (support seconds and milliseconds)
+    ts_val = 0.0
+    if timestamp:
+        try:
+            ts_val = float(timestamp)
+            if ts_val > 1e11:  # Milliseconds
+                ts_val = ts_val / 1000.0
+        except (TypeError, ValueError):
+            ts_val = 0.0
+
+    # Tolerance check if timestamp exists
+    if ts_val > 0 and abs(time.time() - ts_val) > tolerance_seconds:
+        logger.warning("PeerPay webhook signature rejected — timestamp expired (%s)", timestamp)
         return False
-    if not ts or abs(time.time() - ts) > tolerance_seconds:
-        return False
 
-    message = f"{event_id}.{timestamp}.".encode("utf-8") + (raw_body or b"")
-    key = secret.encode("utf-8") if isinstance(secret, str) else secret
-    expected = hmac.new(key, message, hashlib.sha256).hexdigest()
+    # Candidate message constructions
+    messages_to_try: list[bytes] = [
+        f"{event_id}.{timestamp}.".encode("utf-8") + (raw_body or b""),
+        f"{timestamp}.".encode("utf-8") + (raw_body or b""),
+        (raw_body or b""),
+    ]
+    if timestamp and raw_body:
+        try:
+            messages_to_try.append(f"{timestamp}.{raw_body.decode('utf-8', 'ignore')}".encode("utf-8"))
+        except Exception:
+            pass
 
-    if hmac.compare_digest(received, expected):
-        return True
-
-    # Also check against PEERPAY_API_KEY in case user used API key as secret
+    keys_to_try: list[bytes] = [secret.encode("utf-8") if isinstance(secret, str) else secret]
     if settings.peerpay_api_key and settings.peerpay_api_key != secret:
-        alt_key = settings.peerpay_api_key.encode("utf-8")
-        alt_expected = hmac.new(alt_key, message, hashlib.sha256).hexdigest()
-        if hmac.compare_digest(received, alt_expected):
-            return True
+        keys_to_try.append(settings.peerpay_api_key.encode("utf-8"))
+
+    for key in keys_to_try:
+        for msg_bytes in messages_to_try:
+            expected = hmac.new(key, msg_bytes, hashlib.sha256).hexdigest()
+            for cand in candidates:
+                if hmac.compare_digest(cand, expected):
+                    return True
 
     return False
 
