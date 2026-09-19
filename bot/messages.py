@@ -1,52 +1,146 @@
-"""Amharic and English message templates for GoodBingo bot."""
+"""Amharic message templates and visual game guides for EtooBingo bot."""
 
 REGISTRATION_REQUIRED = (
-    "🛡️ *ምዝገባ ያስፈልጋል (Registration Required)*\n\n"
-    "GoodBingoን ለመጠቀም ከታች *Share Phone* የሚለውን ይጫኑት። "
-    "ከዛም *Share* የሚለውን ይጫኑ"
+    "🛡️ *እንኳን ወደ EtooBingo በደህና መጡ!*\n\n"
+    "ጨዋታውን ለመጀመር እና የራስዎን የሂሳብ አካውንት ለመክፈት እባክዎ ከታች ያለውን "
+    "*📱 ስልክ ቁጥር አጋራ (Share Phone)* የሚለውን ቁልፍ ይጫኑ።"
 )
 
-REGISTERED = "✅ Registered! Balance: {balance:.2f} ETB"
+REGISTERED = (
+    "✅ *ምዝገባዎ በተሳካ ሁኔታ ተጠናቋል!*\n\n"
+    "💰 ወቅታዊ ቀሪ ሂሳብ: *{balance:.2f} ETB*\n\n"
+    "አሁን መጫወት ይችላሉ። መልካም እድል! 🎱"
+)
 
 MAIN_MENU = (
-    "🎱 *GoodBingo Menu*\n\n"
-    "Choose a command:\n"
-    "/play — Join a game\n"
-    "/balance — View balance\n"
-    "/deposit — Add funds\n"
-    "/withdraw — Withdraw funds\n"
-    "/history — Transaction history\n"
-    "/instructions — Game rules"
+    "🎱 *EtooBingo ዋና ማውጫ*\n\n"
+    "ከታች ካሉት አማራጮች የሚፈልጉትን ይምረጡ:\n\n"
+    "🎮 /play — ጨዋታ ጀምር (Play Game)\n"
+    "💰 /balance — ቀሪ ሂሳብ እይ (Check Balance)\n"
+    "💳 /deposit — ገንዘብ አስገባ (Deposit Funds)\n"
+    "💸 /withdraw — ገንዘብ አውጣ (Withdraw Funds)\n"
+    "📜 /history — የሂሳብ እንቅስቃሴ (History)\n"
+    "📋 /instructions — የጨዋታ ህግና መመሪያ (Game Rules)"
 )
 
-INSTRUCTIONS = (
-    "📋 *Game Instructions*\n\n"
-    "1. Use /play to open a room: PLAY (10 ETB, 24/7) or superBingo (50 ETB, 1:00 LT night / 7:00 PM EAT).\n"
-    "2. Watching the game board is free! Anyone can launch the mini-app and spectate.\n"
-    "3. In the lobby, you can choose and select a card to play. The entry fee is only deducted when you select a card.\n"
-    "4. If your balance is below the fee, you won't be playing, but can continue watching.\n"
-    "5. Numbers are called automatically — mark matching numbers on your card.\n"
-    "6. Call *Bingo!* when you complete a winning pattern to win the pot!\n\n"
-    "Need help? Contact @GoodBingoSupport"
+# ---------------------------------------------------------------------------
+# Interactive Instructions & Visual Guides
+# ---------------------------------------------------------------------------
+
+INSTRUCTIONS_MENU = (
+    "📋 *EtooBingo የጨዋታ ህጎችና መመሪያዎች*\n\n"
+    "የየትኛውን ጨዋታ መመሪያና የማሸነፊያ ምስላዊ ማብራሪያ ማየት ይፈልጋሉ? ከታች ይምረጡ:\n\n"
+    "1️⃣ 🎱 *10 ብር ጨዋታ (PLAY — 24/7)*\n"
+    "2️⃣ 🌟 *50 ብር ሱፐር ቢንጎ (superBingo — ማታ 1:00)*\n"
+    "3️⃣ 📖 *አጠቃላይ የጨዋታ መመሪያ (General Rules)*"
 )
 
-NO_HISTORY = "📭 No transactions yet."
+INSTRUCTIONS_10 = (
+    "🎱 *የ 10 ብር ጨዋታ ህግና የማሸነፊያ መንገዶች (PLAY — 24/7)*\n\n"
+    "💵 *የመግቢያ ክፍያ:* 10 ብር በካርቴላ\n"
+    "⏰ *ጊዜ:* 24/7 (ሁልጊዜ ክፍት — በየ 30 ሰከንዱ አዲስ ዙር)\n"
+    "👥 *የካርቴላ ብዛት:* 1 እስከ 150 (አንድ ተጫዋች እስከ 2 ካርቴላ መያዝ ይችላል)\n\n"
+    "🏆 *እንዴት ያሸንፋሉ? (የማሸነፊያ መንገዶች):*\n"
+    "በ 10 ብር ጨዋታ ውስጥ ከሚከተሉት *አንዱ* ሲሞላ BINGO ይሆናል:\n"
+    "1. *አግድም (Row)* — የትኛውም ሙሉ አግድም መስመር\n"
+    "2. *ቁልቁል (Column)* — የትኛውም ሙሉ ቁልቁል አምድ\n"
+    "3. *ሰያፍ (Diagonal)* — ከዳር እስከ ዳር ሰያፍ መስመር\n"
+    "4. *4ቱ ማዕዘኖች (4 Corners)* — የካርቴላው 4ቱ ጥግ ቁጥሮች\n\n"
+    "🖼 *ምስላዊ ማብራሪያ (Visual Card Diagram):*\n"
+    "```\n"
+    "1. አግድም (Row)       2. 4ቱ ማዕዘኖች (Corners)\n"
+    " [🔴][🔴][🔴][🔴][🔴]     [🔴][⚪][⚪][⚪][🔴]\n"
+    " [⚪][⚪][⚪][⚪][⚪]     [⚪][⚪][⚪][⚪][⚪]\n"
+    " [⚪][⚪][⭐][⚪][⚪]     [⚪][⚪][⭐][⚪][⚪]\n"
+    " [⚪][⚪][⚪][⚪][⚪]     [⚪][⚪][⚪][⚪][⚪]\n"
+    " [⚪][⚪][⚪][⚪][⚪]     [🔴][⚪][⚪][⚪][🔴]\n"
+    "\n"
+    "3. ቁልቁል (Column)    4. ሰያፍ (Diagonal)\n"
+    " [🔴][⚪][⚪][⚪][⚪]     [🔴][⚪][⚪][⚪][⚪]\n"
+    " [🔴][⚪][⚪][⚪][⚪]     [⚪][🔴][⚪][⚪][⚪]\n"
+    " [🔴][⚪][⭐][⚪][⚪]     [⚪][⚪][⭐][⚪][⚪]\n"
+    " [🔴][⚪][⚪][⚪][⚪]     [⚪][⚪][⚪][🔴][⚪]\n"
+    " [🔴][⚪][⚪][⚪][⚪]     [⚪][⚪][⚪][⚪][🔴]\n"
+    "```\n"
+    "💡 *ማስታወሻ:* መሃል ላይ ያለው [⭐] (FREE Space) በነፃ እንደተሞላ ይቆጠራል!"
+)
 
-HISTORY_HEADER = "📜 *Transaction History*\n\n"
+INSTRUCTIONS_50 = (
+    "🌟 *የ 50 ብር superBingo ህግና ማብራሪያ (ሙሉ ካርድ)*\n\n"
+    "💵 *የመግቢያ ክፍያ:* 50 ብር በካርቴላ\n"
+    "⏰ *ጊዜ:* በየቀኑ ማታ 1:00 ሰዓት (7:00 PM EAT)\n"
+    "👥 *የካርቴላ ብዛት:* 1 እስከ 1,500 ካርቴላዎች\n\n"
+    "🏆 *እንዴት ያሸንፋሉ? (Full Card / ሙሉ ካርድ):*\n"
+    "በ 50 ብር superBingo ለማሸነፍ በካርቴላዎ ላይ ያሉ *ሙሉ 24ቱም ቁጥሮች* መውጣት አለባቸው!\n\n"
+    "🖼 *ምስላዊ ማብራሪያ (Full Card Diagram):*\n"
+    "```\n"
+    " ┌── 50 ብር superBingo (ሙሉ ካርድ) ──┐\n"
+    "    B    I    N    G    O\n"
+    "  [🔴] [🔴] [🔴] [🔴] [🔴]\n"
+    "  [🔴] [🔴] [🔴] [🔴] [🔴]\n"
+    "  [🔴] [🔴] [⭐] [🔴] [🔴]  <- ሙሉ 24ቱም\n"
+    "  [🔴] [🔴] [🔴] [🔴] [🔴]     ቁጥሮች ሲወጡ\n"
+    "  [🔴] [🔴] [🔴] [🔴] [🔴]     ያሸንፋሉ!\n"
+    " └────────────────────────────────┘\n"
+    "```\n"
+    "💰 *ትልቅ የገንዘብ ሽልማት (Jackpot Pot):* በሺዎች የሚቆጠሩ ተጫዋቾች ስለሚሳተፉ አሸናፊው እጅግ ከፍተኛ የገንዘብ ሽልማት ያገኛል!"
+)
 
-WITHDRAW_PROMPT = "💸 Enter the amount you want to withdraw (ETB):"
+INSTRUCTIONS_GENERAL = (
+    "📖 *አጠቃላይ የ EtooBingo አጫወት መመሪያ*\n\n"
+    "1️⃣ *የቦርድ እይታ በነፃ ነው:* ማንኛውም ሰው ያለምንም ክፍያ ጨዋታውን በቀጥታ መከታተል ይችላል።\n"
+    "2️⃣ *ካርቴላ መምረጥ:* በሎቢ (Lobby) ውስጥ ሲሆኑ ከ 1-150 ካሉት ቁጥሮች የሚፈልጉትን እስከ 2 ካርቴላ መርጠው መጫወት ይችላሉ።\n"
+    "3️⃣ *የክፍያ አቆራረጥ:* ገንዘብ የሚቆረጠው ካርቴላ መርጠው 'አረጋግጥ' ሲሉ ብቻ ነው።\n"
+    "4️⃣ *ቁጥሮችን መጫን:* ቁጥሮች በየ 4 ሰከንዱ በስክሪኑ ላይ ሲወጡ ካርቴላዎ ላይ ያሉትን ተጭነው ምልክት ያድርጉ።\n"
+    "5️⃣ *ራስ-ሰር BINGO ማረጋገጫ:* መስመርዎ ሲሞላ ስርዓታችን ወዲያውኑ አረጋግጦ ሽልማትዎን ወደ አካውንትዎ ያስገባል!\n"
+    "6️⃣ *የተመላሽ ገንዘብ ዋስትና:* ጨዋታው ሳይጀመር ካርቴላዎን መሰረዝ ከፈለጉ የከፈሉት ሙሉ ገንዘብ ወዲያውኑ ይመለስልዎታል።\n\n"
+    "እርዳታ ከፈለጉ @EtooBingoSupport ን ያነጋግሩ።"
+)
 
-INSUFFICIENT_BALANCE = "❌ በቂ ሂሳብ የሎትም (Insufficient balance)."
+# ---------------------------------------------------------------------------
+# Balance, History, and Play
+# ---------------------------------------------------------------------------
 
-WITHDRAW_SUCCESS = "✅ Withdrawal of {amount:.2f} ETB submitted. New balance: {balance:.2f} ETB"
+BALANCE = (
+    "💰 *የእርስዎ ወቅታዊ ቀሪ ሂሳብ:*\n\n"
+    "💵 ቀሪ ገንዘብ: *{balance:.2f} ETB*\n\n"
+    "👇 ከታች ያሉትን አማራጮች በመጠቀም መጫወት ወይም ገንዘብ ማስገባት/ማውጣት ይችላሉ:"
+)
+
+NO_HISTORY = "📭 *እስካሁን ምንም የሂሳብ እንቅስቃሴ አልተመዘገበም።*"
+
+HISTORY_HEADER = "📜 *የሂሳብ እንቅስቃሴ ዝርዝር (Transaction History):*\n\n"
+
+PLAY_ROOM_PROMPT = (
+    "🎮 *የጨዋታ ክፍል ይምረጡ:*\n\n"
+    "መጫወት የሚፈልጉትን ክፍል ይምረጡ:\n\n"
+    "1️⃣ 🎱 *PLAY (10 ብር)* — ሁልጊዜ ክፍት (24/7)\n"
+    "2️⃣ 🌟 *superBingo (50 ብር)* — በየቀኑ ማታ 1:00 ሰዓት"
+)
+
+NOT_REGISTERED = "⚠️ *እባክዎ መጀመሪያ በ /start ይመዝገቡ።*"
+
+INVALID_AMOUNT = "❌ *እባክዎ ትክክለኛ የብር መጠን ያስገቡ።*"
+
+NOT_ENOUGH_FOR_GAME = (
+    "❌ *ለዚህ ክፍል በቂ ሂሳብ የሎትም።*\n\n"
+    "ቢያንስ *{amount:.2f} ETB* ያስፈልግዎታል።\n"
+    "ሂሳብ ለመሙላት /deposit ይጠቀሙ።"
+)
+
+INSUFFICIENT_BALANCE = "❌ *በቂ ቀሪ ሂሳብ የሎትም (Insufficient balance)።*"
+
+# ---------------------------------------------------------------------------
+# Deposit Messages (Telebirr, CBE Birr, CBE Mobile Banking)
+# ---------------------------------------------------------------------------
 
 DEPOSIT_METHOD_PROMPT = (
     "💳 *የገንዘብ ማስገቢያ መንገድ ይምረጡ*\n\n"
-    "ገንዘብ ለማስገባት ከታች ካሉት አማራጮች አንዱን ይምረጡ:\n"
-    "1️⃣ 🔵 Telebirr\n"
-    "2️⃣ 🟢 CBE Birr\n"
-    "3️⃣ 🏦 Mobile Banking (CBE Account)\n\n"
-    "ክፍያ ከፈጸሙ በኋላ የደረሰዎትን ሙሉ የ SMS መልዕክት ወይም Transaction ID እዚሁ ይላኩልን!"
+    "ገንዘብ ለማስገባት ከታች ካሉት አማራጮች አንዱን ይምረጡ:\n\n"
+    "1️⃣ 🔵 *Telebirr (ቴሌብር)*\n"
+    "2️⃣ 🟢 *CBE Birr (ሲቢኢ ብር)*\n"
+    "3️⃣ 🏦 *Mobile Banking (የንግድ ባንክ አካውንት)*\n\n"
+    "ክፍያ ከፈጸሙ በኋላ ከባንክ ወይም ከቴሌብር የደረሰዎትን ሙሉ የ SMS መልዕክት ወይም Transaction ID እዚሁ ይላኩልን!"
 )
 
 TELEBIRR_DEPOSIT_INSTRUCTIONS = (
@@ -55,7 +149,7 @@ TELEBIRR_DEPOSIT_INSTRUCTIONS = (
     "👤 ስም: *Habtamu Melese*\n\n"
     "*መመሪያ:*\n"
     "1. ወደ Telebirr መተግበሪያ በመግባት ከላይ ባለው ስልክ ቁጥር የሚፈልጉትን መጠን ያስተላልፉ።\n"
-    "2. ክፍያው እንደተጠናቀቀ ከ Telebirr የደረሰዎትን ሙሉ የ SMS መልዕክት ወይም *Transaction ID* ኮፒ (copy) አድርገው እዚሁ ይላኩልን (paste ያድርጉ)።\n"
+    "2. ክፍያው እንደተጠናቀቀ ከ Telebirr የደረሰዎትን ሙሉ የ SMS መልዕክት ወይም *Transaction ID* ኮፒ አድርገው እዚሁ ይላኩልን (paste ያድርጉ)።\n"
     "3. ስርዓታችን ወዲያውኑ አረጋግጦ ሂሳብዎ ላይ ይጨምራል! 🎱"
 )
 
@@ -65,7 +159,7 @@ CBE_DEPOSIT_INSTRUCTIONS = (
     "👤 ስም: *Natnael Temesegen*\n\n"
     "*መመሪያ:*\n"
     "1. ወደ CBE Birr በመግባት ከላይ ባለው ስልክ ቁጥር የሚፈልጉትን መጠን ያስተላልፉ።\n"
-    "2. ክፍያው እንደተጠናቀቀ ከ CBE Birr የደረሰዎትን ሙሉ የ SMS መልዕክት ወይም *Transaction ID* ኮፒ (copy) አድርገው እዚሁ ይላኩልን (paste ያድርጉ)።\n"
+    "2. ክፍያው እንደተጠናቀቀ ከ CBE Birr የደረሰዎትን ሙሉ የ SMS መልዕክት ወይም *Transaction ID* ኮፒ አድርገው እዚሁ ይላኩልን (paste ያድርጉ)።\n"
     "3. ስርዓታችን ወዲያውኑ አረጋግጦ ሂሳብዎ ላይ ይጨምራል! 🎱"
 )
 
@@ -76,153 +170,38 @@ MOBILE_BANKING_DEPOSIT_INSTRUCTIONS = (
     "🏦 ባንክ: *የኢትዮጵያ ንግድ ባንክ (Commercial Bank of Ethiopia)*\n\n"
     "*መመሪያ:*\n"
     "1. በ CBE Mobile App ወይም በ *889# ከላይ ባለው የባንክ አካውንት ቁጥር የሚፈልጉትን መጠን ያስተላልፉ።\n"
-    "2. ክፍያው እንደተጠናቀቀ ከባንክ የደረሰዎትን ሙሉ የ SMS መልዕክት ወይም *Transaction ID* ኮፒ (copy) አድርገው እዚሁ ይላኩልን (paste ያድርጉ)።\n"
+    "2. ክፍያው እንደተጠናቀቀ ከባንክ የደረሰዎትን ሙሉ የ SMS መልዕክት ወይም *Transaction ID* ኮፒ አድርገው እዚሁ ይላኩልን (paste ያድርጉ)።\n"
     "3. ስርዓታችን ወዲያውኑ አረጋግጦ ሂሳብዎ ላይ ይጨምራል! 🎱"
 )
 
-DEPOSIT_SMS_PROMPT = "📩 የከፈሉበትን የ SMS መልዕክት ወይም Transaction ID እዚህ ይላኩልን:"
+DEPOSIT_SMS_PROMPT = "📩 *የከፈሉበትን የ SMS መልዕክት ወይም Transaction ID እዚህ ይላኩልን:*"
 
 DEPOSIT_AUTO_APPROVED = (
-    "✅ *ክፍያዎ ተረጋግጧል!*\n\n"
-    "💰 መጠን: *{amount:.2f} ETB*\n"
+    "✅ *ክፍያዎ በተሳካ ሁኔታ ተረጋግጧል!*\n\n"
+    "💰 የተጨመረው መጠን: *{amount:.2f} ETB*\n"
     "💳 አዲስ ቀሪ ሂሳብ: *{balance:.2f} ETB*\n\n"
     "አሁን መጫወት ይችላሉ። መልካም እድል! 🎱"
 )
 
 DEPOSIT_REUSED = (
-    "⚠️ ይህ የክፍያ ማስረጃ ቀድሞውኑ የ{amount:.2f} ETB ገቢ ተደርጓል።\n"
-    "የተሳሳተ መስሎ ከታየዎት @GoodBingoSupport ን ያነጋግሩ።"
+    "⚠️ *ይህ የክፍያ ማስረጃ ቀድሞውኑ ገቢ ተደርጓል።*\n\n"
+    "የተሳሳተ መስሎ ከታየዎት @EtooBingoSupport ን ያነጋግሩ።"
 )
 
 DEPOSIT_PENDING = (
-    "⏳ የክፍያ ማረጋገጫ በመካሄድ ላይ ነው...\n"
+    "⏳ *የክፍያ ማረጋገጫ በመካሄድ ላይ ነው...*\n\n"
     "ማረጋገጫው እንዳለቀ በራስ-ሰር ይጨመርልዎታል!"
 )
 
-BALANCE = "💰 Your balance: *{balance:.2f} ETB*"
-
-PLAY_ROOM_PROMPT = (
-    "🕹 *PLAY IN:*\n"
-    "Choose a room to join the game:"
-)
-
-NOT_REGISTERED = "⚠️ Please register first with /start"
-
-INVALID_AMOUNT = "❌ Please enter a valid positive number."
-
-NOT_ENOUGH_FOR_GAME = (
-    "❌ Insufficient balance for this room. "
-    "You need at least {amount:.2f} ETB. Use /deposit to add funds."
-)
-
 # ---------------------------------------------------------------------------
-# Telebirr deposit messages
+# Withdraw Messages
 # ---------------------------------------------------------------------------
 
-DEPOSIT_AMOUNT_PROMPT = (
-    "💳 *Telebirr ክፍያ*\n\n"
-    "ስንት ETB ማስቀመጥ ይፈልጋሉ?\n"
-    "_(ዝቅተኛ ገቢ: 10 ETB)_"
+WITHDRAW_PROMPT = "💸 *ማውጣት የሚፈልጉትን መጠን በ ETB ያስገቡ (ዝቅተኛ: 10 ETB):*"
+
+WITHDRAW_SUCCESS = (
+    "✅ *የገንዘብ ማውጣት ጥያቄዎ በተሳካ ሁኔታ ተልኳል!*\n\n"
+    "💰 የተጠየቀው መጠን: *{amount:.2f} ETB*\n"
+    "💳 አዲስ ቀሪ ሂሳብ: *{balance:.2f} ETB*\n\n"
+    "ገንዘቡ በደቂቃዎች ውስጥ ወደ አካውንትዎ ይተላለፋል።"
 )
-
-DEPOSIT_INVALID_AMOUNT = (
-    "❌ እባክዎ ትክክለኛ መጠን ያስገቡ።\n"
-    "ዝቅተኛ: *{min:.0f} ETB* | ከፍተኛ: *{max:.0f} ETB*"
-)
-
-DEPOSIT_CREATING_ORDER = "⏳ የTelebirr ክፍያ ትዕዛዝ በማዘጋጀት ላይ..."
-
-DEPOSIT_ORDER_CREATED = (
-    "✅ *ትዕዛዝ ተዘጋጅቷል!*\n\n"
-    "💰 መጠን: *{amount:.2f} ETB*\n"
-    "📋 ትዕዛዝ ቁጥር: `{order_id}`\n\n"
-    "👇 ከታች ያለውን ቁልፍ ተጭነው Telebirr ላይ ይክፈሉ። "
-    "ክፍያ ሲጠናቀቅ ሂሳብዎ ወዲያውኑ ይጨምራል።"
-)
-
-DEPOSIT_TELEBIRR_ERROR = (
-    "❌ *የTelebirr ስርዓት ችግር*\n\n"
-    "አሁን ትዕዛዝ ማዘጋጀት አልተቻለም። ቆይተው እንደገና ይሞክሩ "
-    "ወይም @GoodBingoSupport ያግኙ።"
-)
-
-DEPOSIT_CONFIRMED = (
-    "✅ *ክፍያዎ ተቀብሏል!*\n\n"
-    "💰 *{amount:.2f} ETB* ወደ ሂሳብዎ ተጨምሯል።\n"
-    "💳 አዲስ ሂሳብ: *{balance:.2f} ETB*\n\n"
-    "እንኳን ደስ ያልዎ! GoodBingo ለመጫወት ዝግጁ ነዎት። 🎱"
-)
-
-# ---------------------------------------------------------------------------
-# Payment verification (Verify.et) messages
-# ---------------------------------------------------------------------------
-
-VERIFY_PROMPT = (
-    "🔎 *የክፍያ ማረጋገጫ (Payment Verification)*\n\n"
-    "ክፍያ ከከፈሉ ከዚህ በታች ያለውን ዘዴ ይምረጡ — "
-    "ከዛ የክፍያ ማስረጃ ቁጥሩን ወደ እኛ ይላኩ።\n\n"
-    "Select how you paid so we can verify your receipt:"
-)
-
-VERIFY_REFERENCE_PROMPT = (
-    "🔑 *{bank} ማረጋገጫ*\n\n"
-    "የክፍያ ማስረጃ ቁጥሩን (transaction/receipt number) ይላኩ።\n\n"
-    "Send your payment reference number:"
-)
-
-VERIFY_PHONE_PROMPT = (
-    "📱 *CBE Birr:* ክፍያ የፈጸሙበትን የስልክ ቁጥር ይላኩ።\n\n"
-    "Send the phone number you used to pay (e.g. 09XXXXXXXXX):"
-)
-
-VERIFY_AMOUNT_PROMPT = (
-    "💰 የከፈሉትን መጠን በ ETB ይላኩ። (ዝቅተኛ: 10 ETB)\n\n"
-    "Enter the amount you paid in ETB (min 10):"
-)
-
-VERIFY_CHECKING = "⏳ ክፍያዎን በማረጋገጥ ላይ... (Verifying your payment...)"
-
-VERIFY_SUCCESS = (
-    "✅ *ፔይመንት ተረጋግጧል (Payment Verified)!*\n\n"
-    "💰 *{amount:.2f} ETB* ወደ ሂሳብዎ ተጨምሯል።\n"
-    "💳 አዲስ ሂሳብ: *{balance:.2f} ETB*\n\n"
-    "እንኳን ደስ ያልዎ! መልካም እድል! 🎱"
-)
-
-VERIFY_REUSED = (
-    "⚠️ ይህ የክፍያ ማስረጃ ቀድሞውኑ የ{amount:.2f} ETB ገቢ አድርጓል።\n"
-    "This receipt has already been used for a deposit. "
-    "If you think this is a mistake, contact @GoodBingoSupport."
-)
-
-VERIFY_PENDING = (
-    "⏳ ክፍያዎ *እየተረጋገጠ* ነው። ውጤቱ ሲገኝ በራስ-ሰር እናሳውቅዎታለን።\n\n"
-    "Your payment is being verified — you will be notified automatically."
-)
-
-VERIFY_NOT_FOUND = (
-    "❌ ክፍያው አልተገኘም። የማስረጃ ቁጥሩን አረጋግጠው እንደገና ይሞክሩ።\n"
-    "Payment not found. Please double-check the reference and try again."
-)
-
-VERIFY_RETRY_LATER = (
-    "⚠️ ለጊዜው ማረጋገጥ አልተቻለም። ትንሽ ቆይተው እንደገና ይሞክሩ።\n"
-    "Verification is temporarily unavailable — please try again shortly."
-)
-
-VERIFY_NO_CREDITS = (
-    "⚠️ የማረጋገጫ አገልግሎት ጥቅም አልቋል። @GoodBingoSupport ያግኙ።\n"
-    "The verification service has no credits left — contact @GoodBingoSupport."
-)
-
-VERIFY_SERVICE_ERROR = (
-    "❌ የማረጋገጫ አገልግሎት ችግር አጋጥሟል። @GoodBingoSupport ያግኙ።\n"
-    "A verification service error occurred — please contact @GoodBingoSupport."
-)
-
-VERIFY_INVALID_REFERENCE = (
-    "⚠️ የተላከው የክፍያ ማስረጃ ቁጥር ተቀባይነት የለውም።\n"
-    "The payment reference format is invalid."
-)
-
-VERIFY_CANCELLED = "Verification cancelled."

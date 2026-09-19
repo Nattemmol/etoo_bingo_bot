@@ -78,13 +78,62 @@ def peerpay_withdraw_confirm_keyboard(checkout_url: str):
     )
 
 
+def balance_action_keyboard():
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🎮 አሁን ተጫወት (Play)", callback_data="btn_action_play"),
+            ],
+            [
+                InlineKeyboardButton("💳 ገንዘብ አስገባ (Deposit)", callback_data="btn_action_deposit"),
+                InlineKeyboardButton("💸 ገንዘብ አውጣ (Withdraw)", callback_data="btn_action_withdraw"),
+            ],
+        ]
+    )
+
+
+def instructions_keyboard():
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🎱 10 ብር ጨዋታ (PLAY — 24/7)", callback_data="inst_10"),
+            ],
+            [
+                InlineKeyboardButton("🌟 50 ብር superBingo (ማታ 1:00)", callback_data="inst_50"),
+            ],
+            [
+                InlineKeyboardButton("📖 አጠቃላይ መመሪያ (General Rules)", callback_data="inst_general"),
+            ],
+        ]
+    )
+
+
+def instructions_back_keyboard():
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("⬅️ ወደ መመሪያዎች ማውጫ ተመለስ", callback_data="inst_back"),
+            ],
+            [
+                InlineKeyboardButton("🎮 ወደ ጨዋታ ሂድ (Play Now)", callback_data="btn_action_play"),
+            ],
+        ]
+    )
+
+
 def play_room_keyboard():
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("🎱 PLAY | 10 birr (24/7)", callback_data="room_play_10")],
-            [InlineKeyboardButton("🌟 superBingo | 50 birr (1:00 LT Night)", callback_data="room_super_50")],
+            [InlineKeyboardButton("🎱 PLAY | 10 ብር (24/7 ሁልጊዜ ክፍት)", callback_data="room_play_10")],
+            [InlineKeyboardButton("🌟 superBingo | 50 ብር (ማታ 1:00 ሰዓት)", callback_data="room_super_50")],
         ]
     )
 

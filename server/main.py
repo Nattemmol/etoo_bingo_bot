@@ -70,7 +70,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="GoodBingo Game Server", lifespan=lifespan)
+app = FastAPI(title="EtooBingo Game Server", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1236,7 +1236,7 @@ async def telebirr_notify(request: Request) -> JSONResponse:
             f"✅ *ክፍያዎ ተቀብሏል!*\n\n"
             f"💰 *{amount} ETB* ወደ ሂሳብዎ ተጨምሯል።\n"
             f"💳 አዲስ ሂሳብ: *{new_balance:.2f} ETB*\n\n"
-            f"እንኳን ደስ ያልዎ! GoodBingo ለመጫወት ዝግጁ ነዎት። 🎱"
+            f"እንኳን ደስ ያልዎ! EtooBingo ለመጫወት ዝግጁ ነዎት። 🎱"
         )
         await _notify_telegram(telegram_id, text)
     else:

@@ -13,8 +13,8 @@ from telegram.ext import (
 from bot.config import settings
 from bot.database import init_db
 from bot.handlers.deposit import deposit_callback, deposit_command, handle_sms_or_reference_text
-from bot.handlers.menu import balance_command, history_command, instructions_command
-from bot.handlers.play import play_command, play_room_callback
+from bot.handlers.menu import balance_command, history_command, instructions_callback, instructions_command
+from bot.handlers.play import action_button_callback, play_command, play_room_callback
 from bot.handlers.start import contact_handler, start_command
 from bot.handlers.withdraw import (
     AWAITING_ACCOUNT as WD_AWAITING_ACCOUNT,
@@ -96,6 +96,8 @@ def build_application() -> Application:
     app.add_handler(withdraw_conv)
     app.add_handler(CallbackQueryHandler(play_room_callback, pattern=r"^room_"))
     app.add_handler(CallbackQueryHandler(deposit_callback, pattern=r"^deposit_"))
+    app.add_handler(CallbackQueryHandler(instructions_callback, pattern=r"^inst_"))
+    app.add_handler(CallbackQueryHandler(action_button_callback, pattern=r"^btn_action_"))
 
     # Listen for pasted SMS receipts and transaction references
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_sms_or_reference_text))
