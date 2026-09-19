@@ -88,6 +88,8 @@ def balance_action_keyboard():
             ],
             [
                 InlineKeyboardButton("💳 ገንዘብ አስገባ (Deposit)", callback_data="btn_action_deposit"),
+            ],
+            [
                 InlineKeyboardButton("💸 ገንዘብ አውጣ (Withdraw)", callback_data="btn_action_withdraw"),
             ],
         ]

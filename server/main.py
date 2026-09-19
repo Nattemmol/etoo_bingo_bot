@@ -67,6 +67,9 @@ player_ws: dict[str, str] = {}  # ws_id -> room_id
 async def lifespan(app: FastAPI):
     await db.init_db()
     logger.info("Game server database ready.")
+    # Automatically start continuous room countdown loops immediately on server start
+    for room_id in ROOM_CONFIG:
+        await schedule_lobby(room_id)
     yield
 
 
@@ -134,20 +137,28 @@ def get_room_state(room: GameRoom) -> dict:
 
 
 async def broadcast(room: GameRoom, message: dict, exclude: str | None = None) -> None:
-    dead = []
-    # Broadcast to all connected clients in the room (both active players and spectators)
+    targets = []
+    ws_map = {}
     for ws_id in list(room.connections):
         if ws_id == exclude:
             continue
         ws = connections.get(ws_id)
         if ws:
-            try:
-                await ws.send_json(message)
-            except Exception:
-                dead.append(ws_id)
-        else:
-            dead.append(ws_id)
+            targets.append(ws_id)
+            ws_map[ws_id] = ws
 
+    if not targets:
+        return
+
+    async def _send(ws_id: str, ws: WebSocket):
+        try:
+            await ws.send_json(message)
+            return None
+        except Exception:
+            return ws_id
+
+    results = await asyncio.gather(*[_send(wid, ws_map[wid]) for wid in targets], return_exceptions=True)
+    dead = [r for r in results if isinstance(r, str)]
     for ws_id in dead:
         room.connections.discard(ws_id)
         room.players.pop(ws_id, None)
