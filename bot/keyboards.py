@@ -92,8 +92,13 @@ def play_room_keyboard():
 def webapp_keyboard(webapp_url: str, room: str):
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
-    base_url = (webapp_url or "https://example.com").rstrip("/")
-    full_url = f"{base_url}/?room={room}"
+    base_url = (webapp_url or "https://etoobingogame.vercel.app").rstrip("/")
+    sep = "&" if "?" in base_url else "?"
+    if "api=" not in base_url:
+        full_url = f"{base_url}{sep}room={room}&api=https://etoo-bingo-bot.onrender.com"
+    else:
+        full_url = f"{base_url}{sep}room={room}"
+
     return InlineKeyboardMarkup(
         [
             [

@@ -371,7 +371,10 @@ function getBackendUrl() {
   const urlParam = params.get("api");
   if (urlParam) return urlParam.replace(/\/$/, "");
   if (window.BACKEND_URL) return window.BACKEND_URL.replace(/\/$/, "");
-  return "";
+  if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
+    return "";
+  }
+  return "https://etoo-bingo-bot.onrender.com";
 }
 
 function apiUrl(path) {
@@ -848,21 +851,38 @@ function setupGameScreen() {
 }
 
 function connect() {
-  const ws = new WebSocket(wsUrl());
+  const url = wsUrl();
+  console.log("Connecting to WebSocket:", url);
+  const socket = new WebSocket(url);
 
-  ws.onopen = () => {
-    ws.send(JSON.stringify({ type: "join", initData: tg.initData }));
+  socket.onopen = () => {
+    console.log("WebSocket connected!");
+    socket.send(JSON.stringify({ type: "join", initData: tg.initData || "" }));
   };
 
-  ws.onmessage = (event) => {
-    const msg = JSON.parse(event.data);
-    handleMessage(ws, msg);
+  socket.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      handleMessage(socket, msg);
+    } catch (err) {
+      console.error("Error parsing message:", err);
+    }
   };
 
-  ws.onerror = () => showError("Connection failed. Check your network and try again.");
-  ws.onclose = () => {};
+  socket.onerror = (err) => {
+    console.warn("WebSocket error:", err);
+  };
 
-  return ws;
+  socket.onclose = () => {
+    console.log("WebSocket closed, attempting reconnect in 2s...");
+    setTimeout(() => {
+      if (state.phase === "connecting" || !ws || ws.readyState === WebSocket.CLOSED) {
+        ws = connect();
+      }
+    }, 2000);
+  };
+
+  return socket;
 }
 
 let ws;
@@ -875,7 +895,10 @@ function handleMessage(socket, msg) {
       state.takenCards = msg.room.taken_cards || {};
       state.called = msg.room.called || [];
       state.calledSet = new Set(state.called);
-      updateBalanceDisplay(msg.user.balance);
+      if (msg.user) {
+        state.myId = msg.user.id || state.myId;
+        updateBalanceDisplay(msg.user.balance);
+      }
 
       state.cardIds = Array.isArray(msg.card_ids) ? msg.card_ids.map(Number) : [];
       state.cards = {};
