@@ -145,32 +145,32 @@ DEPOSIT_METHOD_PROMPT = (
 
 TELEBIRR_DEPOSIT_INSTRUCTIONS = (
     "🔵 *የ Telebirr ክፍያ መረጃ*\n\n"
-    "📱 ስልክ ቁጥር: `096357327`\n"
+    "📱 ስልክ ቁጥር: `0963572327`\n"
     "👤 ስም: *Habtamu Melese*\n\n"
     "*መመሪያ:*\n"
-    "1. ወደ Telebirr መተግበሪያ በመግባት ከላይ ባለው ስልክ ቁጥር የሚፈልጉትን መጠን ያስተላልፉ።\n"
-    "2. ክፍያው እንደተጠናቀቀ ከ Telebirr የደረሰዎትን ሙሉ የ SMS መልዕክት ወይም *Transaction ID* ኮፒ አድርገው እዚሁ ይላኩልን (paste ያድርጉ)።\n"
+    "1. ወደ Telebirr በመግባት ወደ `0963572327` (Habtamu Melese) የሚፈልጉትን መጠን ያስተላልፉ።\n"
+    "2. ክፍያው እንደተጠናቀቀ ከ Telebirr የደረሰዎትን ሙሉ የ SMS መልዕክት ወይም *Transaction ID* እዚሁ ይላኩልን (paste ያድርጉ)።\n"
     "3. ስርዓታችን ወዲያውኑ አረጋግጦ ሂሳብዎ ላይ ይጨምራል! 🎱"
 )
 
 CBE_DEPOSIT_INSTRUCTIONS = (
     "🟢 *የ CBE Birr ክፍያ መረጃ*\n\n"
-    "📱 ስልክ ቁጥር: `093490411`\n"
+    "📱 ስልክ ቁጥር: `0934920411`\n"
     "👤 ስም: *Natnael Temesegen*\n\n"
     "*መመሪያ:*\n"
-    "1. ወደ CBE Birr በመግባት ከላይ ባለው ስልክ ቁጥር የሚፈልጉትን መጠን ያስተላልፉ።\n"
-    "2. ክፍያው እንደተጠናቀቀ ከ CBE Birr የደረሰዎትን ሙሉ የ SMS መልዕክት ወይም *Transaction ID* ኮፒ አድርገው እዚሁ ይላኩልን (paste ያድርጉ)።\n"
+    "1. ወደ CBE Birr በመግባት ወደ `0934920411` (Natnael Temesegen) የሚፈልጉትን መጠን ያስተላልፉ።\n"
+    "2. ክፍያው እንደተጠናቀቀ ከ CBE Birr የደረሰዎትን ሙሉ የ SMS መልዕክት ወይም *Transaction ID* እዚሁ ይላኩልን (paste ያድርጉ)።\n"
     "3. ስርዓታችን ወዲያውኑ አረጋግጦ ሂሳብዎ ላይ ይጨምራል! 🎱"
 )
 
 MOBILE_BANKING_DEPOSIT_INSTRUCTIONS = (
     "🏦 *የ CBE Mobile Banking (የንግድ ባንክ አካውንት) መረጃ*\n\n"
-    "💳 አካውንት ቁጥር: `1000413343538`\n"
-    "👤 ስም: *Natnael Temesegen*\n"
+    "💳 አካውንት ቁጥር: `10000413343538`\n"
+    "👤 ስም: *Natnael Temesegen*\n\n"
     "🏦 ባንክ: *የኢትዮጵያ ንግድ ባንክ (Commercial Bank of Ethiopia)*\n\n"
     "*መመሪያ:*\n"
-    "1. በ CBE Mobile App ወይም በ *889# ከላይ ባለው የባንክ አካውንት ቁጥር የሚፈልጉትን መጠን ያስተላልፉ።\n"
-    "2. ክፍያው እንደተጠናቀቀ ከባንክ የደረሰዎትን ሙሉ የ SMS መልዕክት ወይም *Transaction ID* ኮፒ አድርገው እዚሁ ይላኩልን (paste ያድርጉ)።\n"
+    "1. በ CBE Mobile App ወይም በ *889# ወደ `10000413343538` (Natnael Temesegen) የሚፈልጉትን መጠን ያስተላልፉ።\n"
+    "2. ክፍያው እንደተጠናቀቀ ከባንክ የደረሰዎትን ሙሉ የ SMS መልዕክት ወይም *Transaction ID* እዚሁ ይላኩልን (paste ያድርጉ)።\n"
     "3. ስርዓታችን ወዲያውኑ አረጋግጦ ሂሳብዎ ላይ ይጨምራል! 🎱"
 )
 

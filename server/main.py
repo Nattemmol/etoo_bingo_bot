@@ -24,6 +24,7 @@ from bot.sms_parser import (
     fetch_telebirr_receipt,
     fingerprint,
     parse_deposit_sms,
+    verify_deposit_submission,
 )
 from bot.telebirr import verify_callback_signature
 from server.auth import validate_init_data
@@ -1604,7 +1605,7 @@ async def api_deposit_create(request: Request):
 
 @app.post("/api/deposit/submit-reference")
 async def api_deposit_submit_reference(request: Request):
-    """Submit payment transaction reference to PeerPay Checkout API."""
+    """Submit payment transaction reference or SMS with multi-layer verification."""
     init_data = request.headers.get("X-Telegram-Init-Data")
     body = {}
     try:
@@ -1625,7 +1626,10 @@ async def api_deposit_submit_reference(request: Request):
     payment_method = body.get("payment_method", "telebirr")
 
     if not raw_input:
-        return JSONResponse(status_code=400, content={"error": "Missing reference"})
+        return JSONResponse(
+            status_code=400,
+            content={"error": "⚠️ እባክዎ የ SMS መልዕክት፣ Receipt Link ወይም Transaction ID ያስገቡ።"},
+        )
 
     # Optional explicit amount provided from UI
     explicit_amount = None
@@ -1637,91 +1641,70 @@ async def api_deposit_submit_reference(request: Request):
         except (ValueError, TypeError):
             explicit_amount = None
 
-    # 1. Parse SMS if full notification was pasted or extract URL / token
-    parsed = parse_deposit_sms(raw_input)
-    reference = raw_input
-    amount = explicit_amount
+    # Multi-layer verification (Anti-package, recipient check, direction, amount, reference)
+    verification = await verify_deposit_submission(
+        raw_input,
+        expected_method=payment_method,
+        explicit_amount=explicit_amount,
+    )
 
-    if parsed and parsed.get("reference"):
-        reference = parsed["reference"]
-        if not amount:
-            amount = parsed.get("amount")
-    else:
-        ref, url, inline_amt = extract_reference_and_url(raw_input)
-        if ref:
-            reference = ref
-            if not amount:
-                amount = inline_amt
+    if not verification["valid"]:
+        clean_err = (verification.get("error_message") or "የማረጋገጫ ስህተት").replace("*", "")
+        return JSONResponse(
+            status_code=400,
+            content={"error": clean_err},
+        )
 
-    # 2. If amount is still missing, attempt online receipt lookup (Telebirr)
-    if amount is None:
-        fetched = await fetch_telebirr_receipt(raw_input)
-        if fetched and fetched.get("amount") and fetched.get("status") == "completed":
-            amount = fetched["amount"]
-            reference = fetched.get("reference") or reference
+    reference = verification["reference"]
+    amount = verification["amount"]
+    fp = verification["fingerprint"]
 
-    # 3. Duplicate receipt check
-    fp = fingerprint(raw_input) if len(raw_input) > 30 else f"ref:{reference}"
+    # 1. Anti-duplicate checks (Fingerprint & Reference)
     existing_tx = await db.get_deposit_by_fingerprint(fp)
     if existing_tx:
         return JSONResponse(
             status_code=400,
-            content={"error": f"ይህ የክፍያ ማስረጃ ቀድሞውኑ የ{existing_tx['amount']:.2f} ETB ገቢ ተደርጓል"},
+            content={"error": f"ይህ የክፍያ ማስረጃ ቀድሞውኑ የ {existing_tx['amount']:.2f} ETB ገቢ ተደርጓል (Already Used)።"},
         )
 
     existing_dep = await db.get_peerpay_deposit(reference)
     if existing_dep and existing_dep.get("credited"):
         return JSONResponse(
             status_code=400,
-            content={"error": f"ይህ የክፍያ ማስረጃ ቀድሞውኑ የ{existing_dep['amount']:.2f} ETB ገቢ ተደርጓል"},
+            content={"error": f"ይህ የግብይት ቁጥር ({reference}) ቀድሞውኑ ገቢ ተደርጓል (Already Used)።"},
         )
 
-    # 4. If genuine SMS receipt or verified receipt with amount is provided, auto-credit user immediately!
-    if amount is not None and amount > 0:
-        credited, new_balance, is_dup = await db.credit_peerpay_deposit_once(
-            payment_id=reference,
-            telegram_id=tg_id,
-            amount=amount,
-        )
-        if credited:
-            return JSONResponse({
-                "ok": True,
-                "data": {
-                    "status": "succeeded",
-                    "reference": reference,
-                    "amount": amount,
-                    "new_balance": new_balance,
-                    "message": f"ክፍያዎ በተሳካ ሁኔታ ተረጋግጧል! {amount:.2f} ETB ወደ ሂሳብዎ ተጨምሯል።",
-                },
-            })
-
-    # 5. If checkout_url was provided, submit reference to checkout API
+    # 2. If checkout_url was provided, notify PeerPay Checkout API
     if checkout_url:
         try:
-            res = await peerpay_client.submit_deposit_reference(
+            await peerpay_client.submit_deposit_reference(
                 checkout_token_or_url=checkout_url,
                 reference=reference,
                 payment_method=payment_method,
             )
-            return JSONResponse({"ok": True, "data": res})
         except Exception as exc:
             logger.warning("PeerPay submit reference error: %s", exc)
 
-    # 6. Resilient fallback: record pending deposit locally so user is never blocked
-    await db.upsert_peerpay_deposit(
+    # 3. Credit user balance atomically
+    credited, new_balance, is_dup = await db.credit_peerpay_deposit_once(
         payment_id=reference,
         telegram_id=tg_id,
-        amount=amount or 0.0,
-        currency="ETB",
-        merchant_order_id=None,
-        status="verification_pending",
+        amount=amount,
     )
+    if is_dup:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"ይህ የክፍያ ማስረጃ ቀድሞውኑ ገቢ ተደርጓል ({amount:.2f} ETB)።"},
+        )
+
     return JSONResponse({
         "ok": True,
         "data": {
-            "status": "verification_pending",
+            "status": "succeeded",
             "reference": reference,
-            "message": "የግብይት ቁጥሩ ተመዝግቧል፤ እባክዎ ሙሉውን የSMS መልእክት፣ የደረሰኝ ሊንክ ወይም መጠኑን ያስገቡ።",
+            "amount": amount,
+            "new_balance": new_balance,
+            "message": f"✅ ክፍያዎ በተሳካ ሁኔታ ተረጋግጧል! {amount:.2f} ETB ወደ ሂሳብዎ ተጨምሯል።",
         },
     })
 

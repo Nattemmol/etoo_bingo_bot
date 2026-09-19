@@ -1727,6 +1727,12 @@ body {
   transform: translateY(-1px);
 }
 
+.account-card.active {
+  background: rgba(0, 230, 118, 0.16);
+  border-color: #00E676;
+  box-shadow: 0 0 12px rgba(0, 230, 118, 0.25);
+}
+
 .account-icon {
   font-size: 1.3rem;
   flex-shrink: 0;

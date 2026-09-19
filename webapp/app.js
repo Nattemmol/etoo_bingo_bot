@@ -218,6 +218,41 @@ document.querySelectorAll(".account-card").forEach((card) => {
   });
 });
 
+let selectedDepositMethod = "telebirr";
+
+const depositMethodLabels = {
+  telebirr: "🔵 Telebirr (0963572327 - Habtamu Melese)",
+  cbebirr: "🟢 CBE Birr (0934920411 - Natnael Temesegen)",
+  cbe_bank: "🏦 CBE Bank (10000413343538 - Natnael Temesegen)",
+};
+
+document.querySelectorAll(".deposit-accounts-list .account-card").forEach((card) => {
+  card.addEventListener("click", (e) => {
+    const copyVal = card.getAttribute("data-copy");
+    if (e.target.closest(".btn-copy-acc")) {
+      if (copyVal && navigator.clipboard) {
+        navigator.clipboard.writeText(copyVal).then(() => {
+          const btn = card.querySelector(".btn-copy-acc");
+          if (btn) {
+            const orig = btn.textContent;
+            btn.textContent = "✅ ተገልብጧል";
+            setTimeout(() => (btn.textContent = orig), 1500);
+          }
+        });
+      }
+      return;
+    }
+
+    document.querySelectorAll(".deposit-accounts-list .account-card").forEach((c) => c.classList.remove("active"));
+    card.classList.add("active");
+    selectedDepositMethod = card.getAttribute("data-method") || "telebirr";
+    const bannerLbl = document.getElementById("selected-method-label");
+    if (bannerLbl) {
+      bannerLbl.textContent = depositMethodLabels[selectedDepositMethod] || selectedDepositMethod;
+    }
+  });
+});
+
 if (els.withdrawBankSelect) {
   els.withdrawBankSelect.addEventListener("change", () => {
     const val = els.withdrawBankSelect.value;
@@ -225,7 +260,7 @@ if (els.withdrawBankSelect) {
     const input = els.withdrawAccountInput;
     if (val === "cbe") {
       if (label) label.textContent = "የ CBE (ንግድ ባንክ) አካውንት ቁጥር (13 ዲጂት):";
-      if (input) input.placeholder = "ለምሳሌ: 1000413343538";
+      if (input) input.placeholder = "ለምሳሌ: 10000413343538";
     } else {
       if (label) label.textContent = "የስልክ ቁጥር (Telebirr / CBE Birr):";
       if (input) input.placeholder = "ለምሳሌ: 0911223344";
@@ -257,7 +292,12 @@ if (els.btnSubmitDepositRef) {
           "Content-Type": "application/json",
           "X-Telegram-Init-Data": tg.initData || "",
         },
-        body: JSON.stringify({ reference: ref, amount: optAmt, init_data: tg.initData }),
+        body: JSON.stringify({
+          reference: ref,
+          amount: optAmt,
+          payment_method: selectedDepositMethod,
+          init_data: tg.initData,
+        }),
       });
       const data = await resp.json();
       if (data.ok) {
@@ -274,7 +314,7 @@ if (els.btnSubmitDepositRef) {
       } else {
         if (els.depositStatusMsg) {
           els.depositStatusMsg.className = "wallet-status-msg error";
-          els.depositStatusMsg.textContent = "❌ ማረጋገጥ አልተቻለም: " + (data.error || "እባክዎ ትክክለኛ መረጃ ያስገቡ");
+          els.depositStatusMsg.textContent = "❌ " + (data.error || "ማረጋገጥ አልተቻለም");
         }
       }
     } catch (err) {
