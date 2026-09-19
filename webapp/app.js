@@ -522,6 +522,8 @@ function stopLobbyCountdown() {
 }
 
 // ---- Card Pool ----
+let poolChips = [];
+
 function buildPool() {
   const maxCards = state.room?.max_cards || (roomId === "room_super_50" ? 1500 : 150);
   if (els.cardActionTitle) {
@@ -910,10 +912,10 @@ function handleMessage(socket, msg) {
       state.isPlayer = state.cardIds.length > 0;
       updateRoleDisplay(state.isPlayer);
 
-      els.lobbyRoomName.textContent = `${msg.room.name} — ${msg.room.entry_fee} ETB`;
-      els.gameRoomName.textContent = msg.room.name;
-      els.lobbyPlayers.textContent = msg.room.players;
-      els.lobbyPot.textContent = Number(msg.room.pot).toFixed(0);
+      if (els.lobbyRoomName) els.lobbyRoomName.textContent = `${msg.room.name} — ${msg.room.entry_fee} ETB`;
+      if (els.gameRoomName) els.gameRoomName.textContent = msg.room.name;
+      if (els.lobbyPlayers) els.lobbyPlayers.textContent = msg.room.players;
+      if (els.lobbyPot) els.lobbyPot.textContent = Number(msg.room.pot).toFixed(0);
       updateGameStats(msg.room.pot, msg.room.players, (msg.room.called || []).length);
       if (msg.room.phase === "lobby") {
         syncLobbyCountdown(msg.room.countdown);
@@ -930,8 +932,8 @@ function handleMessage(socket, msg) {
 
       if (msg.room.phase === "playing") {
         if (msg.room.latest_call) {
-          els.lastCallLetter.textContent = msg.room.latest_call.letter;
-          els.lastCallNumber.textContent = msg.room.latest_call.number;
+          if (els.lastCallLetter) els.lastCallLetter.textContent = msg.room.latest_call.letter;
+          if (els.lastCallNumber) els.lastCallNumber.textContent = msg.room.latest_call.number;
           updateCalledBoard(els.calledBoard, state.called, msg.room.latest_call.number);
         } else {
           updateCalledBoard(els.calledBoard, state.called);
