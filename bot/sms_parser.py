@@ -5,7 +5,7 @@ Enforces:
 2. Recipient Account Match: Verifies that money was transferred specifically to EtooBingo official accounts:
    - Telebirr: 0963572327 (Habtamu Melese)
    - CBE Birr: 0934920411 (Natnael Temesegen)
-   - CBE Mobile Banking: 10000413343538 (Natnael Temesegen)
+    - CBE Mobile Banking: 1000413343538 (Natnael Temesegen)
 3. Anti-Duplicate / Anti-Replay: Stable fingerprint generation and reference extraction.
 4. Positive Amount & Direction Verification: Ensures money was actually credited / transferred.
 """
@@ -49,13 +49,11 @@ OFFICIAL_ACCOUNTS = {
     "cbe_bank": {
         "display_name": "CBE Mobile Banking (ንግድ ባንክ)",
         "name": "Natnael Temesegen",
-        "account": "10000413343538",
+        "account": "1000413343538",
         "short_account": "413343538",
         "keywords": [
-            "10000413343538",
             "1000413343538",
             "413343538",
-            "1000041334353",
             "natnael",
             "temesegen",
             "natnaeltemesegen",
@@ -456,7 +454,7 @@ async def verify_deposit_submission(
                 "እባክዎ ወደ EtooBingo ይፋዊ አካውንት ያስተላለፉበትን የ SMS መልዕክት ይላኩ:\n"
                 "• 🔵 *Telebirr:* `0963572327` (Habtamu Melese)\n"
                 "• 🟢 *CBE Birr:* `0934920411` (Natnael Temesegen)\n"
-                "• 🏦 *CBE Bank:* `10000413343538` (Natnael Temesegen)"
+                "• 🏦 *CBE Bank:* `1000413343538` (Natnael Temesegen)"
             ),
         }
 

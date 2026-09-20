@@ -223,7 +223,7 @@ let selectedDepositMethod = "telebirr";
 const depositMethodLabels = {
   telebirr: "🔵 Telebirr (0963572327 - Habtamu Melese)",
   cbebirr: "🟢 CBE Birr (0934920411 - Natnael Temesegen)",
-  cbe_bank: "🏦 CBE Bank (10000413343538 - Natnael Temesegen)",
+  cbe_bank: "🏦 CBE Bank (1000413343538 - Natnael Temesegen)",
 };
 
 document.querySelectorAll(".deposit-accounts-list .account-card").forEach((card) => {
@@ -260,7 +260,7 @@ if (els.withdrawBankSelect) {
     const input = els.withdrawAccountInput;
     if (val === "cbe") {
       if (label) label.textContent = "የ CBE (ንግድ ባንክ) አካውንት ቁጥር (13 ዲጂት):";
-      if (input) input.placeholder = "ለምሳሌ: 10000413343538";
+      if (input) input.placeholder = "ለምሳሌ: 1000413343538";
     } else {
       if (label) label.textContent = "የስልክ ቁጥር (Telebirr / CBE Birr):";
       if (input) input.placeholder = "ለምሳሌ: 0911223344";

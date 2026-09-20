@@ -165,11 +165,11 @@ CBE_DEPOSIT_INSTRUCTIONS = (
 
 MOBILE_BANKING_DEPOSIT_INSTRUCTIONS = (
     "🏦 *የ CBE Mobile Banking (የንግድ ባንክ አካውንት) መረጃ*\n\n"
-    "💳 አካውንት ቁጥር: `10000413343538`\n"
+    "💳 አካውንት ቁጥር: `1000413343538`\n"
     "👤 ስም: *Natnael Temesegen*\n\n"
     "🏦 ባንክ: *የኢትዮጵያ ንግድ ባንክ (Commercial Bank of Ethiopia)*\n\n"
     "*መመሪያ:*\n"
-    "1. በ CBE Mobile App ወይም በ *889# ወደ `10000413343538` (Natnael Temesegen) የሚፈልጉትን መጠን ያስተላልፉ።\n"
+    "1. በ CBE Mobile App ወይም በ *889# ወደ `1000413343538` (Natnael Temesegen) የሚፈልጉትን መጠን ያስተላልፉ።\n"
     "2. ክፍያው እንደተጠናቀቀ ከባንክ የደረሰዎትን ሙሉ የ SMS መልዕክት ወይም *Transaction ID* እዚሁ ይላኩልን (paste ያድርጉ)።\n"
     "3. ስርዓታችን ወዲያውኑ አረጋግጦ ሂሳብዎ ላይ ይጨምራል! 🎱"
 )
