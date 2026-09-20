@@ -1476,6 +1476,44 @@ body {
 /* ---------------------------------------------------------------------------
    Wallet Modal Styling (Deposit & Withdrawal)
    --------------------------------------------------------------------------- */
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.modal-backdrop.hidden {
+  display: none !important;
+}
+
+.modal {
+  background: #13141f;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  color: var(--text-main, #fff);
+  box-sizing: border-box;
+  animation: modalFadeIn 0.2s ease-out;
+}
+
+@keyframes modalFadeIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
 .balance-pill {
   cursor: pointer;
   transition: transform 0.15s ease, background 0.2s ease;
@@ -1501,17 +1539,23 @@ body {
 }
 
 .modal-wallet-box {
-  max-width: 420px;
-  width: 90%;
+  max-width: 440px;
+  width: 94%;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
   text-align: left;
-  padding: 18px 20px;
+  padding: 16px 18px 20px;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .wallet-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
 }
 
 .wallet-header h2 {
@@ -1536,9 +1580,10 @@ body {
   align-items: center;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border-color);
-  padding: 10px 14px;
+  padding: 8px 12px;
   border-radius: 10px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
 }
 
 .wallet-balance-display .label {
@@ -1554,9 +1599,10 @@ body {
 .wallet-tabs {
   display: flex;
   gap: 8px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
   border-bottom: 1px solid var(--border-color);
   padding-bottom: 8px;
+  flex-shrink: 0;
 }
 
 .wallet-tab-btn {
@@ -1580,6 +1626,29 @@ body {
 
 .wallet-panel {
   display: none;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  max-height: calc(88vh - 150px);
+  padding-right: 6px;
+  padding-bottom: 24px;
+}
+
+.wallet-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.wallet-panel::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.wallet-panel::-webkit-scrollbar-thumb {
+  background: rgba(0, 230, 118, 0.35);
+  border-radius: 4px;
+}
+
+.wallet-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 230, 118, 0.6);
 }
 
 .wallet-panel.active {
