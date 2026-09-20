@@ -1258,6 +1258,27 @@ async def telebirr_notify(request: Request) -> JSONResponse:
     return JSONResponse({"code": "0", "msg": "success"})
 
 
+async def _notify_telegram(telegram_id: int, message: str) -> bool:
+    """Send a message to a telegram user using the bot token."""
+    if not telegram_id or not settings.bot_token:
+        return False
+    url = f"https://api.telegram.org/bot{settings.bot_token}/sendMessage"
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.post(
+                url,
+                json={
+                    "chat_id": telegram_id,
+                    "text": message,
+                    "parse_mode": "Markdown",
+                },
+            )
+            return resp.status_code == 200
+    except Exception as exc:
+        logger.warning("Failed to send Telegram notification to %s: %s", telegram_id, exc)
+        return False
+
+
 # ---------------------------------------------------------------------------
 # PeerPay payment webhook receiver
 # ---------------------------------------------------------------------------

@@ -1,69 +1,59 @@
 """Parse and strictly verify Telebirr, CBE Birr, and CBE Mobile Banking SMS receipts.
 
 Enforces:
-1. Anti-Package / Anti-Airtime / Anti-Service Filter: Rejects package, bundle, airtime, and utility purchases.
-2. Recipient Account Match: Verifies that money was transferred specifically to EtooBingo official accounts:
-   - Telebirr: 0963572327 (Habtamu Melese)
-   - CBE Birr: 0934920411 (Natnael Temesegen)
-    - CBE Mobile Banking: 1000413343538 (Natnael Temesegen)
-3. Anti-Duplicate / Anti-Replay: Stable fingerprint generation and reference extraction.
-4. Positive Amount & Direction Verification: Ensures money was actually credited / transferred.
+1. Anti-Package / Anti-Airtime Filter: Rejects package, bundle, airtime, and utility purchases.
+2. Strict Directional Verification (Sender vs Receiver):
+   - Confirms money is transferred TO EtooBingo official accounts:
+     • Telebirr: 0963572327 / 251963572327 (Habtamu Melese)
+     • CBE Birr: 0934920411 / 251934920411 (Natnael Temesegen)
+     • CBE Mobile Banking: 1000413343538 (Natnael Temesegen)
+   - Rejects outgoing transfers (where merchant account is the SENDER).
+   - Rejects transfers where destination account/phone belongs to someone else (e.g. 1000418895067).
+3. Live Ethio Telecom Portal Verification:
+   - Scrapes official receipt (https://transactioninfo.ethiotelecom.et/receipt/<txn_id>).
+   - Verifies Credited Party / Destination Bank Account matches EtooBingo receiver.
+4. Anti-Duplicate / Anti-Replay: Stable fingerprint generation and reference tracking.
 """
 
 import hashlib
+import logging
 import re
+from typing import Any
+
+import httpx
+
+logger = logging.getLogger(__name__)
 
 OFFICIAL_ACCOUNTS = {
     "telebirr": {
         "display_name": "Telebirr (ቴሌብር)",
         "name": "Habtamu Melese",
         "phone": "0963572327",
+        "intl_phone": "251963572327",
         "short_phone": "963572327",
-        "keywords": [
-            "0963572327",
-            "963572327",
-            "63572327",
-            "habtamu",
-            "melese",
-            "habtamumelese",
-            "ሀብታሙ",
-            "መለሰ",
-        ],
+        "valid_numbers": ["0963572327", "251963572327", "+251963572327", "963572327", "63572327"],
+        "valid_names": ["habtamu", "melese", "habtamumelese", "ሀብታሙ", "መለሰ"],
     },
     "cbebirr": {
         "display_name": "CBE Birr (ሲቢኢ ብር)",
         "name": "Natnael Temesegen",
         "phone": "0934920411",
+        "intl_phone": "251934920411",
         "short_phone": "934920411",
-        "keywords": [
-            "0934920411",
-            "934920411",
-            "34920411",
-            "natnael",
-            "temesegen",
-            "natnaeltemesegen",
-            "ናትናኤል",
-            "ተመስገን",
-        ],
+        "valid_numbers": ["0934920411", "251934920411", "+251934920411", "934920411", "34920411"],
+        "valid_names": ["natnael", "temesegen", "natnaeltemesegen", "ናትናኤል", "ተመስገን"],
     },
     "cbe_bank": {
         "display_name": "CBE Mobile Banking (ንግድ ባንክ)",
         "name": "Natnael Temesegen",
         "account": "1000413343538",
         "short_account": "413343538",
-        "keywords": [
-            "1000413343538",
-            "413343538",
-            "natnael",
-            "temesegen",
-            "natnaeltemesegen",
-            "ናትናኤል",
-            "ተመስገን",
-        ],
+        "valid_accounts": ["1000413343538", "413343538"],
+        "valid_names": ["natnael", "temesegen", "natnaeltemesegen", "ናትናኤል", "ተመስገን"],
     },
 }
 
-# Keywords that explicitly identify mobile packages, airtime, or non-peer transfers
+# Keywords identifying mobile packages, airtime, or non-deposit services
 _PACKAGE_AND_SERVICE_KEYWORDS = (
     "package",
     "bundle",
@@ -146,7 +136,7 @@ _CREDIT_KEYWORDS = (
     "የተላለፈ",
 )
 
-# Transaction references: TXN/Ref/TxId/transaction number etc.
+# Reference regex patterns
 _REF_RE = re.compile(
     r"(?:"
     r"transaction\s*(?:number|no|num|id|ref(?:erence)?)|"
@@ -165,27 +155,12 @@ _REF_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Telebirr specific reference pattern (e.g. DIG0SAVPRY, DIH0TF0X58)
 _TELEBIRR_REF_RE = re.compile(r"\b(DI[A-Z0-9]{8})\b", re.IGNORECASE)
-
-# CBE Mobile Banking FT reference pattern (e.g. FT2412345678, FT25...)
 _CBE_FT_REF_RE = re.compile(r"\b(FT[0-9A-Z]{8,16})\b", re.IGNORECASE)
-
-# Telebirr official receipt URL pattern
 _RECEIPT_URL_RE = re.compile(
     r"https?://(?:transactioninfo\.ethiotelecom\.et/receipt/|telebirr[^\s]*/receipt/)([A-Za-z0-9_\-]+)",
     re.IGNORECASE,
 )
-
-# Reference with inline amount, e.g. "DIH3TFMD7H 100", "DIH3TFMD7H amount: 100", "100 ETB DIH3TFMD7H"
-_REF_WITH_AMOUNT_RE = re.compile(
-    r"(?:^|\s)(?:ref(?:erence)?|txn?\s*(?:id)?|id|የግብይት\s*ቁጥር)?\s*[:#]?\s*([A-Za-z0-9_\-]{6,30})"
-    r"\s+(?:መጠን\s*[:#]?\s*|amount\s*[:#]?\s*|etb\s*|ብር\s*|birr\s*)?(\d+(?:\.\d{1,2})?)(?:\s*(?:etb|ብር|birr))?"
-    r"|(?:መጠን\s*[:#]?\s*|amount\s*[:#]?\s*|etb\s*|ብር\s*|birr\s*)?(\d+(?:\.\d{1,2})?)(?:\s*(?:etb|ብር|birr))?"
-    r"\s+(?:ref(?:erence)?|txn?\s*(?:id)?|id|የግብይት\s*ቁጥር)?\s*[:#]?\s*([A-Za-z0-9_\-]{6,30})",
-    re.IGNORECASE,
-)
-
 _DIGIT_RUN_RE = re.compile(r"(?<!\d)(\d{9,16})(?!\d)")
 
 
@@ -213,16 +188,15 @@ def extract_reference_and_url(text: str) -> tuple[str | None, str | None, float 
         url = url_m.group(0).strip()
         return ref, url, None
 
-    # 2. Check for reference + amount format (e.g. "DIH3TFMD7H 10")
-    amt_m = _REF_WITH_AMOUNT_RE.search(clean)
-    if amt_m:
-        g1, g2, g3, g4 = amt_m.groups()
-        if g1 and g2:
-            return g1.strip(), None, float(g2)
-        elif g3 and g4:
-            return g4.strip(), None, float(g3)
+    # 2. Check for bare Telebirr or CBE reference
+    tb_m = _TELEBIRR_REF_RE.search(clean)
+    if tb_m:
+        return tb_m.group(1).strip(), None, None
 
-    # 3. Check for bare reference
+    ft_m = _CBE_FT_REF_RE.search(clean)
+    if ft_m:
+        return ft_m.group(1).strip(), None, None
+
     if re.match(r"^[A-Za-z0-9_\-]{6,30}$", clean):
         return clean, None, None
 
@@ -230,9 +204,7 @@ def extract_reference_and_url(text: str) -> tuple[str | None, str | None, float 
 
 
 async def fetch_telebirr_receipt(ref_or_url: str) -> dict | None:
-    """Fetch live receipt details from Ethio Telecom's public receipt endpoint."""
-    import httpx
-
+    """Fetch and parse live receipt details from Ethio Telecom's public receipt endpoint."""
     ref, url, _ = extract_reference_and_url(ref_or_url)
     txn_id = ref or ref_or_url.strip()
     if not txn_id or not re.match(r"^[A-Za-z0-9_\-]{6,30}$", txn_id):
@@ -245,7 +217,15 @@ async def fetch_telebirr_receipt(ref_or_url: str) -> dict | None:
             if resp.status_code == 200 and "telebirr receipt" in resp.text:
                 html = resp.text
 
-                # Extract Settled Amount in Birr
+                # Parse structured table fields
+                payer_name = ""
+                payer_no = ""
+                credited_party = ""
+                bank_account = ""
+                status = "completed"
+                settled_amount = None
+
+                # Extract Settled Amount
                 amt_match = re.search(
                     r"Settled Amount.*?(\d+(?:\.\d{1,2})?)\s*Birr",
                     html,
@@ -253,54 +233,162 @@ async def fetch_telebirr_receipt(ref_or_url: str) -> dict | None:
                 )
                 if not amt_match:
                     amt_match = re.search(r"(\d+(?:\.\d{1,2})?)\s*Birr", html, re.IGNORECASE)
-                amount = float(amt_match.group(1)) if amt_match else None
+                if amt_match:
+                    settled_amount = float(amt_match.group(1))
 
-                # Extract reference
+                # Extract Payer Name & Number
+                payer_m = re.search(r"Payer Name.*?<td[^>]*>(.*?)</td>", html, re.DOTALL | re.IGNORECASE)
+                if payer_m:
+                    payer_name = re.sub(r"<[^>]+>", "", payer_m.group(1)).strip()
+
+                payer_no_m = re.search(r"Payer telebirr no\..*?<td[^>]*>(.*?)</td>", html, re.DOTALL | re.IGNORECASE)
+                if payer_no_m:
+                    payer_no = re.sub(r"<[^>]+>", "", payer_no_m.group(1)).strip()
+
+                # Extract Credited Party / Bank Account
+                cred_m = re.search(r"Credited Party name.*?<td[^>]*>(.*?)</td>", html, re.DOTALL | re.IGNORECASE)
+                if cred_m:
+                    credited_party = re.sub(r"<[^>]+>", "", cred_m.group(1)).strip()
+
+                bank_m = re.search(r"Bank account number.*?<td[^>]*>(.*?)</td>", html, re.DOTALL | re.IGNORECASE)
+                if bank_m:
+                    bank_account = re.sub(r"<[^>]+>", "", bank_m.group(1)).strip()
+
+                # Extract Reference ID
                 ref_m = re.search(r"\b(DI[A-Z0-9]{8})\b", html, re.IGNORECASE)
                 final_ref = ref_m.group(1) if ref_m else txn_id
 
-                # Extract payer name
-                payer_m = re.search(r"Payer Name.*?<td[^>]*>(.*?)</td>", html, re.DOTALL | re.IGNORECASE)
-                payer = payer_m.group(1).strip() if payer_m else None
-
                 return {
-                    "amount": amount,
+                    "amount": settled_amount,
                     "reference": final_ref,
-                    "payer": payer,
-                    "status": "completed",
+                    "payer_name": payer_name,
+                    "payer_no": payer_no,
+                    "credited_party": credited_party,
+                    "bank_account": bank_account,
+                    "status": status,
                     "url": target_url,
                 }
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Error fetching live telebirr receipt %s: %s", target_url, exc)
     return None
 
 
-def verify_recipient_match(text: str, expected_method: str | None = None) -> tuple[bool, str | None]:
-    """Check if the SMS or receipt specifies an official EtooBingo account as the receiver.
+def extract_directional_accounts(text: str) -> dict[str, str | None]:
+    """Extract sender and receiver accounts / phone numbers using directional patterns."""
+    sender_account = None
+    receiver_account = None
+    receiver_phone = None
 
-    Returns (is_match, matched_method_key).
+    # Sender extraction: e.g. "from your telebirr account 251963572327"
+    sender_m = re.search(
+        r"(?:from\s*(?:your)?\s*(?:telebirr|cbebirr|cbe|bank)?\s*(?:account)?|ከ(?:\s*የእርስዎ|\s*ቴሌብር|\s*ሲቢኢ|\s*ባንክ)?\s*(?:አካውንትዎ?|ቁጥር)?)\s*[:#]?\s*(\+?251\d{9}|09\d{8}|07\d{8}|\d{10,16})",
+        text,
+        re.IGNORECASE,
+    )
+    if sender_m:
+        sender_account = sender_m.group(1).strip()
+
+    # Receiver bank account: e.g. "to Commercial Bank of Ethiopia account number 1000418895067"
+    to_acc_m = re.search(
+        r"(?:to|ወደ)\s*(?:commercial\s*bank(?:\s*of\s*ethiopia)?|cbe|telebirr|cbebirr|ንግድ\s*ባንክ)?\s*(?:account\s*(?:number|no)?|አካውንት\s*(?:ቁጥር)?|a/c)\s*[:#]?\s*(\d{10,16})",
+        text,
+        re.IGNORECASE,
+    )
+    if to_acc_m:
+        receiver_account = to_acc_m.group(1).strip()
+
+    # Receiver phone: e.g. "transferred to 0963572327"
+    to_phone_m = re.search(
+        r"(?:to|ወደ)\s*(?:(?:phone|ስልክ|ቁጥር|account)\s*[:#]?\s*)?(\+?251\d{9}|09\d{8}|07\d{8})",
+        text,
+        re.IGNORECASE,
+    )
+    if to_phone_m:
+        receiver_phone = to_phone_m.group(1).strip()
+
+    return {
+        "sender": sender_account,
+        "receiver_account": receiver_account,
+        "receiver_phone": receiver_phone,
+    }
+
+
+def verify_directional_match(text: str, expected_method: str | None = None) -> tuple[bool, str | None, str | None]:
+    """Verify that the SMS is an INCOMING transfer TO one of our official accounts.
+
+    Returns (is_valid, matched_method, rejection_reason).
     """
     clean_text = text.lower()
-    clean_text_no_space = re.sub(r"[\s\W_]+", "", clean_text)
+    directional = extract_directional_accounts(text)
 
-    # Check if a specific method was chosen
-    methods_to_check = [expected_method] if expected_method and expected_method in OFFICIAL_ACCOUNTS else list(OFFICIAL_ACCOUNTS.keys())
+    sender = directional["sender"]
+    receiver_acc = directional["receiver_account"]
+    receiver_phone = directional["receiver_phone"]
 
-    for method_key in methods_to_check:
-        acc = OFFICIAL_ACCOUNTS[method_key]
-        for kw in acc["keywords"]:
-            kw_clean = kw.lower()
-            if kw_clean in clean_text or kw_clean in clean_text_no_space:
-                return True, method_key
+    # 1. Check if the merchant's account is the SENDER (outgoing transfer)
+    merchant_telebirr_numbers = OFFICIAL_ACCOUNTS["telebirr"]["valid_numbers"]
+    merchant_cbebirr_numbers = OFFICIAL_ACCOUNTS["cbebirr"]["valid_numbers"]
+    merchant_bank_accounts = OFFICIAL_ACCOUNTS["cbe_bank"]["valid_accounts"]
 
-    # Check all official accounts if expected_method didn't match directly
-    for method_key, acc in OFFICIAL_ACCOUNTS.items():
-        for kw in acc["keywords"]:
-            kw_clean = kw.lower()
-            if kw_clean in clean_text or kw_clean in clean_text_no_space:
-                return True, method_key
+    is_sender_merchant = (
+        (sender and any(num in sender for num in merchant_telebirr_numbers))
+        or (sender and any(num in sender for num in merchant_cbebirr_numbers))
+        or (sender and any(acc in sender for acc in merchant_bank_accounts))
+    )
 
-    return False, None
+    # 2. Check destination / receiver
+    if receiver_acc:
+        # Check if the destination bank account matches our official CBE account
+        if any(acc == receiver_acc or acc in receiver_acc for acc in merchant_bank_accounts):
+            return True, "cbe_bank", None
+        else:
+            # Transfer was explicitly sent to someone else's bank account!
+            return (
+                False,
+                None,
+                f"ክፍያው የተላከው ወደ ሌላ የባንክ አካውንት ({receiver_acc}) ነው! እባክዎ ወደ EtooBingo ይፋዊ አካውንት (1000413343538 - Natnael Temesegen) ያስተላለፉበትን የ SMS መልዕክት ያስገቡ።",
+            )
+
+    if receiver_phone:
+        # Check if the destination phone matches our official Telebirr or CBE Birr
+        if any(num == receiver_phone or num in receiver_phone for num in merchant_telebirr_numbers):
+            return True, "telebirr", None
+        elif any(num == receiver_phone or num in receiver_phone for num in merchant_cbebirr_numbers):
+            return True, "cbebirr", None
+        else:
+            # Transfer was sent to someone else's phone!
+            return (
+                False,
+                None,
+                f"ክፍያው የተላከው ወደ ሌላ ስልክ ቁጥር ({receiver_phone}) ነው! እባክዎ ወደ EtooBingo ይፋዊ አካውንት ያስተላለፉበትን የ SMS መልዕክት ያስገቡ።",
+            )
+
+    # If merchant was the sender and no valid receiver was found, reject as outgoing
+    if is_sender_merchant:
+        return (
+            False,
+            None,
+            "ይህ መልዕክት ከ EtooBingo አካውንት ወደ ሌላ ሰው የተደረገ ወጪ ዝውውር (Outgoing Transfer) ነው! እባክዎ ወደ EtooBingo የተላከበትን የገቢ SMS ያስገቡ።",
+        )
+
+    # Fallback to name/keyword check if explicit directional patterns weren't present
+    # Check CBE Bank
+    if any(acc in clean_text for acc in merchant_bank_accounts) and any(n in clean_text for n in OFFICIAL_ACCOUNTS["cbe_bank"]["valid_names"]):
+        return True, "cbe_bank", None
+
+    # Check Telebirr
+    if any(num in clean_text for num in merchant_telebirr_numbers) and any(n in clean_text for n in OFFICIAL_ACCOUNTS["telebirr"]["valid_names"]):
+        return True, "telebirr", None
+
+    # Check CBE Birr
+    if any(num in clean_text for num in merchant_cbebirr_numbers) and any(n in clean_text for n in OFFICIAL_ACCOUNTS["cbebirr"]["valid_names"]):
+        return True, "cbebirr", None
+
+    return (
+        False,
+        None,
+        "ክፍያው ወደ EtooBingo ይፋዊ አካውንቶች መላኩን ማረጋገጥ አልተቻለም። እባክዎ ወደ አንዱ ይፋዊ አካውንት ያስተላለፉበትን ሙሉ የ SMS መልዕክት ያስገቡ።",
+    )
 
 
 def is_package_or_service_sms(text: str) -> bool:
@@ -375,17 +463,7 @@ async def verify_deposit_submission(
     expected_method: str | None = None,
     explicit_amount: float | None = None,
 ) -> dict:
-    """Comprehensive multi-layer verification of a deposit submission.
-
-    Returns dict with:
-    - valid (bool)
-    - amount (float or None)
-    - reference (str or None)
-    - method (str or None)
-    - fingerprint (str)
-    - error_type (str or None)
-    - error_message (str or None)
-    """
+    """Comprehensive multi-layer verification of a deposit submission."""
     if not raw_text or not raw_text.strip():
         return {
             "valid": False,
@@ -415,17 +493,46 @@ async def verify_deposit_submission(
             "error_message": "❌ ይህ የግብይት መልዕክት ያልተሳካ ወይም የተሰረዘ ዝውውር ያሳያል። እባክዎ የተሳካ የክፍያ SMS ይላኩ።",
         }
 
-    # 3. Check for receipt URL or token online check
+    # 3. Check for receipt URL or token live lookup on Ethio Telecom portal
     ref, url, inline_amt = extract_reference_and_url(clean_text)
     amount = explicit_amount or inline_amt
     reference = ref
 
-    # Attempt live Telebirr receipt lookup if link or token is provided
-    if (url or (ref and _TELEBIRR_REF_RE.match(ref))) and not amount:
+    if url or (ref and _TELEBIRR_REF_RE.match(ref)):
         fetched = await fetch_telebirr_receipt(url or ref or "")
-        if fetched and fetched.get("amount") and fetched.get("status") == "completed":
-            amount = fetched["amount"]
-            reference = fetched.get("reference") or reference
+        if fetched:
+            # Validate receiver on the live Ethio Telecom receipt
+            bank_account = fetched.get("bank_account", "")
+            credited_party = fetched.get("credited_party", "")
+            payer_name = fetched.get("payer_name", "")
+
+            # If it's a transfer to bank on Ethio Telecom portal
+            if bank_account:
+                merchant_bank_accounts = OFFICIAL_ACCOUNTS["cbe_bank"]["valid_accounts"]
+                is_our_bank = any(acc in bank_account for acc in merchant_bank_accounts)
+                if not is_our_bank:
+                    return {
+                        "valid": False,
+                        "error_type": "recipient_mismatch",
+                        "error_message": (
+                            f"❌ *ክፍያው የተላከው ወደ ሌላ የባንክ አካውንት ({bank_account}) ነው!*\n\n"
+                            "እባክዎ ወደ EtooBingo ይፋዊ አካውንት ያስተላለፉበትን የክፍያ ማስረጃ ያስገቡ:\n"
+                            "• 🏦 *CBE Bank:* `1000413343538` (Natnael Temesegen)"
+                        ),
+                    }
+
+            # If Payer is Habtamu and Credited Party is someone else
+            if "habtamu" in payer_name.lower() and not any(acc in bank_account for acc in OFFICIAL_ACCOUNTS["cbe_bank"]["valid_accounts"]):
+                if not any(n in credited_party.lower() for n in OFFICIAL_ACCOUNTS["telebirr"]["valid_names"]):
+                    return {
+                        "valid": False,
+                        "error_type": "outgoing_from_merchant",
+                        "error_message": "❌ ይህ የደረሰኝ ማስረጃ ከ EtooBingo አካውንት ወደ ሌላ ሰው የተደረገ ወጪ ዝውውር ነው!",
+                    }
+
+            if fetched.get("amount"):
+                amount = fetched["amount"]
+                reference = fetched.get("reference") or reference
 
     # 4. Extract amount and reference from full text if not yet found
     if not amount or not reference:
@@ -442,23 +549,24 @@ async def verify_deposit_submission(
             "error_message": "❌ ትክክለኛ የግብይት መለያ ቁጥር (Transaction ID / Ref) ማግኘት አልተቻለም። እባክዎ ሙሉውን SMS ይላኩ።",
         }
 
-    # 5. Check Recipient Account Match (Must be to our official accounts)
-    # If full SMS text was pasted (> 35 characters)
-    is_match, matched_method = verify_recipient_match(clean_text, expected_method)
-    if len(clean_text) > 35 and not is_match:
-        return {
-            "valid": False,
-            "error_type": "recipient_mismatch",
-            "error_message": (
-                "❌ *ክፍያው የተላከው ወደ ሌላ ሰው አካውንት ነው!*\n\n"
-                "እባክዎ ወደ EtooBingo ይፋዊ አካውንት ያስተላለፉበትን የ SMS መልዕክት ይላኩ:\n"
-                "• 🔵 *Telebirr:* `0963572327` (Habtamu Melese)\n"
-                "• 🟢 *CBE Birr:* `0934920411` (Natnael Temesegen)\n"
-                "• 🏦 *CBE Bank:* `1000413343538` (Natnael Temesegen)"
-            ),
-        }
-
-    detected_method = matched_method or expected_method or "telebirr"
+    # 5. Check Directional Recipient Account Match (Full SMS text pasted)
+    if len(clean_text) > 35:
+        is_valid_dest, matched_method, reject_reason = verify_directional_match(clean_text, expected_method)
+        if not is_valid_dest:
+            return {
+                "valid": False,
+                "error_type": "recipient_mismatch",
+                "error_message": (
+                    f"❌ *{reject_reason}*\n\n"
+                    "ይፋዊ የ EtooBingo አካውንቶች:\n"
+                    "• 🔵 *Telebirr:* `0963572327` (Habtamu Melese)\n"
+                    "• 🟢 *CBE Birr:* `0934920411` (Natnael Temesegen)\n"
+                    "• 🏦 *CBE Bank:* `1000413343538` (Natnael Temesegen)"
+                ),
+            }
+        detected_method = matched_method or expected_method or "telebirr"
+    else:
+        detected_method = expected_method or "telebirr"
 
     if amount is None or amount <= 0:
         return {
