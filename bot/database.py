@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT,
     first_name TEXT,
     balance REAL NOT NULL DEFAULT 0.0,
-    registered_at TEXT NOT NULL DEFAULT (datetime('now'))
+    registered_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 """
 
@@ -160,6 +161,19 @@ async def close_db() -> None:
         _db_conn = None
 
 
+async def _ensure_user_metadata(db: aiosqlite.Connection) -> None:
+    """Upgrade existing databases without losing previously registered users."""
+    async with db.execute("PRAGMA table_info(users)") as cursor:
+        columns = {row[1] for row in await cursor.fetchall()}
+    if "updated_at" not in columns:
+        await db.execute(
+            "ALTER TABLE users ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''"
+        )
+        await db.execute(
+            "UPDATE users SET updated_at = registered_at WHERE updated_at = ''"
+        )
+        await db.commit()
+
 async def _ensure_transaction_fingerprint(db: aiosqlite.Connection) -> None:
     """Add the fingerprint column (dedup key for auto-approved deposits)."""
     async with db.execute("PRAGMA table_info(transactions)") as cursor:
@@ -176,6 +190,7 @@ async def init_db() -> None:
     db = await get_db()
     async with _write_lock:
         await db.execute(CREATE_USERS)
+        await _ensure_user_metadata(db)
         await db.execute(CREATE_TRANSACTIONS)
         await db.execute(CREATE_TELEBIRR_ORDERS)
         await db.execute(CREATE_PEERPAY_EVENTS)
@@ -218,6 +233,11 @@ async def create_user(
             """
             INSERT INTO users (telegram_id, phone_number, username, first_name)
             VALUES (?, ?, ?, ?)
+            ON CONFLICT(telegram_id) DO UPDATE SET
+                phone_number = excluded.phone_number,
+                username = COALESCE(excluded.username, users.username),
+                first_name = COALESCE(excluded.first_name, users.first_name),
+                updated_at = datetime('now')
             """,
             (telegram_id, phone_number, username, first_name),
         )
