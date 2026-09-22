@@ -74,6 +74,26 @@ CREATE TABLE IF NOT EXISTS peerpay_deposits (
 );
 """
 
+# Checkout credentials are deliberately kept server-side.  A Telegram/Mini App
+# client may know a public checkout URL, but it must never be able to attach a
+# receipt to an arbitrary order by supplying a URL of its choosing.
+CREATE_PEERPAY_DEPOSIT_CHECKOUTS = """
+CREATE TABLE IF NOT EXISTS peerpay_deposit_checkouts (
+    payment_id        TEXT PRIMARY KEY,
+    telegram_id       INTEGER NOT NULL,
+    merchant_order_id TEXT,
+    checkout_url      TEXT NOT NULL,
+    payment_method    TEXT NOT NULL,
+    amount            REAL,
+    reference         TEXT UNIQUE,
+    status            TEXT NOT NULL DEFAULT 'awaiting_transfer',
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (payment_id) REFERENCES peerpay_deposits(payment_id),
+    FOREIGN KEY (telegram_id) REFERENCES users(telegram_id)
+);
+"""
+
 CREATE_PEERPAY_WITHDRAWALS = """
 CREATE TABLE IF NOT EXISTS peerpay_withdrawals (
     payment_id    TEXT PRIMARY KEY,
@@ -119,6 +139,7 @@ CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(telegram_id, created_at DESC);",
     "CREATE INDEX IF NOT EXISTS idx_transactions_fingerprint ON transactions(type, fingerprint) WHERE fingerprint IS NOT NULL;",
     "CREATE INDEX IF NOT EXISTS idx_peerpay_deposits_user ON peerpay_deposits(telegram_id);",
+    "CREATE INDEX IF NOT EXISTS idx_peerpay_deposit_checkouts_user ON peerpay_deposit_checkouts(telegram_id);",
     "CREATE INDEX IF NOT EXISTS idx_peerpay_withdrawals_user ON peerpay_withdrawals(telegram_id);",
 ]
 
@@ -195,6 +216,7 @@ async def init_db() -> None:
         await db.execute(CREATE_TELEBIRR_ORDERS)
         await db.execute(CREATE_PEERPAY_EVENTS)
         await db.execute(CREATE_PEERPAY_DEPOSITS)
+        await db.execute(CREATE_PEERPAY_DEPOSIT_CHECKOUTS)
         await db.execute(CREATE_PEERPAY_WITHDRAWALS)
         await db.execute(CREATE_HOUSE_REVENUE)
         await db.execute(CREATE_ACTIVE_ROUNDS)
@@ -596,6 +618,113 @@ async def get_peerpay_deposit(payment_id: str) -> dict | None:
         return dict(row) if row else None
 
 
+async def create_peerpay_deposit_checkout(
+    payment_id: str,
+    telegram_id: int,
+    merchant_order_id: str | None,
+    checkout_url: str,
+    payment_method: str,
+    amount: float | None,
+    status: str = "awaiting_transfer",
+) -> None:
+    """Persist the server-created checkout that owns a future receipt."""
+    db = await get_db()
+    async with _write_lock:
+        await db.execute(
+            """
+            INSERT INTO peerpay_deposit_checkouts
+                (payment_id, telegram_id, merchant_order_id, checkout_url, payment_method, amount, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(payment_id) DO UPDATE SET
+                checkout_url = excluded.checkout_url,
+                payment_method = excluded.payment_method,
+                amount = excluded.amount,
+                status = excluded.status,
+                updated_at = datetime('now')
+            """,
+            (payment_id, telegram_id, merchant_order_id, checkout_url, payment_method, amount, status),
+        )
+        await db.commit()
+
+
+async def get_peerpay_deposit_checkout(payment_id: str, telegram_id: int) -> dict | None:
+    """Return a checkout only to the Telegram account that created it."""
+    db = await get_db()
+    async with db.execute(
+        """
+        SELECT * FROM peerpay_deposit_checkouts
+        WHERE payment_id = ? AND telegram_id = ?
+        """,
+        (payment_id, telegram_id),
+    ) as cursor:
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def reserve_peerpay_deposit_reference(
+    payment_id: str, telegram_id: int, reference: str
+) -> tuple[bool, str]:
+    """Atomically bind one provider reference to one user-owned checkout.
+
+    The UNIQUE column blocks reuse across every checkout, while the update
+    condition prevents a second in-flight submission on the same checkout.
+    """
+    db = await get_db()
+    async with _write_lock:
+        try:
+            cursor = await db.execute(
+                """
+                UPDATE peerpay_deposit_checkouts
+                SET reference = ?, status = 'reference_submitted', updated_at = datetime('now')
+                WHERE payment_id = ? AND telegram_id = ?
+                  AND reference IS NULL
+                  AND status NOT IN ('succeeded', 'failed', 'expired', 'cancelled')
+                """,
+                (reference, payment_id, telegram_id),
+            )
+        except aiosqlite.IntegrityError:
+            await db.rollback()
+            return False, "This transaction ID has already been submitted."
+        await db.commit()
+        if cursor.rowcount:
+            return True, ""
+        async with db.execute(
+            "SELECT reference, status FROM peerpay_deposit_checkouts WHERE payment_id = ? AND telegram_id = ?",
+            (payment_id, telegram_id),
+        ) as existing_cursor:
+            existing = await existing_cursor.fetchone()
+        if existing is None:
+            return False, "This payment order does not belong to the current user."
+        if existing["reference"]:
+            return False, "A transaction ID is already being verified for this payment order."
+        return False, "This payment order is closed. Start a new deposit."
+
+
+async def set_peerpay_deposit_checkout_status(payment_id: str, status: str) -> None:
+    db = await get_db()
+    async with _write_lock:
+        await db.execute(
+            "UPDATE peerpay_deposit_checkouts SET status = ?, updated_at = datetime('now') WHERE payment_id = ?",
+            (status, payment_id),
+        )
+        await db.commit()
+
+
+async def release_peerpay_deposit_reference(payment_id: str, reference: str) -> None:
+    """Allow a new reference only after PeerPay has explicitly rejected this one."""
+    db = await get_db()
+    async with _write_lock:
+        await db.execute(
+            """
+            UPDATE peerpay_deposit_checkouts
+            SET reference = NULL, status = 'awaiting_transfer', updated_at = datetime('now')
+            WHERE payment_id = ? AND reference = ? AND status = 'reference_submitted'
+            """,
+            (payment_id, reference),
+        )
+        await db.commit()
+
+
 async def credit_peerpay_deposit_once(
     payment_id: str,
     telegram_id: int,
@@ -680,6 +809,50 @@ async def create_peerpay_withdrawal_hold(
             (payment_id, telegram_id, amount, status, decision_code),
         )
         await db.commit()
+
+
+async def reserve_peerpay_withdrawal_hold(
+    payment_id: str,
+    telegram_id: int,
+    amount: float,
+    status: str = "created",
+) -> tuple[bool, float]:
+    """Atomically reserve a local wallet balance for a real PeerPay request."""
+    db = await get_db()
+    async with _write_lock:
+        async with db.execute(
+            "SELECT balance FROM users WHERE telegram_id = ?", (telegram_id,)
+        ) as cursor:
+            user = await cursor.fetchone()
+        if not user or float(user["balance"]) < amount:
+            return False, float(user["balance"]) if user else 0.0
+
+        cursor = await db.execute(
+            """
+            INSERT OR IGNORE INTO peerpay_withdrawals
+                (payment_id, telegram_id, amount, status)
+            VALUES (?, ?, ?, ?)
+            """,
+            (payment_id, telegram_id, amount, status),
+        )
+        if not cursor.rowcount:
+            await db.commit()
+            return True, float(user["balance"])
+
+        new_balance = round(float(user["balance"]) - amount, 2)
+        await db.execute(
+            "UPDATE users SET balance = ?, updated_at = datetime('now') WHERE telegram_id = ?",
+            (new_balance, telegram_id),
+        )
+        await db.execute(
+            """
+            INSERT INTO transactions (telegram_id, type, amount, status, description)
+            VALUES (?, 'withdraw', ?, 'pending', ?)
+            """,
+            (telegram_id, amount, f"PeerPay withdrawal hold — {payment_id}"),
+        )
+        await db.commit()
+        return True, new_balance
 
 
 async def get_peerpay_withdrawal(payment_id: str) -> dict | None:

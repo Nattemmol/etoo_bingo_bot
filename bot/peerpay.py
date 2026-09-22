@@ -43,8 +43,11 @@ def verify_peerpay_signature(
     - bare 64-character hex string
     """
     if not secret:
-        logger.info("PeerPay webhook signature check skipped (no PEERPAY_WEBHOOK_SECRET).")
-        return True
+        # A missing secret is a deployment error, never an invitation to accept
+        # a forged financial webhook.  Configure PEERPAY_WEBHOOK_SECRET before
+        # enabling live payment traffic.
+        logger.error("PeerPay webhook rejected: PEERPAY_WEBHOOK_SECRET is not configured.")
+        return False
 
     if not signature_header:
         return False
@@ -95,8 +98,6 @@ def verify_peerpay_signature(
             pass
 
     keys_to_try: list[bytes] = [secret.encode("utf-8") if isinstance(secret, str) else secret]
-    if settings.peerpay_api_key and settings.peerpay_api_key != secret:
-        keys_to_try.append(settings.peerpay_api_key.encode("utf-8"))
 
     for key in keys_to_try:
         for msg_bytes in messages_to_try:

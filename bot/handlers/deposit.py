@@ -1,16 +1,20 @@
 """Deposit handling with PeerPayment.org integration and SMS receipt parsing."""
 
 import logging
+import uuid
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from bot import database as db
 from bot import messages as msg
+from bot.config import settings
 from bot.handlers.menu import require_registration
-from bot.keyboards import deposit_method_keyboard
-from bot.sms_parser import verify_deposit_submission
+from bot.keyboards import deposit_method_keyboard, peerpay_pay_keyboard
+from bot.peerpay import PeerPayClient
+from bot.sms_parser import extract_reference_and_url
 
 logger = logging.getLogger(__name__)
+peerpay_client = PeerPayClient()
 
 
 async def deposit_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -37,22 +41,42 @@ async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     data = query.data or ""
     if data == "deposit_telebirr":
         context.user_data["selected_deposit_method"] = "telebirr"
-        await query.message.reply_text(
-            msg.TELEBIRR_DEPOSIT_INSTRUCTIONS,
-            parse_mode="Markdown",
-        )
+        method = "telebirr"
     elif data == "deposit_cbebirr":
         context.user_data["selected_deposit_method"] = "cbebirr"
-        await query.message.reply_text(
-            msg.CBE_DEPOSIT_INSTRUCTIONS,
-            parse_mode="Markdown",
-        )
+        method = "cbebirr"
     elif data == "deposit_cbe_bank":
         context.user_data["selected_deposit_method"] = "cbe_bank"
-        await query.message.reply_text(
-            msg.MOBILE_BANKING_DEPOSIT_INSTRUCTIONS,
-            parse_mode="Markdown",
+        method = "cbe"
+    else:
+        return
+
+    user = update.effective_user
+    if not user:
+        return
+    try:
+        # Dynamic checkout keeps payment/account assignment and receipt entry
+        # inside PeerPay; this bot never parses a receipt page as proof.
+        response = await peerpay_client.create_deposit(
+            merchant_customer_id=f"tg_{user.id}",
+            return_url=f"{settings.webapp_url}/deposits/return",
+            idempotency_key=f"bot-deposit-{user.id}-{uuid.uuid4().hex}",
         )
+        data = response.get("data") or {}
+        payment_id, checkout_url = data.get("id"), data.get("checkout_url")
+        if not payment_id or not checkout_url:
+            raise RuntimeError((response.get("error") or {}).get("message", "Checkout unavailable"))
+        await db.upsert_peerpay_deposit(payment_id, user.id, 0.0, "ETB", data.get("merchant_order_id"), data.get("status", "created"))
+        await db.create_peerpay_deposit_checkout(payment_id, user.id, data.get("merchant_order_id"), checkout_url, method, None, data.get("status", "awaiting_transfer"))
+        context.user_data["active_deposit_id"] = payment_id
+        context.user_data["active_deposit_method"] = method
+        await query.message.reply_text(
+            "🔒 *Secure payment checkout created*\n\nOpen the link below, choose the selected payment method, use the assigned receiving account, and submit your transaction ID or official receipt link there. Your balance changes only after PeerPay verifies it.",
+            reply_markup=peerpay_pay_keyboard(checkout_url), parse_mode="Markdown",
+        )
+    except Exception:
+        logger.exception("Could not create bot deposit checkout")
+        await query.message.reply_text("⚠️ Secure payment checkout is temporarily unavailable. Please try again shortly.")
 
 
 async def handle_sms_or_reference_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -71,58 +95,38 @@ async def handle_sms_or_reference_text(update: Update, context: ContextTypes.DEF
     if not user:
         return False
 
-    expected_method = context.user_data.get("selected_deposit_method")
-    verification = await verify_deposit_submission(raw_text, expected_method=expected_method)
-
-    if not verification["valid"]:
-        # If user just sent casual text without any payment keywords or references, ignore
-        if (
-            verification.get("error_type") == "missing_reference"
-            and len(raw_text) < 25
-            and not any(k in raw_text.lower() for k in ("birr", "etb", "ብር", "cbe", "telebirr", "ref", "txn", "ft"))
-        ):
-            return False
-
-        await update.message.reply_text(
-            verification["error_message"],
-            parse_mode="Markdown",
-        )
-        return True
+    user_data = context.user_data if context else {}
+    expected_method = user_data.get("active_deposit_method")
+    payment_id = user_data.get("active_deposit_id")
+    reference, _, _ = extract_reference_and_url(raw_text)
+    if not reference:
+        return False
 
     existing_user = await db.get_user(user.id)
     if not existing_user:
         await update.message.reply_text(msg.NOT_REGISTERED)
         return True
 
-    reference = verification["reference"]
-    amount = verification["amount"]
-    fp = verification["fingerprint"]
-
-    # Anti-duplicate checks (Check fingerprint and reference across transactions and deposits)
-    existing_tx = await db.get_deposit_by_fingerprint(fp)
-    if existing_tx:
-        await update.message.reply_text(
-            msg.DEPOSIT_REUSED.format(amount=existing_tx["amount"]),
-            parse_mode="Markdown",
-        )
+    if not payment_id or not expected_method:
+        await update.message.reply_text("Start a secure deposit checkout first, then submit the receipt inside that checkout.")
         return True
-
-    existing_dep = await db.get_peerpay_deposit(reference)
-    if existing_dep and existing_dep.get("credited"):
-        await update.message.reply_text(
-            msg.DEPOSIT_REUSED.format(amount=existing_dep["amount"]),
-            parse_mode="Markdown",
-        )
+    checkout = await db.get_peerpay_deposit_checkout(payment_id, user.id)
+    if not checkout:
+        await update.message.reply_text("That secure payment order is unavailable. Please start a new deposit.")
         return True
-
-    # A pasted receipt is evidence only; PeerPay must verify the provider-side
-    # transaction before the signed webhook credits the wallet.
-    await update.message.reply_text(
-        f"⏳ *የክፍያ ማረጋገጫ በመካሄድ ላይ ነው*\n\n"
-        f"📋 የማስረጃ ቁጥር: `{reference}`\n"
-        f"💰 መጠን: *{amount:.2f} ETB*\n\n"
-        "የሂሳብ ገቢ የሚደረገው በ PeerPay የባንክ/ዋሌት ማረጋገጫ ሲያልፍ ብቻ ነው።",
-        parse_mode="Markdown",
-    )
+    reserved, error = await db.reserve_peerpay_deposit_reference(payment_id, user.id, reference)
+    if not reserved:
+        await update.message.reply_text(error)
+        return True
+    try:
+        result = await peerpay_client.submit_deposit_reference(checkout["checkout_url"], reference, expected_method)
+    except Exception:
+        await update.message.reply_text("⏳ The transaction ID is being reconciled. Do not submit it again.")
+        return True
+    if result.get("error"):
+        await db.release_peerpay_deposit_reference(payment_id, reference)
+        await update.message.reply_text((result["error"] or {}).get("message", "Receipt was rejected. Use a new valid transaction ID."))
+        return True
+    await update.message.reply_text("⏳ Receipt submitted. PeerPay is verifying the receiver, amount, freshness, and one-time use. Your balance remains unchanged until verified success.")
     return True
 
