@@ -15,3 +15,7 @@
 - Wallet crediting remains exclusively in the signed `deposit.succeeded` / `deposit.manually_succeeded` webhook path, keyed idempotently by the PeerPayment deposit ID. Unsigned webhooks (including test deliveries) and deployments without `PEERPAY_WEBHOOK_SECRET` are rejected.
 - Withdrawals are now Telebirr-only. The server validates/normalizes the destination phone, creates a PeerPayment hosted confirmation, and atomically creates a reversible wallet hold only after the provider returns a real withdrawal ID. The hold is captured only on verified success and is released only on the documented terminal failure events.
 - Updated bot, Mini App, and regression tests. Verified with `python -m unittest tests.test_peerpay_full tests.test_registration_persistence` (14 passing tests).
+
+## 2026-09-22 — Checkout diagnostics
+
+- Replaced the bot's generic checkout failure message with safe, actionable PeerPayment setup feedback. It now distinguishes likely receiving-account routing, allowlisted return-domain, and API-key/scope failures without exposing credentials.

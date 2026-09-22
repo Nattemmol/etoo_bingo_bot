@@ -17,6 +17,21 @@ logger = logging.getLogger(__name__)
 peerpay_client = PeerPayClient()
 
 
+def _checkout_error_text(error: Exception) -> str:
+    """Turn known provider setup failures into safe, actionable bot feedback."""
+    detail = str(error).strip()
+    lowered = detail.lower()
+    if "routing" in lowered or "eligible account" in lowered:
+        return "No active PeerPayment receiving account is available for this payment method. Please ask the administrator to approve/activate one in the PeerPayment Workspace."
+    if "return" in lowered and "domain" in lowered:
+        return "The bot's return domain is not allowlisted in PeerPayment. Add the deployed WEBAPP_URL domain in PeerPayment Developer Controls."
+    if "unauthor" in lowered or "api key" in lowered or "scope" in lowered:
+        return "PeerPayment rejected the server API key. Confirm it is a live key with deposits:create and deposits:read scopes."
+    if detail and detail != "Checkout unavailable" and len(detail) <= 180:
+        return f"PeerPayment could not create this checkout: {detail}"
+    return "PeerPayment did not return a checkout. Confirm the live API key, allowed return domain, and active receiving account."
+
+
 async def deposit_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show deposit options or prompt to paste SMS receipt."""
     if not await require_registration(update):
@@ -74,9 +89,9 @@ async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             "🔒 *Secure payment checkout created*\n\nOpen the link below, choose the selected payment method, use the assigned receiving account, and submit your transaction ID or official receipt link there. Your balance changes only after PeerPay verifies it.",
             reply_markup=peerpay_pay_keyboard(checkout_url), parse_mode="Markdown",
         )
-    except Exception:
+    except Exception as exc:
         logger.exception("Could not create bot deposit checkout")
-        await query.message.reply_text("⚠️ Secure payment checkout is temporarily unavailable. Please try again shortly.")
+        await query.message.reply_text(f"⚠️ {_checkout_error_text(exc)}")
 
 
 async def handle_sms_or_reference_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
