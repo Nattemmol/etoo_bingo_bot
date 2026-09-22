@@ -7,3 +7,7 @@
 - Added a safe migration for existing databases so prior player records gain profile update metadata without being deleted.
 - Verified both repeat registration and legacy database migration with automated tests.
 - Production must keep `DATABASE_PATH=/data/goodbingo.db` on the configured Fly or Render persistent volume. A deployment using an ephemeral filesystem will lose all registrations after a restart.
+
+## 2026-09-22 — Payment checkout rollback
+
+- Reverted the server-side PeerPayment checkout rewrite after the live PeerPayment tenant rejected the configured return URL. No player records, balances, or database files were removed by the rollback.
