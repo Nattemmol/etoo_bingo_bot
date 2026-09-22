@@ -38,7 +38,11 @@ def withdraw_method_keyboard():
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("🔵 Telebirr (ቴሌብር)", callback_data="withdraw_telebirr")]]
+        [
+            [InlineKeyboardButton("🔵 Telebirr (ቴሌብር)", callback_data="withdraw_telebirr")],
+            [InlineKeyboardButton("🟢 CBE Birr (ሲቢኢ ብር)", callback_data="withdraw_cbebirr")],
+            [InlineKeyboardButton("🏦 Mobile Banking (ንግድ ባንክ)", callback_data="withdraw_cbe_bank")],
+        ]
     )
 
 

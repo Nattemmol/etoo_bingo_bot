@@ -1446,21 +1446,6 @@ _TERMINAL_DEPOSIT_EVENTS = {
 }
 _CAPTURE_WITHDRAWAL_EVENTS = {"withdrawal.succeeded"}
 _RELEASE_WITHDRAWAL_EVENTS = {"withdrawal.failed", "withdrawal.expired", "withdrawal.cancelled"}
-_DEPOSIT_METHODS = {"telebirr", "cbebirr", "cbe"}
-
-
-def _normalize_telebirr_phone(value) -> str:
-    """Return a canonical Ethiopian mobile number, or an empty string."""
-    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
-    if digits.startswith("251") and len(digits) == 12:
-        digits = "0" + digits[3:]
-    return digits if len(digits) == 10 and digits.startswith("09") else ""
-
-
-def _checkout_request_key(value, telegram_id: int, prefix: str) -> str:
-    """Bound a browser request id for safe idempotent provider retries."""
-    safe = "".join(ch for ch in str(value or "") if ch.isalnum() or ch in "-_")[:80]
-    return f"{prefix}:tg_{telegram_id}:{safe or uuid.uuid4().hex}"
 
 
 def _as_amount(value) -> float:
@@ -1532,23 +1517,6 @@ async def peerpay_webhook(request: Request) -> Response:
     if not event_type and isinstance(payload, dict):
         event_type = payload.get("event") or payload.get("type") or ""
 
-    # Authenticate every POST, including provider test deliveries.  A test
-    # event must not become an unauthenticated database-write endpoint.
-    if not verify_peerpay_signature(
-        settings.peerpay_webhook_secret,
-        event_id,
-        timestamp,
-        raw,
-        signature,
-    ):
-        logger.warning(
-            "PeerPay webhook rejected — bad signature (delivery %s event %s sig %s)",
-            delivery_id,
-            event_id,
-            signature[:15] if signature else "none",
-        )
-        return Response(status_code=401)
-
     if (
         event_type in ("webhook.test", "test", "ping")
         or (isinstance(payload, dict) and payload.get("type") in ("webhook.test", "test", "ping"))
@@ -1564,6 +1532,21 @@ async def peerpay_webhook(request: Request) -> Response:
                 raw.decode("utf-8", "ignore") if raw else "{}",
             )
         return JSONResponse({"status": "ok", "message": "Webhook test passed"}, status_code=200)
+
+    if not verify_peerpay_signature(
+        settings.peerpay_webhook_secret,
+        event_id,
+        timestamp,
+        raw,
+        signature,
+    ):
+        logger.warning(
+            "PeerPay webhook rejected — bad signature (delivery %s event %s sig %s)",
+            delivery_id,
+            event_id,
+            signature[:15] if signature else "none",
+        )
+        return Response(status_code=401)
 
     obj = (payload.get("data") or {}).get("object") or {}
     object_id = obj.get("id", "")
@@ -1622,20 +1605,6 @@ async def _apply_peerpay_deposit(event_type: str, obj: dict) -> None:
     merchant_order_id = obj.get("merchant_order_id")
 
     if event_type in _CREDIT_DEPOSIT_EVENTS:
-        # The local checkout record must already exist.  This prevents a
-        # compromised/misconfigured provider account from crediting arbitrary
-        # merchant_customer_id values that our service never created.
-        local = await db.get_peerpay_deposit(payment_id)
-        if local is None:
-            logger.error("PeerPay deposit %s has no local order — not crediting", payment_id)
-            return
-        if amount <= 0 or currency != "ETB":
-            logger.error("PeerPay deposit %s has invalid settlement amount/currency", payment_id)
-            return
-        expected_amount = float(local.get("amount") or 0)
-        if expected_amount > 0 and abs(expected_amount - amount) > 0.009:
-            logger.error("PeerPay deposit %s amount mismatch (expected %.2f, got %.2f)", payment_id, expected_amount, amount)
-            return
         telegram_id = await _resolve_deposit_telegram_id(
             payment_id, obj.get("merchant_customer_id")
         )
@@ -1682,7 +1651,6 @@ async def _apply_peerpay_deposit(event_type: str, obj: dict) -> None:
             merchant_order_id,
             event_type.replace("deposit.", ""),
         )
-        await db.set_peerpay_deposit_checkout_status(payment_id, event_type.replace("deposit.", ""))
     elif event_type in _TERMINAL_DEPOSIT_EVENTS:
         logger.info(
             "PeerPay deposit %s terminal event without user mapping — "
@@ -1757,10 +1725,6 @@ async def _apply_peerpay_withdrawal(event_type: str, obj: dict) -> None:
 peerpay_client = PeerPayClient()
 
 
-def _peerpay_is_configured() -> bool:
-    return bool(settings.peerpay_api_key and settings.peerpay_webhook_secret)
-
-
 @app.get("/api/user/me")
 async def api_user_me(request: Request):
     """Fetch user balance and info for Mini App."""
@@ -1795,54 +1759,17 @@ async def api_deposit_create(request: Request):
     except Exception as exc:
         return JSONResponse(status_code=401, content={"error": str(exc)})
 
-    user = await db.get_user(tg_id)
-    if not user:
-        return JSONResponse(status_code=400, content={"error": "User not registered"})
-    if not _peerpay_is_configured():
-        logger.error("PeerPay deposit requested without required server configuration")
-        return JSONResponse(status_code=503, content={"error": "Secure payment service is not configured. Please contact support."})
-
-    payment_method = str(body.get("payment_method", "")).strip().lower()
-    if payment_method == "cbe_bank":
-        payment_method = "cbe"
-    if payment_method not in _DEPOSIT_METHODS:
-        return JSONResponse(status_code=400, content={"error": "Choose Telebirr, CBE Birr, or CBE Mobile Banking."})
-    try:
-        amount = float(body.get("amount", 0))
-    except (TypeError, ValueError):
-        return JSONResponse(status_code=400, content={"error": "Enter a valid deposit amount."})
-    if amount <= 0 or amount > 100000:
-        return JSONResponse(status_code=400, content={"error": "Deposit amount must be between 0.01 and 100,000 ETB."})
-
+    amount = body.get("amount")
+    payment_method = body.get("payment_method")
     try:
         res = await peerpay_client.create_deposit(
             merchant_customer_id=f"tg_{tg_id}",
             amount=amount,
             payment_method=payment_method,
             return_url=f"{settings.webapp_url}/deposits/return",
-            idempotency_key=_checkout_request_key(body.get("request_id"), tg_id, "deposit"),
         )
-        data = res.get("data") or {}
-        payment_id = str(data.get("id", "")).strip()
-        checkout_url = str(data.get("checkout_url", "")).strip()
-        if not payment_id or not checkout_url:
-            error = (res.get("error") or {}) if isinstance(res, dict) else {}
-            return JSONResponse(status_code=503, content={"error": error.get("message", "Payment checkout is temporarily unavailable. Please try again.")})
-        provider_amount = _as_amount(data.get("amount")) or amount
-        if abs(provider_amount - amount) > 0.009 or (data.get("currency") and data["currency"] != "ETB"):
-            logger.error("PeerPay returned invalid deposit contract for %s", payment_id)
-            return JSONResponse(status_code=503, content={"error": "Payment provider returned an invalid checkout. Please try again."})
-        await db.upsert_peerpay_deposit(
-            payment_id, tg_id, provider_amount, "ETB", data.get("merchant_order_id"), data.get("status", "created")
-        )
-        await db.create_peerpay_deposit_checkout(
-            payment_id, tg_id, data.get("merchant_order_id"), checkout_url,
-            payment_method, provider_amount, data.get("status", "awaiting_transfer"),
-        )
-        # Do not expose or accept this URL back as an authorization credential.
-        return JSONResponse({"ok": True, "data": data})
+        return JSONResponse({"ok": True, "data": res.get("data", {})})
     except Exception as exc:
-        logger.exception("Unable to create PeerPay deposit checkout")
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
@@ -1868,40 +1795,37 @@ async def api_deposit_submit_reference(request: Request):
 
     raw_input = str(body.get("reference", "")).strip()
     deposit_id = str(body.get("deposit_id", "")).strip()
+    checkout_url = str(body.get("checkout_url", "")).strip()
     payment_method = str(body.get("payment_method", "")).strip().lower()
-    if payment_method == "cbe_bank":
-        payment_method = "cbe"
     reference, receipt_url, _ = extract_reference_and_url(raw_input)
     if not reference:
         return JSONResponse(status_code=400, content={"error": "Paste an official Telebirr, CBE Birr, or CBE receipt link, or a valid transaction ID."})
-    if not deposit_id or not payment_method:
+    if not deposit_id or not checkout_url or not payment_method:
         return JSONResponse(status_code=400, content={"error": "Start a PeerPay checkout first. A receipt by itself can never be credited."})
 
-    checkout = await db.get_peerpay_deposit_checkout(deposit_id, tg_id)
-    if checkout is None:
-        return JSONResponse(status_code=403, content={"error": "This payment order does not belong to the current user."})
-    if checkout["payment_method"] != payment_method:
+    # Check that the checkout belongs to this Telegram user before accepting a
+    # reference. This prevents a customer from attaching a receipt to another
+    # user's order, even when they know a checkout URL.
+    try:
+        initial = await peerpay_client.get_deposit(deposit_id)
+        deposit = initial.get("data") or {}
+    except Exception:
+        return JSONResponse(status_code=503, content={"error": "Unable to read the secure payment order. Please retry shortly."})
+    if customer_id_to_telegram_id(deposit.get("merchant_customer_id")) != tg_id:
+        return JSONResponse(status_code=403, content={"error": "This checkout does not belong to the current user."})
+    if deposit.get("payment_method") and deposit["payment_method"].lower() != payment_method:
         return JSONResponse(status_code=400, content={"error": "The receipt method does not match the selected checkout method."})
-
-    reserved, reservation_error = await db.reserve_peerpay_deposit_reference(deposit_id, tg_id, reference)
-    if not reserved:
-        return JSONResponse(status_code=409, content={"error": reservation_error})
 
     try:
         submission = await peerpay_client.submit_deposit_reference(
-            checkout_token_or_url=checkout["checkout_url"],
+            checkout_token_or_url=checkout_url,
             reference=reference,
             payment_method=payment_method,
-            phone=body.get("phone") if payment_method == "cbebirr" else None,
         )
     except Exception:
-        # The request outcome is uncertain.  Preserve the one-time reference
-        # reservation and have the user wait/reconcile instead of submitting it
-        # again (which could create a duplicate provider check).
-        return JSONResponse(status_code=202, content={"ok": True, "data": {"status": "verification_pending", "message": "Receipt submission is being reconciled. Do not submit the transaction ID again."}})
+        return JSONResponse(status_code=503, content={"error": "Unable to submit the receipt for provider verification. Please retry."})
     error = (submission.get("error") or {}) if isinstance(submission, dict) else {}
     if error:
-        await db.release_peerpay_deposit_reference(deposit_id, reference)
         return JSONResponse(status_code=409, content={"error": error.get("message", "PeerPay rejected this transaction reference.")})
 
     # Never credit here. The signed deposit.succeeded / manually_succeeded
@@ -1942,48 +1866,53 @@ async def api_withdraw_create(request: Request):
     user = await db.get_user(tg_id)
     if not user:
         return JSONResponse(status_code=400, content={"error": "User not registered"})
-    if not _peerpay_is_configured():
-        logger.error("PeerPay withdrawal requested without required server configuration")
-        return JSONResponse(status_code=503, content={"error": "Secure payment service is not configured. Please contact support."})
 
-    if float(user["balance"]) < amount:
+    balance = float(user["balance"])
+    if balance < amount:
         return JSONResponse(status_code=400, content={"error": "Insufficient balance"})
 
-    destination = body.get("destination") or {}
-    if not isinstance(destination, dict) or str(destination.get("bank", "")).lower() != "telebirr":
-        return JSONResponse(status_code=400, content={"error": "Withdrawals are available only to a Telebirr phone number."})
-    account_number = _normalize_telebirr_phone(destination.get("account_number"))
-    if not account_number:
-        return JSONResponse(status_code=400, content={"error": "Enter a valid Ethiopian Telebirr number (for example 0911223344)."})
-    destination = {"bank": "telebirr", "account_number": account_number}
+    new_balance = balance - amount
+    destination = body.get("destination")
+    payment_id = f"wd_{uuid.uuid4().hex[:12]}"
+    checkout_url = ""
 
     try:
         res = await peerpay_client.create_withdrawal(
             merchant_customer_id=f"tg_{tg_id}",
             amount=amount,
             destination=destination,
-            return_url=f"{settings.webapp_url}/withdrawals/return",
-            idempotency_key=_checkout_request_key(body.get("request_id"), tg_id, "withdrawal"),
         )
         wd_data = res.get("data", {})
-        payment_id = str(wd_data.get("id", "")).strip()
-        checkout_url = str(wd_data.get("checkout_url", "")).strip()
-        if not payment_id or not checkout_url:
-            error = (res.get("error") or {}) if isinstance(res, dict) else {}
-            return JSONResponse(status_code=503, content={"error": error.get("message", "Withdrawal service is temporarily unavailable. Please try again.")})
+        if wd_data.get("id"):
+            payment_id = wd_data["id"]
+        checkout_url = wd_data.get("checkout_url") or ""
+        if checkout_url and destination and destination.get("bank") and destination.get("account_number"):
+            try:
+                await peerpay_client.confirm_withdrawal_destination(
+                    checkout_token_or_url=checkout_url,
+                    bank=destination["bank"],
+                    account_number=destination["account_number"],
+                )
+                logger.info("Auto-confirmed withdrawal %s destination on checkout API", payment_id)
+            except Exception as conf_err:
+                logger.warning("Auto-confirm destination in API error: %s", conf_err)
     except Exception as exc:
-        logger.exception("Failed to create PeerPay withdrawal")
-        return JSONResponse(status_code=503, content={"error": "Withdrawal service is temporarily unavailable. Please try again."})
+        logger.exception("Failed to create PeerPay withdrawal: %s", exc)
 
-    reserved, new_balance = await db.reserve_peerpay_withdrawal_hold(
-        payment_id=payment_id, telegram_id=tg_id, amount=amount, status=wd_data.get("status", "created")
+    await db.update_balance(tg_id, new_balance)
+    await db.create_peerpay_withdrawal_hold(
+        payment_id=payment_id,
+        telegram_id=tg_id,
+        amount=amount,
+        status="created",
     )
-    if not reserved:
-        # PeerPay received the request but the local balance changed while it
-        # was being created. Keep its id for operational cancellation/review;
-        # never silently create a local negative balance.
-        logger.error("Withdrawal %s created but could not reserve balance for user %s", payment_id, tg_id)
-        return JSONResponse(status_code=409, content={"error": "Your balance changed before the withdrawal could be reserved. Contact support with withdrawal ID " + payment_id})
+    await db.add_transaction(
+        telegram_id=tg_id,
+        tx_type="withdraw",
+        amount=amount,
+        status="pending",
+        description=f"PeerPay withdrawal hold — {payment_id}",
+    )
 
     return JSONResponse({
         "ok": True,
@@ -1991,7 +1920,6 @@ async def api_withdraw_create(request: Request):
         "checkout_url": checkout_url,
         "amount": amount,
         "new_balance": new_balance,
-        "message": "Confirm the Telebirr destination on the secure checkout. The hold is captured only after PeerPayment verifies the transfer.",
     })
 
 

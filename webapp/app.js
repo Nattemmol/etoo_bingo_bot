@@ -254,6 +254,21 @@ document.querySelectorAll(".deposit-accounts-list .account-card").forEach((card)
   });
 });
 
+if (els.withdrawBankSelect) {
+  els.withdrawBankSelect.addEventListener("change", () => {
+    const val = els.withdrawBankSelect.value;
+    const label = document.getElementById("withdraw-account-label");
+    const input = els.withdrawAccountInput;
+    if (val === "cbe") {
+      if (label) label.textContent = "የ CBE (ንግድ ባንክ) አካውንት ቁጥር (13 ዲጂት):";
+      if (input) input.placeholder = "ለምሳሌ: 1000413343538";
+    } else {
+      if (label) label.textContent = "የስልክ ቁጥር (Telebirr / CBE Birr):";
+      if (input) input.placeholder = "ለምሳሌ: 0911223344";
+    }
+  });
+}
+
 if (els.btnSubmitDepositRef) {
   els.btnSubmitDepositRef.addEventListener("click", async () => {
     const ref = els.depositReferenceInput?.value?.trim();
@@ -279,7 +294,7 @@ if (els.btnSubmitDepositRef) {
       }
       const createResp = await fetch(apiUrl("/api/deposit/create"), {
         method: "POST", headers: { "Content-Type": "application/json", "X-Telegram-Init-Data": tg.initData || "" },
-        body: JSON.stringify({ amount: optAmt, payment_method: selectedDepositMethod, request_id: crypto.randomUUID(), init_data: tg.initData }),
+        body: JSON.stringify({ amount: optAmt, payment_method: selectedDepositMethod, init_data: tg.initData }),
       });
       const createData = await createResp.json();
       const checkout = createData.data || {};
@@ -304,6 +319,7 @@ if (els.btnSubmitDepositRef) {
         body: JSON.stringify({
           reference: ref,
           deposit_id: activeDepositCheckout.id,
+          checkout_url: activeDepositCheckout.url,
           payment_method: activeDepositCheckout.method,
           init_data: tg.initData,
         }),
@@ -338,7 +354,7 @@ if (els.btnSubmitDepositRef) {
 if (els.btnRequestWithdraw) {
   els.btnRequestWithdraw.addEventListener("click", async () => {
     const amt = parseFloat(els.withdrawAmountInput?.value || "0");
-    const bank = "telebirr";
+    const bank = els.withdrawBankSelect?.value || "telebirr";
     const acc = els.withdrawAccountInput?.value?.trim() || "";
 
     if (isNaN(amt) || amt < 10) {
@@ -384,7 +400,6 @@ if (els.btnRequestWithdraw) {
         body: JSON.stringify({
           amount: amt,
           destination: { bank: bank, account_number: acc },
-          request_id: crypto.randomUUID(),
           init_data: tg.initData,
         }),
       });
@@ -396,15 +411,10 @@ if (els.btnRequestWithdraw) {
         }
         if (els.withdrawStatusMsg) {
           els.withdrawStatusMsg.className = "wallet-status-msg success";
-          els.withdrawStatusMsg.textContent = "✅ " + (data.message || `የ ${amt.toFixed(2)} ETB ማውጣት ጥያቄ ተልኳል። የTelebirr መድረሻዎን በሚቀጥለው ደረጃ ያረጋግጡ።`);
+          els.withdrawStatusMsg.textContent = `✅ የ ${amt.toFixed(2)} ETB ማውጣት ጥያቄ ተልኳል! ገንዘቡ ሲላክ ይደርስዎታል።`;
         }
         if (els.withdrawAmountInput) els.withdrawAmountInput.value = "";
         if (els.withdrawAccountInput) els.withdrawAccountInput.value = "";
-        if (data.checkout_url) {
-          // The hosted page is the only place a withdrawal destination can be
-          // confirmed. A browser return is informational, never settlement.
-          window.location.href = data.checkout_url;
-        }
       } else {
         if (els.withdrawStatusMsg) {
           els.withdrawStatusMsg.className = "wallet-status-msg error";

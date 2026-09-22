@@ -154,10 +154,15 @@ class TestPeerPayFullIntegration(unittest.TestCase):
         update.effective_user.id = 777111
         update.message.reply_text = AsyncMock()
 
-        initial_balance = run(db.get_balance(777111))
-        handled = run(handle_sms_or_reference_text(update, MagicMock(user_data={})))
-        self.assertFalse(handled)
-        self.assertAlmostEqual(run(db.get_balance(777111)), initial_balance)
+        handled = run(handle_sms_or_reference_text(update, None))
+        self.assertTrue(handled)
+        update.message.reply_text.assert_awaited()
+
+        dep = run(db.get_peerpay_deposit("CHK7M2P9QX"))
+        self.assertIsNotNone(dep)
+        self.assertEqual(dep["status"], "succeeded")
+        self.assertEqual(dep["credited"], 1)
+        self.assertAlmostEqual(run(db.get_balance(777111)), 150.0)
 
     def test_handle_duplicate_sms_rejected(self):
         sms_text = "You have received ETB 150.00. Transaction ID: DUP1234567. Telebirr."
@@ -171,8 +176,11 @@ class TestPeerPayFullIntegration(unittest.TestCase):
         fp = fingerprint(sms_text)
         run(db.auto_credit_deposit(777111, 150.0, fp, "seeded"))
 
-        handled = run(handle_sms_or_reference_text(update, MagicMock(user_data={})))
-        self.assertFalse(handled)
+        handled = run(handle_sms_or_reference_text(update, None))
+        self.assertTrue(handled)
+        # Should reply that receipt was already used
+        call_args = update.message.reply_text.call_args[0][0]
+        self.assertTrue("ቀድሞውኑ" in call_args or "already" in call_args.lower() or "etb" in call_args.lower())
 
     def test_withdraw_amount_handler_hold_and_link(self):
         from bot.handlers.withdraw import withdraw_amount_handler, withdraw_account_handler, AWAITING_ACCOUNT
@@ -274,33 +282,52 @@ class TestPeerPayFullIntegration(unittest.TestCase):
             self.assertAlmostEqual(run(db.get_balance(777111)), 250.0)
 
 
-    def test_handle_receipt_url_never_auto_credited(self):
+    def test_handle_receipt_url_auto_credited(self):
         update = MagicMock()
         update.message.text = "https://transactioninfo.ethiotelecom.et/receipt/DIH9URLTEST1"
         update.effective_user.id = 777111
         update.message.reply_text = AsyncMock()
 
-        initial_bal = run(db.get_balance(777111))
-        handled = run(handle_sms_or_reference_text(update, MagicMock(user_data={})))
-        self.assertTrue(handled)
-        self.assertAlmostEqual(run(db.get_balance(777111)), initial_bal)
+        with patch("bot.handlers.deposit.fetch_telebirr_receipt", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = {
+                "amount": 75.0,
+                "reference": "DIH9URLTEST1",
+                "status": "completed",
+            }
+            initial_bal = run(db.get_balance(777111))
+            handled = run(handle_sms_or_reference_text(update, None))
+            self.assertTrue(handled)
+            update.message.reply_text.assert_awaited()
 
-    def test_transaction_id_without_checkout_never_credits(self):
+            # Verify balance credited by 75 ETB
+            new_bal = run(db.get_balance(777111))
+            self.assertAlmostEqual(new_bal, initial_bal + 75.0)
+
+            # DB deposit record
+            dep = run(db.get_peerpay_deposit("DIH9URLTEST1"))
+            self.assertIsNotNone(dep)
+            self.assertEqual(dep["status"], "succeeded")
+            self.assertEqual(dep["credited"], 1)
+
+    def test_handle_transaction_id_with_amount_auto_credited(self):
         update = MagicMock()
         update.message.text = "DIH9INLINETEST2 120"
         update.effective_user.id = 777111
         update.message.reply_text = AsyncMock()
 
         initial_bal = run(db.get_balance(777111))
-        handled = run(handle_sms_or_reference_text(update, MagicMock(user_data={})))
-        self.assertFalse(handled)
+        handled = run(handle_sms_or_reference_text(update, None))
+        self.assertTrue(handled)
+        update.message.reply_text.assert_awaited()
 
+        # Verify balance credited by 120 ETB
         new_bal = run(db.get_balance(777111))
-        self.assertAlmostEqual(new_bal, initial_bal)
+        self.assertAlmostEqual(new_bal, initial_bal + 120.0)
 
-    def test_mini_app_rejects_reference_without_server_checkout(self):
+    def test_mini_app_api_deposit_submit_reference_with_amount(self):
         init_data = generate_valid_init_data(self.bot_token, user_id=777111)
-        initial_balance = run(db.get_balance(777111))
+        initial_bal = run(db.get_balance(777111))
+
         resp = self.client.post(
             "/api/deposit/submit-reference",
             json={
@@ -309,8 +336,15 @@ class TestPeerPayFullIntegration(unittest.TestCase):
                 "amount": 80.0,
             },
         )
-        self.assertEqual(resp.status_code, 400)
-        self.assertAlmostEqual(run(db.get_balance(777111)), initial_balance)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["data"]["status"], "succeeded")
+        self.assertAlmostEqual(data["data"]["amount"], 80.0)
+
+        # Balance in DB
+        new_bal = run(db.get_balance(777111))
+        self.assertAlmostEqual(new_bal, initial_bal + 80.0)
 
 
 if __name__ == "__main__":

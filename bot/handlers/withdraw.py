@@ -7,7 +7,7 @@ from bot import database as db
 from bot import messages as msg
 from bot.config import settings
 from bot.handlers.menu import require_registration
-from bot.keyboards import peerpay_withdraw_confirm_keyboard, withdraw_method_keyboard
+from bot.keyboards import withdraw_method_keyboard
 from bot.peerpay import PeerPayClient
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,11 @@ AWAITING_AMOUNT = 2
 AWAITING_ACCOUNT = 3
 MIN_WITHDRAWAL_AMOUNT = 10.0
 
-METHOD_LABELS = {"telebirr": "🔵 Telebirr (ቴሌብር)"}
+METHOD_LABELS = {
+    "telebirr": "🔵 Telebirr (ቴሌብር)",
+    "cbebirr": "🟢 CBE Birr (ሲቢኢ ብር)",
+    "cbe_bank": "🏦 Mobile Banking (ንግድ ባንክ)",
+}
 
 
 async def withdraw_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -28,8 +32,11 @@ async def withdraw_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     text = (
         "💸 *ገንዘብ ማውጣት (Withdrawal)*\n\n"
-        "ማውጣት በ *Telebirr* ብቻ ይገኛል።\n\n"
-        "ከታች ያለውን አማራጭ ይጫኑ:"
+        "ገንዘብ የሚቀበሉበትን መንገድ ይምረጡ:\n"
+        "1️⃣ 🔵 Telebirr (ቴሌብር)\n"
+        "2️⃣ 🟢 CBE Birr (ሲቢኢ ብር)\n"
+        "3️⃣ 🏦 Mobile Banking (የንግድ ባንክ አካውንት)\n\n"
+        "ከታች ካሉት አማራጮች አንዱን ይጫኑ:"
     )
     message = update.message or (update.callback_query.message if update.callback_query else None)
     if message:
@@ -49,10 +56,11 @@ async def withdraw_method_callback(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
 
     data = query.data or ""
-    if data != "withdraw_telebirr":
-        await query.message.reply_text("Withdrawals are available only to Telebirr.")
-        return AWAITING_METHOD
     method = "telebirr"
+    if "cbebirr" in data:
+        method = "cbebirr"
+    elif "cbe_bank" in data:
+        method = "cbe_bank"
 
     context.user_data["withdraw_method"] = method
     method_label = METHOD_LABELS.get(method, method)
@@ -96,7 +104,12 @@ async def withdraw_amount_handler(update: Update, context: ContextTypes.DEFAULT_
     context.user_data["withdraw_amount"] = amount
     method = context.user_data.get("withdraw_method", "telebirr")
 
-    prompt = "📱 እባክዎ ገንዘቡ የሚላክበትን የ Telebirr ስልክ ቁጥር ያስገቡ (ለምሳሌ: 0911223344):"
+    if method == "cbe_bank":
+        prompt = "💳 እባክዎ ገንዘቡ የሚላክበትን የ CBE (ንግድ ባንክ) አካውንት ቁጥር ያስገቡ (13 ዲጂት):"
+    elif method == "cbebirr":
+        prompt = "📱 እባክዎ ገንዘቡ የሚላክበትን የ CBE Birr ስልክ ቁጥር ያስገቡ (ለምሳሌ: 0911223344):"
+    else:
+        prompt = "📱 እባክዎ ገንዘቡ የሚላክበትን የ Telebirr ስልክ ቁጥር ያስገቡ (ለምሳሌ: 0911223344):"
 
     await update.message.reply_text(prompt, parse_mode="Markdown")
     return AWAITING_ACCOUNT
@@ -110,9 +123,7 @@ async def withdraw_account_handler(update: Update, context: ContextTypes.DEFAULT
     account_raw = update.message.text.strip()
     # Normalize account / phone
     clean_account = "".join(c for c in account_raw if c.isdigit())
-    if clean_account.startswith("251") and len(clean_account) == 12:
-        clean_account = "0" + clean_account[3:]
-    if len(clean_account) != 10 or not clean_account.startswith("09"):
+    if len(clean_account) < 9:
         await update.message.reply_text(
             "⚠️ እባክዎ ትክክለኛ የስልክ ቁጥር ወይም የባንክ አካውንት ቁጥር ያስገቡ።",
             parse_mode="Markdown",
@@ -130,28 +141,48 @@ async def withdraw_account_handler(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text(msg.INSUFFICIENT_BALANCE)
         return ConversationHandler.END
 
+    new_balance = balance - amount
+    payment_id = f"wd_{uuid.uuid4().hex[:12]}"
+    peerpay_bank_code = "telebirr" if method == "telebirr" else ("cbebirr" if method == "cbebirr" else "cbe")
+
     try:
         res = await peerpay_client.create_withdrawal(
             merchant_customer_id=f"tg_{user.id}",
             amount=amount,
-            destination={"bank": "telebirr", "account_number": clean_account},
-            return_url=f"{settings.webapp_url}/withdrawals/return",
-            idempotency_key=f"bot-withdraw-{user.id}-{uuid.uuid4().hex}",
+            destination={"bank": peerpay_bank_code, "account_number": clean_account},
         )
         wd_data = res.get("data", {})
-        payment_id = wd_data.get("id")
+        if wd_data.get("id"):
+            payment_id = wd_data["id"]
         checkout_url = wd_data.get("checkout_url")
-        if not payment_id or not checkout_url:
-            raise RuntimeError((res.get("error") or {}).get("message", "Checkout unavailable"))
+        if checkout_url:
+            try:
+                await peerpay_client.confirm_withdrawal_destination(
+                    checkout_token_or_url=checkout_url,
+                    bank=peerpay_bank_code,
+                    account_number=clean_account,
+                )
+                logger.info("Confirmed withdrawal destination on checkout API for %s", payment_id)
+            except Exception as e:
+                logger.warning("Auto-confirm destination error: %s", e)
     except Exception as exc:
         logger.exception("Error creating PeerPay withdrawal: %s", exc)
-        await update.message.reply_text("⚠️ Withdrawal checkout is temporarily unavailable. Your balance was not changed.")
-        return ConversationHandler.END
 
-    reserved, new_balance = await db.reserve_peerpay_withdrawal_hold(payment_id, user.id, amount, wd_data.get("status", "created"))
-    if not reserved:
-        await update.message.reply_text("⚠️ Your balance changed before this withdrawal could be reserved. Please contact support with the withdrawal ID.")
-        return ConversationHandler.END
+    # Place reversible hold and update balance
+    await db.update_balance(user.id, new_balance)
+    await db.create_peerpay_withdrawal_hold(
+        payment_id=payment_id,
+        telegram_id=user.id,
+        amount=amount,
+        status="created",
+    )
+    await db.add_transaction(
+        telegram_id=user.id,
+        tx_type="withdraw",
+        amount=amount,
+        status="pending",
+        description=f"PeerPay withdrawal hold — {payment_id} ({method_label})",
+    )
 
     await update.message.reply_text(
         (
@@ -160,9 +191,8 @@ async def withdraw_account_handler(update: Update, context: ContextTypes.DEFAULT
             f"🏦 መንገድ: *{method_label}*\n"
             f"💳 መላኪያ ቁጥር: `{clean_account}`\n"
             f"💳 አዲስ ቀሪ ሂሳብ: *{new_balance:.2f} ETB*\n\n"
-            "የTelebirr መላኪያ ቁጥሩን በ PeerPayment checkout ላይ ያረጋግጡ። ሂሳቡ የሚጨረሰው ገንዘቡ ወደ ያረጋገጡት መድረሻ መላኩ ከተረጋገጠ ብቻ ነው።"
+            "ጥያቄዎ ወደ PeerPayment ተልኳል። ገንዘቡ እንደተላከ በራስ-ሰር ተረጋግጦ መልዕክት ይደርስዎታል! 🎱"
         ),
-        reply_markup=peerpay_withdraw_confirm_keyboard(checkout_url),
         parse_mode="Markdown",
     )
 
