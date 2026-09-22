@@ -219,6 +219,7 @@ document.querySelectorAll(".account-card").forEach((card) => {
 });
 
 let selectedDepositMethod = "telebirr";
+let activeDepositCheckout = JSON.parse(sessionStorage.getItem("peerpayDepositCheckout") || "null");
 
 const depositMethodLabels = {
   telebirr: "🔵 Telebirr (0963572327 - Habtamu Melese)",
@@ -280,6 +281,29 @@ if (els.btnSubmitDepositRef) {
       }
       return;
     }
+    // A checkout is created before money is sent.  Its assigned account is the
+    // only receiver PeerPay will accept for this user and payment method.
+    if (!activeDepositCheckout) {
+      if (!optAmt || optAmt <= 0) {
+        if (els.depositStatusMsg) {
+          els.depositStatusMsg.className = "wallet-status-msg error";
+          els.depositStatusMsg.textContent = "Enter the payment amount first, then start the verified checkout.";
+          els.depositStatusMsg.classList.remove("hidden");
+        }
+        return;
+      }
+      const createResp = await fetch(apiUrl("/api/deposit/create"), {
+        method: "POST", headers: { "Content-Type": "application/json", "X-Telegram-Init-Data": tg.initData || "" },
+        body: JSON.stringify({ amount: optAmt, payment_method: selectedDepositMethod, init_data: tg.initData }),
+      });
+      const createData = await createResp.json();
+      const checkout = createData.data || {};
+      if (!createResp.ok || !checkout.id || !checkout.checkout_url) throw new Error(createData.error || "Could not start verified checkout");
+      activeDepositCheckout = { id: checkout.id, url: checkout.checkout_url, method: selectedDepositMethod };
+      sessionStorage.setItem("peerpayDepositCheckout", JSON.stringify(activeDepositCheckout));
+      window.location.href = checkout.checkout_url;
+      return;
+    }
     if (els.depositStatusMsg) {
       els.depositStatusMsg.className = "wallet-status-msg pending";
       els.depositStatusMsg.textContent = "⏳ የክፍያ ማረጋገጫ በመካሄድ ላይ ነው... እባክዎ ይጠብቁ።";
@@ -294,8 +318,9 @@ if (els.btnSubmitDepositRef) {
         },
         body: JSON.stringify({
           reference: ref,
-          amount: optAmt,
-          payment_method: selectedDepositMethod,
+          deposit_id: activeDepositCheckout.id,
+          checkout_url: activeDepositCheckout.url,
+          payment_method: activeDepositCheckout.method,
           init_data: tg.initData,
         }),
       });
@@ -514,10 +539,7 @@ function setupScheduleTimer(seconds) {
       els.scheduleBanner?.classList.add("hidden");
       return;
     }
-    const h = Math.floor(remaining / 3600);
-    const m = Math.floor((remaining % 3600) / 60);
-    const s = remaining % 60;
-    const str = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    const str = formatCountdown(remaining);
     if (els.scheduleCountdown) {
       els.scheduleCountdown.textContent = `Starts in: ${str}`;
     }
@@ -528,12 +550,19 @@ function setupScheduleTimer(seconds) {
   state.countdownInterval = setInterval(tick, 1000);
 }
 
-// ---- Lobby "Starts in" countdown ----
+// ---- Lobby "Starts in" countdown (DD, hr:min:sec) ----
 function formatCountdown(seconds) {
-  const s = Math.max(0, Math.floor(seconds || 0));
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+  const total = Math.max(0, Math.floor(seconds || 0));
+  const d = Math.floor(total / 86400);
+  const h = Math.floor((total % 86400) / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+
+  const timeStr = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  if (d > 0) {
+    return `${String(d).padStart(2, "0")}d, ${timeStr}`;
+  }
+  return timeStr;
 }
 
 function syncLobbyCountdown(seconds) {
@@ -564,28 +593,54 @@ function stopLobbyCountdown() {
 // ---- Card Pool ----
 let poolChips = [];
 
+function updatePoolChip(cardId) {
+  const chip = poolChips[cardId - 1];
+  if (!chip) return;
+  const owner = state.takenCards[cardId];
+  chip.classList.remove("available", "mine", "taken");
+  if (owner == null) {
+    chip.classList.add("available");
+    chip.title = `መጫወቻ #${cardId} — available`;
+  } else if (Number(owner) === Number(state.myId)) {
+    chip.classList.add("mine");
+    chip.title = `መጫወቻ #${cardId} — yours`;
+  } else {
+    chip.classList.add("taken");
+    chip.title = `መጫወቻ #${cardId} — taken`;
+  }
+}
+
 function buildPool() {
   const maxCards = state.room?.max_cards || (roomId === "room_super_50" ? 1500 : 150);
-  if (els.cardActionTitle) {
-    els.cardActionTitle.textContent = `Card Pool (1-${maxCards})`;
-  }
+  if (els.cardActionTitle) els.cardActionTitle.textContent = `Card Pool (1-${maxCards})`;
   if (els.quickCardInput) {
     els.quickCardInput.max = maxCards;
     els.quickCardInput.placeholder = `መጫወቻ ቁጥር (1-${maxCards})`;
   }
+  // Preserve the existing 1,500 nodes across reconnects.
+  if (poolChips.length === maxCards) {
+    renderPool();
+    return;
+  }
   els.cardPool.innerHTML = "";
   poolChips = [];
+  const frag = document.createDocumentFragment();
   for (let i = 1; i <= maxCards; i++) {
     const chip = document.createElement("div");
     chip.className = "pool-chip";
     chip.textContent = i;
     chip.dataset.cardId = String(i);
-    chip.addEventListener("click", () => onPoolChipClick(i));
-    els.cardPool.appendChild(chip);
+    frag.appendChild(chip);
     poolChips.push(chip);
   }
+  els.cardPool.appendChild(frag);
+  renderPool();
 }
 
+els.cardPool?.addEventListener("click", (event) => {
+  const chip = event.target.closest(".pool-chip");
+  if (chip) onPoolChipClick(Number(chip.dataset.cardId));
+});
 if (els.btnQuickPick) {
   els.btnQuickPick.addEventListener("click", () => {
     const val = parseInt(els.quickCardInput?.value, 10);
@@ -618,28 +673,9 @@ if (els.btnRandomPick) {
 
 function renderPool() {
   if (!poolChips.length) return;
-  poolChips.forEach((chip, idx) => {
-    const id = idx + 1;
-    chip.classList.remove("available", "mine", "taken");
-    const owner = state.takenCards[id];
-    if (owner != null) {
-      if (owner === state.myId) {
-        chip.classList.add("mine");
-        chip.title = `መጫወቻ #${id} — yours`;
-      } else {
-        chip.classList.add("taken");
-        chip.title = `መጫወቻ #${id} — taken`;
-      }
-    } else {
-      chip.classList.add("available");
-      chip.title = `መጫወቻ #${id} — available`;
-    }
-  });
-  if (els.myCardsBadge) {
-    els.myCardsBadge.textContent = `የተመረጡ መጫወቻዎች: ${state.cardIds.length}`;
-  }
+  for (let id = 1; id <= poolChips.length; id++) updatePoolChip(id);
+  if (els.myCardsBadge) els.myCardsBadge.textContent = `የተመረጡ መጫወቻዎች: ${state.cardIds.length}`;
 }
-
 function onPoolChipClick(cardId) {
   if (state.phase !== "lobby") {
     tg.HapticFeedback?.notificationOccurred("error");
@@ -735,6 +771,8 @@ els.btnTakenOk.addEventListener("click", closeModals);
 // The user marks called numbers on their cartela by tapping the cell.
 // The FREE center is always marked.
 
+let markSendTimeout;
+
 function toggleMark(cardId, row, col) {
   if (state.phase !== "playing") return;
   const marks = state.marked[cardId] || new Set();
@@ -754,7 +792,10 @@ function toggleMark(cardId, row, col) {
 
 function sendMark(cardId, row, col, marked) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({ type: "mark", card_id: cardId, row, col, marked }));
+  clearTimeout(markSendTimeout);
+  markSendTimeout = setTimeout(() => {
+    ws.send(JSON.stringify({ type: "mark", card_id: cardId, row, col, marked }));
+  }, 50);
 }
 
 if (els.btnBingo) {
@@ -899,6 +940,7 @@ function connect() {
 
   socket.onopen = () => {
     console.log("WebSocket connected!");
+    reconnectDelay = 1000;
     socket.send(JSON.stringify({ type: "join", initData: tg.initData || "" }));
   };
 
@@ -916,17 +958,19 @@ function connect() {
   };
 
   socket.onclose = () => {
-    console.log("WebSocket closed, attempting reconnect in 2s...");
+    console.log("WebSocket closed, attempting reconnect...");
+    reconnectDelay = Math.min(reconnectDelay * 1.5, 15000);
     setTimeout(() => {
       if (state.phase === "connecting" || !ws || ws.readyState === WebSocket.CLOSED) {
         ws = connect();
       }
-    }, 2000);
+    }, reconnectDelay + Math.random() * 500);
   };
 
   return socket;
 }
 
+let reconnectDelay = 1000;
 let ws;
 
 function handleMessage(socket, msg) {
@@ -948,6 +992,11 @@ function handleMessage(socket, msg) {
         Object.entries(msg.cards).forEach(([id, card]) => {
           state.cards[Number(id)] = card;
         });
+      }
+      if (msg.marks) {
+          for (const [cardId, indices] of Object.entries(msg.marks)) {
+              state.marked[cardId] = new Set(indices);
+          }
       }
       state.isPlayer = state.cardIds.length > 0;
       updateRoleDisplay(state.isPlayer);
@@ -993,7 +1042,17 @@ function handleMessage(socket, msg) {
         els.lobbyPot.textContent = Number(msg.pot).toFixed(0);
       }
       updateGameStats(msg.pot, msg.players, state.called.length);
-      if (msg.countdown != null) {
+      if (state.countdownInterval) {
+        clearInterval(state.countdownInterval);
+        state.countdownInterval = null;
+      }
+      if (msg.deadline != null) {
+        const deadlineTs = msg.deadline > 1e10 ? msg.deadline : (Date.now() + msg.deadline * 1000);
+        state.countdownInterval = setInterval(() => {
+          const left = Math.max(0, Math.ceil((deadlineTs - Date.now()) / 1000));
+          if (els.lobbyCountdown) els.lobbyCountdown.textContent = formatCountdown(left);
+        }, 1000);
+      } else if (msg.countdown != null) {
         syncLobbyCountdown(msg.countdown);
       }
       if (msg.taken_cards) {
@@ -1027,6 +1086,7 @@ function handleMessage(socket, msg) {
         ? msg.card_ids.map(Number)
         : state.cardIds.filter((id) => id !== cid);
       delete state.takenCards[cid];
+      updatePoolChip(cid);
       state.isPlayer = Boolean(msg.is_player);
       updateRoleDisplay(state.isPlayer);
       updateBalanceDisplay(msg.balance);
@@ -1047,7 +1107,7 @@ function handleMessage(socket, msg) {
     case "card_released": {
       if (msg.card_id != null) {
         delete state.takenCards[msg.card_id];
-        renderPool();
+        updatePoolChip(msg.card_id);
       }
       if (msg.players != null) els.lobbyPlayers.textContent = msg.players;
       if (msg.pot != null) {
@@ -1060,7 +1120,7 @@ function handleMessage(socket, msg) {
     case "card_taken": {
       if (msg.card_id != null && msg.telegram_id != null && msg.telegram_id !== state.myId) {
         state.takenCards[msg.card_id] = msg.telegram_id;
-        renderPool();
+        updatePoolChip(msg.card_id);
       }
       if (msg.players != null) els.lobbyPlayers.textContent = msg.players;
       if (msg.pot != null) {
@@ -1081,6 +1141,10 @@ function handleMessage(socket, msg) {
       break;
 
     case "start":
+      if (state.countdownInterval) {
+        clearInterval(state.countdownInterval);
+        state.countdownInterval = null;
+      }
       state.phase = "playing";
       state.lockedCards = new Set();
       stopLobbyCountdown();
@@ -1091,6 +1155,12 @@ function handleMessage(socket, msg) {
       tg.HapticFeedback?.impactOccurred("medium");
       break;
 
+function updateCalledCell(number) {
+  document.querySelectorAll(`.card-cell[data-value="${number}"]`).forEach(cell => {
+    cell.classList.add("called");
+  });
+}
+
     case "call":
       state.called = msg.called;
       state.calledSet = new Set(msg.called);
@@ -1099,7 +1169,7 @@ function handleMessage(socket, msg) {
       updateGameStats(null, null, msg.called.length);
       updateCalledBoard(els.calledBoard, msg.called, msg.number);
       if (state.isPlayer) {
-        renderGameCards(); // refresh called-cell highlight + win highlight
+        updateCalledCell(msg.number);
       }
       tg.HapticFeedback?.impactOccurred("light");
       break;

@@ -26,8 +26,8 @@ primary_region = "fra"
 
   [http_service.concurrency]
     type = "connections"
-    hard_limit = 250
-    soft_limit = 200
+    hard_limit = 2000
+    soft_limit = 1800
 
   [[http_service.checks]]
     interval = "15s"
@@ -41,6 +41,6 @@ primary_region = "fra"
   destination = "/data"
 
 [[vm]]
-  cpu_kind = "shared"
-  cpus = 1
-  memory_mb = 512
+  cpu_kind = "performance"
+  cpus = 2
+  memory_mb = 2048

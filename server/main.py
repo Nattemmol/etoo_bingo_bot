@@ -52,6 +52,8 @@ WINNER_RESET_WAIT_SECONDS = 10.0
 # Multi-winner window: everyone who claims a valid BINGO within this window
 # after the first claim shares the pot equally.
 BINGO_CLAIM_WINDOW_SECONDS = 5.0
+SOCKET_SEND_TIMEOUT_SECONDS = 1.0
+ROUND_SNAPSHOT_DEBOUNCE_SECONDS = 0.25
 
 # FREE PLAY TESTING: bypass entry-fee balance checks and deductions so the
 # playing room can be tested without real money. Set to False to enforce
@@ -62,16 +64,105 @@ rooms: dict[str, GameRoom] = {}
 room_tasks: dict[str, asyncio.Task] = {}
 connections: dict[str, WebSocket] = {}  # ws_id -> websocket
 player_ws: dict[str, str] = {}  # ws_id -> room_id
+snapshot_tasks: dict[str, asyncio.Task] = {}
 
 
+async def _persist_room_snapshot(room: GameRoom) -> None:
+    """Save active game state to SQLite for server crash recovery."""
+    try:
+        player_data = {}
+        for p in room.players.values():
+            player_data[str(p.telegram_id)] = {
+                "name": p.name,
+                "card_ids": p.card_ids,
+                "marks": {str(cid): list(m) for cid, m in p.marks.items()},
+                "locked_cards": list(p.locked_cards),
+                "forfeited": p.forfeited,
+            }
+        await db.save_active_round(
+            room_id=room.room_id,
+            phase=room.phase.value,
+            pot=room.pot,
+            house_income=room.house_income,
+            called_numbers=room.called_numbers,
+            taken_cards=room.taken_cards,
+            player_data=player_data,
+        )
+    except Exception as e:
+        logger.warning("Could not persist room snapshot for %s: %s", room.room_id, e)
+
+
+
+async def _flush_room_snapshot(room_id: str) -> None:
+    """Persist a burst of player actions once, rather than once per socket event."""
+    try:
+        await asyncio.sleep(ROUND_SNAPSHOT_DEBOUNCE_SECONDS)
+        room = get_room(room_id)
+        if room.phase in (GamePhase.LOBBY, GamePhase.PLAYING) and room.taken_cards:
+            await _persist_room_snapshot(room)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("Could not persist active round %s", room_id)
+    finally:
+        snapshot_tasks.pop(room_id, None)
+
+
+def queue_room_snapshot(room_id: str) -> None:
+    """Coalesce card/mark updates into one durable snapshot."""
+    task = snapshot_tasks.get(room_id)
+    if task is None or task.done():
+        snapshot_tasks[room_id] = asyncio.create_task(_flush_room_snapshot(room_id))
+
+
+def round_reset_delay(room: GameRoom) -> float:
+    """The weekly room opens its next-round lobby immediately after settlement."""
+    return 0.0 if room.room_id == "room_super_50" else WINNER_RESET_WAIT_SECONDS
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.init_db()
     logger.info("Game server database ready.")
-    # Automatically start continuous room countdown loops immediately on server start
     for room_id in ROOM_CONFIG:
+        # Check if there was an active round before server restart
+        try:
+            saved = await db.get_active_round(room_id)
+            if saved and saved.get("phase") in (GamePhase.LOBBY.value, GamePhase.PLAYING.value) and saved.get("taken_cards"):
+                logger.info("Restoring active round for %s (%d cards taken)", room_id, len(saved["taken_cards"]))
+                room = get_room(room_id)
+                room.phase = GamePhase(saved.get("phase", GamePhase.LOBBY.value))
+                room.pot = float(saved.get("pot", 0.0))
+                room.house_income = float(saved.get("house_income", 0.0))
+                room.restore_called_numbers(saved.get("called_numbers", []))
+                room.taken_cards = saved.get("taken_cards", {})
+                for tid_str, pdata in saved.get("player_data", {}).items():
+                    tid = int(tid_str)
+                    dummy_ws = f"restored_{tid}"
+                    cids = pdata.get("card_ids", [])
+                    cards = {cid: generate_card_by_id(cid) for cid in cids}
+                    marks = {int(cid): set(m) for cid, m in pdata.get("marks", {}).items()}
+                    locked = set(pdata.get("locked_cards", []))
+                    player = Player(
+                        telegram_id=tid,
+                        name=pdata.get("name", str(tid)),
+                        ws_id=dummy_ws,
+                        card_ids=cids,
+                        cards=cards,
+                        marks=marks,
+                        locked_cards=locked,
+                        forfeited=pdata.get("forfeited", False),
+                    )
+                    room.players[dummy_ws] = player
+                await schedule_lobby(room_id)
+                continue
+        except Exception as e:
+            logger.warning("Could not restore active round for %s: %s", room_id, e)
+
         await schedule_lobby(room_id)
     yield
+    pending_snapshots = [task for task in snapshot_tasks.values() if not task.done()]
+    if pending_snapshots:
+        await asyncio.gather(*pending_snapshots, return_exceptions=True)
+    await db.close_db()
 
 
 app = FastAPI(title="EtooBingo Game Server", lifespan=lifespan)
@@ -138,6 +229,8 @@ def get_room_state(room: GameRoom) -> dict:
 
 
 async def broadcast(room: GameRoom, message: dict, exclude: str | None = None) -> None:
+    """Broadcast to all connected clients. Serializes JSON once for performance."""
+    payload = json.dumps(message)  # serialize ONCE — not N times
     targets = []
     ws_map = {}
     for ws_id in list(room.connections):
@@ -153,7 +246,7 @@ async def broadcast(room: GameRoom, message: dict, exclude: str | None = None) -
 
     async def _send(ws_id: str, ws: WebSocket):
         try:
-            await ws.send_json(message)
+            await asyncio.wait_for(ws.send_text(payload), timeout=SOCKET_SEND_TIMEOUT_SECONDS)
             return None
         except Exception:
             return ws_id
@@ -162,31 +255,54 @@ async def broadcast(room: GameRoom, message: dict, exclude: str | None = None) -
     dead = [r for r in results if isinstance(r, str)]
     for ws_id in dead:
         room.connections.discard(ws_id)
-        room.players.pop(ws_id, None)
+        # Keep player state while a socket is slow or disconnected; the user can reconnect.
+        if room.phase == GamePhase.FINISHED:
+            room.players.pop(ws_id, None)
         connections.pop(ws_id, None)
         player_ws.pop(ws_id, None)
 
 
 async def send(ws: WebSocket, message: dict) -> None:
-    await ws.send_json(message)
+    await asyncio.wait_for(ws.send_json(message), timeout=SOCKET_SEND_TIMEOUT_SECONDS)
 
 
 async def run_lobby_countdown(room: GameRoom) -> None:
+    if room.phase == GamePhase.PLAYING:
+        await run_playing_round(room)
+        return
+
     if room.room_id == "room_super_50" and not settings.super_bingo_always_open:
+        # Super Bingo: wait until 7:00 PM EAT
+        secs = get_seconds_until_super_bingo()
+        room.countdown = secs
+        deadline_ts = time.time() + secs  # Unix timestamp for client-side countdown
+        # Broadcast deadline once — clients count down locally
+        await broadcast(
+            room,
+            {
+                "type": "lobby",
+                "players": len(room.taken_cards),
+                "countdown": room.countdown,
+                "deadline": deadline_ts,
+                "pot": room.pot,
+            },
+        )
         while room.phase == GamePhase.LOBBY:
             secs = get_seconds_until_super_bingo()
             room.countdown = secs
-            await broadcast(
-                room,
-                {
-                    "type": "lobby",
-                    "players": len(room.taken_cards),
-                    "countdown": room.countdown,
-                    "pot": room.pot,
-                },
-            )
             if secs <= 0:
                 break
+            # Only re-broadcast every 30 seconds or at key milestones
+            if secs % 30 == 0 or secs <= 5:
+                await broadcast(
+                    room,
+                    {
+                        "type": "lobby",
+                        "players": len(room.taken_cards),
+                        "countdown": secs,
+                        "pot": room.pot,
+                    },
+                )
             await asyncio.sleep(1)
 
         if room.phase != GamePhase.LOBBY:
@@ -210,6 +326,7 @@ async def run_lobby_countdown(room: GameRoom) -> None:
             room.house_income = round(len(room.taken_cards) * room.house_cut, 2)
 
         room.phase = GamePhase.PLAYING
+        await _persist_room_snapshot(room)
         await broadcast(
             room,
             {
@@ -219,19 +336,34 @@ async def run_lobby_countdown(room: GameRoom) -> None:
             },
         )
     else:
+        # 10 ETB room: 30-second countdown with deadline-based approach
         room.countdown = room.lobby_seconds
+        deadline_ts = time.time() + room.lobby_seconds
+        # Send deadline once — clients count down locally
+        await broadcast(
+            room,
+            {
+                "type": "lobby",
+                "players": len(room.taken_cards),
+                "countdown": room.countdown,
+                "deadline": deadline_ts,
+                "pot": room.pot,
+            },
+        )
         while room.countdown > 0 and room.phase == GamePhase.LOBBY:
-            await broadcast(
-                room,
-                {
-                    "type": "lobby",
-                    "players": len(room.taken_cards),
-                    "countdown": room.countdown,
-                    "pot": room.pot,
-                },
-            )
             await asyncio.sleep(1)
             room.countdown -= 1
+            # Only broadcast at key moments: 10s, 5s, 3s, 2s, 1s
+            if room.countdown in (10, 5, 3, 2, 1, 0):
+                await broadcast(
+                    room,
+                    {
+                        "type": "lobby",
+                        "players": len(room.taken_cards),
+                        "countdown": room.countdown,
+                        "pot": room.pot,
+                    },
+                )
 
         if room.phase != GamePhase.LOBBY:
             return
@@ -255,6 +387,7 @@ async def run_lobby_countdown(room: GameRoom) -> None:
             room.house_income = round(len(room.taken_cards) * room.house_cut, 2)
 
         room.phase = GamePhase.PLAYING
+        await _persist_room_snapshot(room)
         await broadcast(
             room,
             {
@@ -264,6 +397,9 @@ async def run_lobby_countdown(room: GameRoom) -> None:
             },
         )
 
+    await run_playing_round(room)
+
+async def run_playing_round(room: GameRoom) -> None:
     while room.phase == GamePhase.PLAYING:
         await asyncio.sleep(room.call_interval)
         if room.phase != GamePhase.PLAYING or room.bingo_window_until is not None:
@@ -272,8 +408,9 @@ async def run_lobby_countdown(room: GameRoom) -> None:
         num = room.next_number()
         if num is None:
             room.phase = GamePhase.FINISHED
+            await db.clear_active_round(room.room_id)
             await broadcast(room, {"type": "game_over", "reason": "all_numbers_called"})
-            await asyncio.sleep(10)
+            await asyncio.sleep(round_reset_delay(room))
             reset_room(room.room_id)
             await schedule_lobby(room.room_id)
             new_room = get_room(room.room_id)
@@ -296,6 +433,10 @@ async def run_lobby_countdown(room: GameRoom) -> None:
             },
         )
 
+        # Snapshot every 5 ball calls for crash recovery
+        if len(room.called_numbers) % 5 == 0:
+            await _persist_room_snapshot(room)
+
         # Auto-declare BINGO for any player whose manual marks now win.
         await check_all_wins(room)
 
@@ -315,9 +456,15 @@ async def schedule_lobby(room_id: str) -> None:
 
 
 def reset_room(room_id: str) -> None:
-    if room_id in room_tasks:
-        room_tasks[room_id].cancel()
-        room_tasks.pop(room_id, None)
+    task = room_tasks.pop(room_id, None)
+    # Do not cancel the task that is performing the reset: it still needs to
+    # publish the reset and schedule the next round.
+    try:
+        current_task = asyncio.current_task()
+    except RuntimeError:
+        current_task = None
+    if task and task is not current_task:
+        task.cancel()
 
     cfg = ROOM_CONFIG.get(room_id, {"name": room_id, "entry_fee": 10.0, "house_cut": 2.0, "max_cards": 150, "lobby_seconds": 30})
     existing_conns = set(rooms[room_id].connections) if room_id in rooms else set()
@@ -395,6 +542,37 @@ def add_claim(room: GameRoom, player: Player, pattern: str, card_id: int) -> boo
     return True
 
 
+async def check_player_win(room: GameRoom, player: Player) -> bool:
+    """Check win condition for a single player. Returns True if a new claim was made."""
+    if room.phase != GamePhase.PLAYING:
+        return False
+    if room.bingo_window_until is not None and time.monotonic() > room.bingo_window_until:
+        return False
+    if not player.cards:
+        return False
+
+    win = find_winning_card(room, player, allow_unmarked=False)
+    if not win:
+        return False
+    pattern, card_id = win
+    if add_claim(room, player, pattern, card_id):
+        claim_count = len(room.bingo_claimants)
+        await broadcast(
+            room,
+            {
+                "type": "bingo_claim",
+                "claimant_id": player.telegram_id,
+                "claimant_name": player.name,
+                "card_id": card_id,
+                "pattern": pattern,
+                "claimants": claim_count,
+                "window_seconds": int(BINGO_CLAIM_WINDOW_SECONDS),
+            },
+        )
+        return True
+    return False
+
+
 async def check_all_wins(room: GameRoom) -> None:
     """Auto-declare BINGO for every player whose manual marks now satisfy the rule."""
     if room.phase != GamePhase.PLAYING:
@@ -403,31 +581,13 @@ async def check_all_wins(room: GameRoom) -> None:
         return
 
     for player in list(room.players.values()):
-        if not player.cards:
-            continue
-        win = find_winning_card(room, player, allow_unmarked=False)
-        if not win:
-            continue
-        pattern, card_id = win
-        if add_claim(room, player, pattern, card_id):
-            claim_count = len(room.bingo_claimants)
-            await broadcast(
-                room,
-                {
-                    "type": "bingo_claim",
-                    "claimant_id": player.telegram_id,
-                    "claimant_name": player.name,
-                    "card_id": card_id,
-                    "pattern": pattern,
-                    "claimants": claim_count,
-                    "window_seconds": int(BINGO_CLAIM_WINDOW_SECONDS),
-                },
-            )
+        await check_player_win(room, player)
 
 
 async def _delayed_locked_reset(room_id: str) -> None:
     try:
-        await asyncio.sleep(WINNER_RESET_WAIT_SECONDS)
+        await db.clear_active_round(room_id)
+        await asyncio.sleep(round_reset_delay(get_room(room_id)))
         reset_room(room_id)
         await schedule_lobby(room_id)
         new_room = get_room(room_id)
@@ -617,7 +777,8 @@ async def finalize_bingo(room_id: str) -> None:
             },
         )
 
-        await asyncio.sleep(WINNER_RESET_WAIT_SECONDS)
+        await db.clear_active_round(room_id)
+        await asyncio.sleep(round_reset_delay(get_room(room_id)))
         reset_room(room_id)
         await schedule_lobby(room_id)
         new_room = get_room(room_id)
@@ -684,10 +845,16 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
             is_player = len(player.card_ids) > 0
             user_card_ids = list(player.card_ids)
             user_cards = {str(cid): c for cid, c in player.cards.items()}
+            user_marks = {str(cid): list(player.marks.get(cid, set())) for cid in player.card_ids}
+            user_locked = list(player.locked_cards)
+            user_forfeited = player.forfeited
         else:
             is_player = False
             user_card_ids = []
             user_cards = {}
+            user_marks = {}
+            user_locked = []
+            user_forfeited = False
 
         # Send initial room state to the client (allows free spectating & shows taken cards!)
         await send(
@@ -703,6 +870,9 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                 "is_player": is_player,
                 "card_ids": user_card_ids,
                 "cards": user_cards,
+                "marks": user_marks,
+                "locked_cards": user_locked,
+                "forfeited": user_forfeited,
             },
         )
 
@@ -847,6 +1017,7 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                 room.house_income += room.house_cut
 
                 unique_players = len(set(p.telegram_id for p in room.players.values()))
+                queue_room_snapshot(room_id)
 
                 await send(
                     websocket,
@@ -1024,13 +1195,14 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                 else:
                     marks.discard(flat)
                 player.marks[card_id] = marks
+                queue_room_snapshot(room_id)
 
                 await send(
                     websocket,
                     {"type": "mark_ack", "card_id": card_id, "flat": flat, "marked": desired},
                 )
 
-                await check_all_wins(room)
+                await check_player_win(room, player)
                 continue
 
             if msg_type == "bingo":
@@ -1086,6 +1258,7 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                     if not win:
                         # False BINGO: Lock this specific card!
                         player.locked_cards.add(target_cid)
+                        queue_room_snapshot(room_id)
                         all_locked = len(player.locked_cards) >= len(player.card_ids)
                         if all_locked:
                             player.forfeited = True
@@ -1117,6 +1290,7 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                         for cid in list(player.cards.keys()):
                             player.locked_cards.add(cid)
                         player.forfeited = True
+                        queue_room_snapshot(room_id)
 
                         await handle_cards_locked(room, player, websocket, ws_id, None, True)
                         continue
@@ -1148,35 +1322,10 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
         connections.pop(ws_id, None)
         player_ws.pop(ws_id, None)
 
+        # Keep a player's selected cards and marks in every phase. A socket
+        # closing is normal on mobile; it must never refund or release a seat.
         if ws_id in room.players:
-            if room_id != "room_super_50":
-                # For 24/7 fast 30s lobby, refund entry fees if user disconnects before game begins
-                player = room.players.pop(ws_id)
-                if room.phase == GamePhase.LOBBY and player.card_ids:
-                    num_cards = len(player.card_ids)
-                    refund_amount = room.entry_fee * num_cards
-                    pot_reduction = (room.entry_fee - room.house_cut) * num_cards
-                    room.pot = max(0.0, room.pot - pot_reduction)
-                    room.house_income = max(0.0, room.house_income - room.house_cut * num_cards)
-                    if not FREE_PLAY:
-                        await db.credit_balance(
-                            player.telegram_id,
-                            refund_amount,
-                            f"Refund — left {room.name} lobby",
-                        )
-                    for cid in player.card_ids:
-                        room.taken_cards.pop(cid, None)
-
-                    await broadcast(
-                        room,
-                        {
-                            "type": "room_stats",
-                            "players": len(room.taken_cards),
-                            "spectators": max(0, len(room.connections) - len(room.players)),
-                            "pot": room.pot,
-                            "taken_cards": room.taken_cards,
-                        },
-                    )
+            queue_room_snapshot(room_id)
 
         try:
             await websocket.close()
@@ -1626,109 +1775,67 @@ async def api_deposit_create(request: Request):
 
 @app.post("/api/deposit/submit-reference")
 async def api_deposit_submit_reference(request: Request):
-    """Submit payment transaction reference or SMS with multi-layer verification."""
-    init_data = request.headers.get("X-Telegram-Init-Data")
-    body = {}
+    """Submit a receipt reference to its authenticated PeerPay checkout.
+
+    Receipt pages provide a reference only. PeerPay is the settlement authority:
+    it checks the actual provider transaction, assigned receiver, amount,
+    currency, freshness, and one-time use before a signed webhook can credit.
+    """
     try:
         body = await request.json()
     except Exception:
-        pass
-    init_data = init_data or body.get("init_data")
+        body = {}
+    init_data = request.headers.get("X-Telegram-Init-Data") or body.get("init_data")
     if not init_data:
         return JSONResponse(status_code=401, content={"error": "Missing init_data"})
     try:
-        user_info = validate_init_data(init_data)
-        tg_id = int(user_info["id"])
+        tg_id = int(validate_init_data(init_data)["id"])
     except Exception as exc:
         return JSONResponse(status_code=401, content={"error": str(exc)})
 
     raw_input = str(body.get("reference", "")).strip()
-    checkout_url = body.get("checkout_url") or ""
-    payment_method = body.get("payment_method", "telebirr")
+    deposit_id = str(body.get("deposit_id", "")).strip()
+    checkout_url = str(body.get("checkout_url", "")).strip()
+    payment_method = str(body.get("payment_method", "")).strip().lower()
+    reference, receipt_url, _ = extract_reference_and_url(raw_input)
+    if not reference:
+        return JSONResponse(status_code=400, content={"error": "Paste an official Telebirr, CBE Birr, or CBE receipt link, or a valid transaction ID."})
+    if not deposit_id or not checkout_url or not payment_method:
+        return JSONResponse(status_code=400, content={"error": "Start a PeerPay checkout first. A receipt by itself can never be credited."})
 
-    if not raw_input:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "⚠️ እባክዎ የ SMS መልዕክት፣ Receipt Link ወይም Transaction ID ያስገቡ።"},
+    # Check that the checkout belongs to this Telegram user before accepting a
+    # reference. This prevents a customer from attaching a receipt to another
+    # user's order, even when they know a checkout URL.
+    try:
+        initial = await peerpay_client.get_deposit(deposit_id)
+        deposit = initial.get("data") or {}
+    except Exception:
+        return JSONResponse(status_code=503, content={"error": "Unable to read the secure payment order. Please retry shortly."})
+    if customer_id_to_telegram_id(deposit.get("merchant_customer_id")) != tg_id:
+        return JSONResponse(status_code=403, content={"error": "This checkout does not belong to the current user."})
+    if deposit.get("payment_method") and deposit["payment_method"].lower() != payment_method:
+        return JSONResponse(status_code=400, content={"error": "The receipt method does not match the selected checkout method."})
+
+    try:
+        submission = await peerpay_client.submit_deposit_reference(
+            checkout_token_or_url=checkout_url,
+            reference=reference,
+            payment_method=payment_method,
         )
+    except Exception:
+        return JSONResponse(status_code=503, content={"error": "Unable to submit the receipt for provider verification. Please retry."})
+    error = (submission.get("error") or {}) if isinstance(submission, dict) else {}
+    if error:
+        return JSONResponse(status_code=409, content={"error": error.get("message", "PeerPay rejected this transaction reference.")})
 
-    # Optional explicit amount provided from UI
-    explicit_amount = None
-    if body.get("amount") is not None:
-        try:
-            explicit_amount = float(body.get("amount"))
-            if explicit_amount <= 0:
-                explicit_amount = None
-        except (ValueError, TypeError):
-            explicit_amount = None
-
-    # Multi-layer verification (Anti-package, recipient check, direction, amount, reference)
-    verification = await verify_deposit_submission(
-        raw_input,
-        expected_method=payment_method,
-        explicit_amount=explicit_amount,
-    )
-
-    if not verification["valid"]:
-        clean_err = (verification.get("error_message") or "የማረጋገጫ ስህተት").replace("*", "")
-        return JSONResponse(
-            status_code=400,
-            content={"error": clean_err},
-        )
-
-    reference = verification["reference"]
-    amount = verification["amount"]
-    fp = verification["fingerprint"]
-
-    # 1. Anti-duplicate checks (Fingerprint & Reference)
-    existing_tx = await db.get_deposit_by_fingerprint(fp)
-    if existing_tx:
-        return JSONResponse(
-            status_code=400,
-            content={"error": f"ይህ የክፍያ ማስረጃ ቀድሞውኑ የ {existing_tx['amount']:.2f} ETB ገቢ ተደርጓል (Already Used)።"},
-        )
-
-    existing_dep = await db.get_peerpay_deposit(reference)
-    if existing_dep and existing_dep.get("credited"):
-        return JSONResponse(
-            status_code=400,
-            content={"error": f"ይህ የግብይት ቁጥር ({reference}) ቀድሞውኑ ገቢ ተደርጓል (Already Used)።"},
-        )
-
-    # 2. If checkout_url was provided, notify PeerPay Checkout API
-    if checkout_url:
-        try:
-            await peerpay_client.submit_deposit_reference(
-                checkout_token_or_url=checkout_url,
-                reference=reference,
-                payment_method=payment_method,
-            )
-        except Exception as exc:
-            logger.warning("PeerPay submit reference error: %s", exc)
-
-    # 3. Credit user balance atomically
-    credited, new_balance, is_dup = await db.credit_peerpay_deposit_once(
-        payment_id=reference,
-        telegram_id=tg_id,
-        amount=amount,
-    )
-    if is_dup:
-        return JSONResponse(
-            status_code=400,
-            content={"error": f"ይህ የክፍያ ማስረጃ ቀድሞውኑ ገቢ ተደርጓል ({amount:.2f} ETB)።"},
-        )
-
-    return JSONResponse({
-        "ok": True,
-        "data": {
-            "status": "succeeded",
-            "reference": reference,
-            "amount": amount,
-            "new_balance": new_balance,
-            "message": f"✅ ክፍያዎ በተሳካ ሁኔታ ተረጋግጧል! {amount:.2f} ETB ወደ ሂሳብዎ ተጨምሯል።",
-        },
-    })
-
+    # Never credit here. The signed deposit.succeeded / manually_succeeded
+    # webhook owns that idempotent balance transition by PeerPay deposit ID.
+    return JSONResponse({"ok": True, "data": {
+        "status": "verification_pending",
+        "reference": reference,
+        "receipt_url": receipt_url,
+        "message": "Receipt submitted. The provider is checking the intended receiver, amount, currency, transaction age, and duplicate use. Your balance updates only after verified success.",
+    }})
 
 @app.post("/api/withdraw/create")
 async def api_withdraw_create(request: Request):

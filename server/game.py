@@ -233,16 +233,24 @@ class GameRoom:
     countdown: int = 0
     bingo_window_until: float | None = None  # monotonic deadline of the 5s BINGO claim window
     bingo_claimants: list[dict] = field(default_factory=list)  # valid claims inside the window
+    available_numbers: list[int] = field(default_factory=lambda: list(range(1, 76)))
 
     @property
     def called_set(self) -> set[int]:
         return set(self.called_numbers)
 
+    def restore_called_numbers(self, called_numbers: list[int]) -> None:
+        """Restore a persisted draw and rebuild the O(1) remaining-number pool."""
+        self.called_numbers = list(called_numbers)
+        called = set(self.called_numbers)
+        self.available_numbers = [number for number in range(1, 76) if number not in called]
+
     def next_number(self) -> int | None:
-        remaining = [n for n in range(1, 76) if n not in self.called_set]
-        if not remaining:
+        """Draw without rebuilding a 75-number list on every ball."""
+        if not self.available_numbers:
             return None
-        num = random.choice(remaining)
+        index = random.randrange(len(self.available_numbers))
+        num = self.available_numbers.pop(index)
         self.called_numbers.append(num)
         return num
 

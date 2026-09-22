@@ -226,7 +226,6 @@ body {
   width: 100%;
   padding: 8px 12px;
   background: var(--header-bar-bg);
-  backdrop-filter: blur(10px);
   border: 1px solid var(--border-light);
   border-radius: 14px;
   margin-bottom: 12px;
@@ -314,6 +313,12 @@ body {
   font-size: 1.5rem;
   font-weight: 800;
   color: var(--accent);
+}
+
+#lobby-countdown {
+  font-size: 1.1rem;
+  white-space: nowrap;
+  letter-spacing: -0.2px;
 }
 
 .stat-label {
@@ -437,7 +442,7 @@ body {
   background: var(--called-chip-bg);
   border: 1px solid var(--called-chip-border);
   color: var(--called-chip-color);
-  transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: background-color 0.15s ease, transform 0.15s ease;
 }
 
 /* Green luminous active chips on Game Board */
@@ -461,14 +466,8 @@ body {
 }
 
 @keyframes pulse-latest-green {
-  0% {
-    box-shadow: 0 0 8px #00e676, 0 0 16px rgba(0, 230, 118, 0.6);
-    transform: scale(1.12);
-  }
-  100% {
-    box-shadow: 0 0 18px #00ff88, 0 0 32px rgba(0, 255, 136, 0.9);
-    transform: scale(1.24);
-  }
+    0%, 100% { opacity: 0.85; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.08); }
 }
 
 /* Bingo card */
@@ -527,7 +526,7 @@ body {
   font-weight: 700;
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: background-color 0.15s ease, transform 0.15s ease;
   user-select: none;
   position: relative;
   overflow: hidden;

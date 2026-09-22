@@ -115,27 +115,14 @@ async def handle_sms_or_reference_text(update: Update, context: ContextTypes.DEF
         )
         return True
 
-    # Credit user balance atomically
-    credited, new_balance, is_dup = await db.credit_peerpay_deposit_once(
-        payment_id=reference,
-        telegram_id=user.id,
-        amount=amount,
-    )
-    if is_dup or not credited:
-        await update.message.reply_text(
-            msg.DEPOSIT_REUSED.format(amount=amount),
-            parse_mode="Markdown",
-        )
-        return True
-
+    # A pasted receipt is evidence only; PeerPay must verify the provider-side
+    # transaction before the signed webhook credits the wallet.
     await update.message.reply_text(
-        f"✅ *ክፍያዎ በተሳካ ሁኔታ ተረጋግጧል! (Deposit Approved)*\n\n"
+        f"⏳ *የክፍያ ማረጋገጫ በመካሄድ ላይ ነው*\n\n"
         f"📋 የማስረጃ ቁጥር: `{reference}`\n"
-        f"💰 የተጨመረ መጠን: *{amount:.2f} ETB*\n"
-        f"💳 አጠቃላይ ሂሳብዎ: *{new_balance:.2f} ETB*\n\n"
-        f"እንኳን ደስ ያልዎ! አሁን በ /play ወይም Mini App በመክፈት መጫወት ይችላሉ! 🎱",
+        f"💰 መጠን: *{amount:.2f} ETB*\n\n"
+        "የሂሳብ ገቢ የሚደረገው በ PeerPay የባንክ/ዋሌት ማረጋገጫ ሲያልፍ ብቻ ነው።",
         parse_mode="Markdown",
     )
-    context.user_data.pop("selected_deposit_method", None)
     return True
 

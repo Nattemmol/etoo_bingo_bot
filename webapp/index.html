@@ -4,10 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>EtooBingo</title>
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
   <script>
     window.BACKEND_URL = "https://etoo-bingo-bot.onrender.com";
   </script>
+  <link rel="preconnect" href="https://etoobingobot.fly.dev" />
+  <link rel="dns-prefetch" href="https://etoobingobot.fly.dev" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -270,14 +272,14 @@
         </div>
 
         <div class="form-group" style="margin-top: 14px;">
-          <label for="deposit-reference-input">2. ገንዘቡን ካስተላለፉ በኋላ የደረሰዎትን ሙሉ የ SMS መልዕክት እዚህ paste ያድርጉ:</label>
+          <label for="deposit-reference-input">2. መጠኑን ያስገቡና የተረጋገጠ ክፍያ ይጀምሩ፤ ከዚያ የደረሰኝ ሊንክ ወይም Transaction ID ያስገቡ:</label>
           <textarea id="deposit-reference-input" class="wallet-input wallet-textarea" rows="3" placeholder="ከቴሌብር ወይም ከባንክ የደረሰዎትን ሙሉ የ SMS መልእክት፣ የደረሰኝ ሊንክ (https://transactioninfo.ethiotelecom.et/receipt/...) ወይም Transaction ID እዚህ paste ያድርጉ"></textarea>
         </div>
         <div class="form-group" style="margin-top: 10px;">
-          <label for="deposit-amount-optional-input">የከፈሉት መጠን (ETB) - አማራጭ (Optional):</label>
+          <label for="deposit-amount-optional-input">የክፍያ መጠን (ETB) — የተረጋገጠ ክፍያ ለመጀመር ያስፈልጋል:</label>
           <input type="number" id="deposit-amount-optional-input" class="wallet-input" placeholder="መጠኑን ያስገቡ (አስፈላጊ ከሆነ ብቻ፣ ለምሳሌ: 50)" min="5" step="1">
         </div>
-        <button class="btn btn-primary btn-block" id="btn-submit-deposit-ref" style="margin-top: 12px;">ማስረጃውን አረጋግጥ (Verify Deposit)</button>
+        <button class="btn btn-primary btn-block" id="btn-submit-deposit-ref" style="margin-top: 12px;">የተረጋገጠ ክፍያ ጀምር / ማስረጃ ላክ</button>
         <div id="deposit-status-msg" class="wallet-status-msg hidden"></div>
       </div>
 

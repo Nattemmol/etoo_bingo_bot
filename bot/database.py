@@ -1,6 +1,16 @@
+import asyncio
+import json
+import logging
+
 import aiosqlite
 
 from bot.config import settings
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Schema DDL
+# ---------------------------------------------------------------------------
 
 CREATE_USERS = """
 CREATE TABLE IF NOT EXISTS users (
@@ -89,8 +99,68 @@ CREATE TABLE IF NOT EXISTS house_revenue (
 );
 """
 
+CREATE_ACTIVE_ROUNDS = """
+CREATE TABLE IF NOT EXISTS active_rounds (
+    room_id        TEXT PRIMARY KEY,
+    phase          TEXT NOT NULL DEFAULT 'lobby',
+    pot            REAL NOT NULL DEFAULT 0.0,
+    house_income   REAL NOT NULL DEFAULT 0.0,
+    called_numbers TEXT NOT NULL DEFAULT '[]',
+    taken_cards    TEXT NOT NULL DEFAULT '{}',
+    player_data    TEXT NOT NULL DEFAULT '{}',
+    started_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"""
 
-async def _ensure_transaction_fingerprint(db) -> None:
+# Performance indexes
+CREATE_INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(telegram_id, created_at DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_transactions_fingerprint ON transactions(type, fingerprint) WHERE fingerprint IS NOT NULL;",
+    "CREATE INDEX IF NOT EXISTS idx_peerpay_deposits_user ON peerpay_deposits(telegram_id);",
+    "CREATE INDEX IF NOT EXISTS idx_peerpay_withdrawals_user ON peerpay_withdrawals(telegram_id);",
+]
+
+# ---------------------------------------------------------------------------
+# Singleton connection & Write Lock for thread-safe async transaction atomicity
+# ---------------------------------------------------------------------------
+
+_db_conn: aiosqlite.Connection | None = None
+_db_lock = asyncio.Lock()
+_write_lock = asyncio.Lock()
+
+
+async def get_db() -> aiosqlite.Connection:
+    """Return the singleton database connection, creating it if needed."""
+    global _db_conn
+    if _db_conn is not None:
+        return _db_conn
+    async with _db_lock:
+        if _db_conn is not None:
+            return _db_conn
+        conn = await aiosqlite.connect(settings.database_path)
+        conn.row_factory = aiosqlite.Row
+        # Performance pragmas
+        await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute("PRAGMA synchronous=NORMAL")
+        await conn.execute("PRAGMA busy_timeout=5000")
+        await conn.execute("PRAGMA cache_size=-8000")  # 8 MB cache
+        _db_conn = conn
+        return _db_conn
+
+
+async def close_db() -> None:
+    """Close the singleton connection (call on shutdown)."""
+    global _db_conn
+    if _db_conn is not None:
+        try:
+            await _db_conn.close()
+        except Exception:
+            pass
+        _db_conn = None
+
+
+async def _ensure_transaction_fingerprint(db: aiosqlite.Connection) -> None:
     """Add the fingerprint column (dedup key for auto-approved deposits)."""
     async with db.execute("PRAGMA table_info(transactions)") as cursor:
         columns = await cursor.fetchall()
@@ -103,7 +173,8 @@ async def _ensure_transaction_fingerprint(db) -> None:
 
 async def init_db() -> None:
     settings.database_path.parent.mkdir(parents=True, exist_ok=True)
-    async with aiosqlite.connect(settings.database_path) as db:
+    db = await get_db()
+    async with _write_lock:
         await db.execute(CREATE_USERS)
         await db.execute(CREATE_TRANSACTIONS)
         await db.execute(CREATE_TELEBIRR_ORDERS)
@@ -111,25 +182,28 @@ async def init_db() -> None:
         await db.execute(CREATE_PEERPAY_DEPOSITS)
         await db.execute(CREATE_PEERPAY_WITHDRAWALS)
         await db.execute(CREATE_HOUSE_REVENUE)
+        await db.execute(CREATE_ACTIVE_ROUNDS)
         await _ensure_transaction_fingerprint(db)
+        for idx_sql in CREATE_INDEXES:
+            await db.execute(idx_sql)
         await db.commit()
+    logger.info("Database initialized with WAL mode, indexes, and active_rounds table.")
 
 
 async def ping_db() -> bool:
-    async with aiosqlite.connect(settings.database_path) as db:
-        async with db.execute("SELECT 1") as cursor:
-            row = await cursor.fetchone()
-            return row is not None
+    db = await get_db()
+    async with db.execute("SELECT 1") as cursor:
+        row = await cursor.fetchone()
+        return row is not None
 
 
 async def get_user(telegram_id: int) -> dict | None:
-    async with aiosqlite.connect(settings.database_path) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM users WHERE telegram_id = ?", (telegram_id,)
-        ) as cursor:
-            row = await cursor.fetchone()
-            return dict(row) if row else None
+    db = await get_db()
+    async with db.execute(
+        "SELECT * FROM users WHERE telegram_id = ?", (telegram_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+        return dict(row) if row else None
 
 
 async def create_user(
@@ -138,8 +212,8 @@ async def create_user(
     username: str | None,
     first_name: str | None,
 ) -> dict:
-    async with aiosqlite.connect(settings.database_path) as db:
-        db.row_factory = aiosqlite.Row
+    db = await get_db()
+    async with _write_lock:
         await db.execute(
             """
             INSERT INTO users (telegram_id, phone_number, username, first_name)
@@ -160,7 +234,8 @@ async def get_balance(telegram_id: int) -> float:
 
 
 async def update_balance(telegram_id: int, new_balance: float) -> None:
-    async with aiosqlite.connect(settings.database_path) as db:
+    db = await get_db()
+    async with _write_lock:
         await db.execute(
             "UPDATE users SET balance = ? WHERE telegram_id = ?",
             (new_balance, telegram_id),
@@ -175,7 +250,8 @@ async def add_transaction(
     status: str = "completed",
     description: str | None = None,
 ) -> None:
-    async with aiosqlite.connect(settings.database_path) as db:
+    db = await get_db()
+    async with _write_lock:
         await db.execute(
             """
             INSERT INTO transactions (telegram_id, type, amount, status, description)
@@ -187,69 +263,98 @@ async def add_transaction(
 
 
 async def get_transactions(telegram_id: int, limit: int = 20) -> list[dict]:
-    async with aiosqlite.connect(settings.database_path) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            """
-            SELECT * FROM transactions
-            WHERE telegram_id = ?
-            ORDER BY created_at DESC
-            LIMIT ?
-            """,
-            (telegram_id, limit),
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
+    db = await get_db()
+    async with db.execute(
+        """
+        SELECT * FROM transactions
+        WHERE telegram_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+        """,
+        (telegram_id, limit),
+    ) as cursor:
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
 
 
 async def deduct_balance(
     telegram_id: int, amount: float, description: str
 ) -> tuple[bool, float]:
-    """Deduct amount if sufficient balance. Returns (success, new_balance)."""
-    user = await get_user(telegram_id)
-    if not user:
-        return False, 0.0
+    """Deduct amount if sufficient balance. Returns (success, new_balance).
 
-    balance = float(user["balance"])
-    if balance < amount:
-        return False, balance
+    Serialized via _write_lock for strict atomicity under high concurrency.
+    """
+    db = await get_db()
+    async with _write_lock:
+        async with db.execute(
+            "SELECT balance FROM users WHERE telegram_id = ?", (telegram_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            return False, 0.0
 
-    new_balance = balance - amount
-    await update_balance(telegram_id, new_balance)
-    await add_transaction(
-        telegram_id, "game_entry", amount, "completed", description
-    )
-    return True, new_balance
+        balance = float(row["balance"])
+        if balance < amount:
+            return False, balance
+
+        new_balance = round(balance - amount, 2)
+        await db.execute(
+            "UPDATE users SET balance = ? WHERE telegram_id = ?",
+            (new_balance, telegram_id),
+        )
+        await db.execute(
+            """
+            INSERT INTO transactions (telegram_id, type, amount, status, description)
+            VALUES (?, 'game_entry', ?, 'completed', ?)
+            """,
+            (telegram_id, amount, description),
+        )
+        await db.commit()
+        return True, new_balance
 
 
 async def credit_balance(
     telegram_id: int, amount: float, description: str
 ) -> float:
-    """Credit winnings to user balance."""
-    user = await get_user(telegram_id)
-    if not user:
-        return 0.0
+    """Credit winnings to user balance. Serialized via _write_lock."""
+    db = await get_db()
+    async with _write_lock:
+        async with db.execute(
+            "SELECT balance FROM users WHERE telegram_id = ?", (telegram_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            return 0.0
 
-    new_balance = float(user["balance"]) + amount
-    await update_balance(telegram_id, new_balance)
-    await add_transaction(telegram_id, "win", amount, "completed", description)
-    return new_balance
+        new_balance = round(float(row["balance"]) + amount, 2)
+        await db.execute(
+            "UPDATE users SET balance = ? WHERE telegram_id = ?",
+            (new_balance, telegram_id),
+        )
+        await db.execute(
+            """
+            INSERT INTO transactions (telegram_id, type, amount, status, description)
+            VALUES (?, 'win', ?, 'completed', ?)
+            """,
+            (telegram_id, amount, description),
+        )
+        await db.commit()
+        return new_balance
 
 
 async def get_deposit_by_fingerprint(fingerprint: str) -> dict | None:
     """Return an existing completed deposit carrying the same SMS fingerprint."""
-    async with aiosqlite.connect(settings.database_path) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            """
-            SELECT * FROM transactions
-            WHERE type = 'deposit' AND fingerprint = ? AND status = 'completed'
-            LIMIT 1
-            """,
-            (fingerprint,),
-        ) as cursor:
-            row = await cursor.fetchone()
-            return dict(row) if row else None
+    db = await get_db()
+    async with db.execute(
+        """
+        SELECT * FROM transactions
+        WHERE type = 'deposit' AND fingerprint = ? AND status = 'completed'
+        LIMIT 1
+        """,
+        (fingerprint,),
+    ) as cursor:
+        row = await cursor.fetchone()
+        return dict(row) if row else None
 
 
 async def auto_credit_deposit(
@@ -263,17 +368,34 @@ async def auto_credit_deposit(
     Returns (credited, new_balance, already_used). Works atomically so the
     receipt cannot be redeemed twice.
     """
-    existing = await get_deposit_by_fingerprint(fingerprint)
-    if existing:
-        return False, await get_balance(telegram_id), True
+    db = await get_db()
+    async with _write_lock:
+        async with db.execute(
+            """
+            SELECT * FROM transactions
+            WHERE type = 'deposit' AND fingerprint = ? AND status = 'completed'
+            LIMIT 1
+            """,
+            (fingerprint,),
+        ) as cursor:
+            existing = await cursor.fetchone()
 
-    user = await get_user(telegram_id)
-    if not user:
-        return False, 0.0, False
+        if existing:
+            async with db.execute(
+                "SELECT balance FROM users WHERE telegram_id = ?", (telegram_id,)
+            ) as cursor:
+                user_row = await cursor.fetchone()
+            cur_bal = float(user_row["balance"]) if user_row else 0.0
+            return False, cur_bal, True
 
-    new_balance = float(user["balance"]) + amount
+        async with db.execute(
+            "SELECT balance FROM users WHERE telegram_id = ?", (telegram_id,)
+        ) as cursor:
+            user_row = await cursor.fetchone()
+        if not user_row:
+            return False, 0.0, False
 
-    async with aiosqlite.connect(settings.database_path) as db:
+        new_balance = round(float(user_row["balance"]) + amount, 2)
         await db.execute(
             "UPDATE users SET balance = ? WHERE telegram_id = ?",
             (new_balance, telegram_id),
@@ -286,8 +408,7 @@ async def auto_credit_deposit(
             (telegram_id, amount, description, fingerprint),
         )
         await db.commit()
-
-    return True, new_balance, False
+        return True, new_balance, False
 
 
 # ---------------------------------------------------------------------------
@@ -301,7 +422,8 @@ async def create_telebirr_order(
     checkout_url: str,
 ) -> None:
     """Record a new pending Telebirr order."""
-    async with aiosqlite.connect(settings.database_path) as db:
+    db = await get_db()
+    async with _write_lock:
         await db.execute(
             """
             INSERT OR IGNORE INTO telebirr_orders
@@ -315,14 +437,13 @@ async def create_telebirr_order(
 
 async def get_telebirr_order(merch_order_id: str) -> dict | None:
     """Fetch a Telebirr order record by merchant order ID."""
-    async with aiosqlite.connect(settings.database_path) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM telebirr_orders WHERE merch_order_id = ?",
-            (merch_order_id,),
-        ) as cursor:
-            row = await cursor.fetchone()
-            return dict(row) if row else None
+    db = await get_db()
+    async with db.execute(
+        "SELECT * FROM telebirr_orders WHERE merch_order_id = ?",
+        (merch_order_id,),
+    ) as cursor:
+        row = await cursor.fetchone()
+        return dict(row) if row else None
 
 
 async def complete_telebirr_order(
@@ -334,10 +455,8 @@ async def complete_telebirr_order(
     Returns (credited, new_balance, telegram_id).
     credited=False if the order was already completed or not found.
     """
-    async with aiosqlite.connect(settings.database_path) as db:
-        db.row_factory = aiosqlite.Row
-
-        # Fetch order and lock it by checking status in a single transaction
+    db = await get_db()
+    async with _write_lock:
         async with db.execute(
             "SELECT * FROM telebirr_orders WHERE merch_order_id = ?",
             (merch_order_id,),
@@ -349,14 +468,16 @@ async def complete_telebirr_order(
 
         order = dict(row)
         if order["status"] != "pending":
-            # Already processed — safe to return false (idempotent)
-            balance = await get_balance(order["telegram_id"])
-            return False, balance, order["telegram_id"]
+            async with db.execute(
+                "SELECT balance FROM users WHERE telegram_id = ?", (order["telegram_id"],)
+            ) as cursor:
+                ub = await cursor.fetchone()
+            cur_bal = float(ub["balance"]) if ub else 0.0
+            return False, cur_bal, order["telegram_id"]
 
         telegram_id: int = order["telegram_id"]
         amount: float = order["amount"]
 
-        # Fetch current balance
         async with db.execute(
             "SELECT balance FROM users WHERE telegram_id = ?", (telegram_id,)
         ) as cursor:
@@ -365,9 +486,8 @@ async def complete_telebirr_order(
         if not user_row:
             return False, 0.0, telegram_id
 
-        new_balance = float(user_row["balance"]) + amount
+        new_balance = round(float(user_row["balance"]) + amount, 2)
 
-        # Mark order complete + credit balance + record transaction atomically
         await db.execute(
             "UPDATE telebirr_orders SET status = 'completed' WHERE merch_order_id = ?",
             (merch_order_id,),
@@ -384,8 +504,7 @@ async def complete_telebirr_order(
             (telegram_id, amount, f"Telebirr deposit — order {merch_order_id}"),
         )
         await db.commit()
-
-    return True, new_balance, telegram_id
+        return True, new_balance, telegram_id
 
 
 # ---------------------------------------------------------------------------
@@ -399,12 +518,9 @@ async def record_webhook_event_once(
     object_id: str,
     payload: str,
 ) -> bool:
-    """Deduplicate PeerPay deliveries by event id.
-
-    Returns True only for the first delivery of an event (subsequent
-    at-least-once redeliveries are dropped).
-    """
-    async with aiosqlite.connect(settings.database_path) as db:
+    """Deduplicate PeerPay deliveries by event id."""
+    db = await get_db()
+    async with _write_lock:
         cursor = await db.execute(
             """
             INSERT OR IGNORE INTO peerpay_events
@@ -418,13 +534,12 @@ async def record_webhook_event_once(
 
 
 async def get_webhook_event(event_id: str) -> dict | None:
-    async with aiosqlite.connect(settings.database_path) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM peerpay_events WHERE event_id = ?", (event_id,)
-        ) as cursor:
-            row = await cursor.fetchone()
-            return dict(row) if row else None
+    db = await get_db()
+    async with db.execute(
+        "SELECT * FROM peerpay_events WHERE event_id = ?", (event_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+        return dict(row) if row else None
 
 
 async def upsert_peerpay_deposit(
@@ -435,11 +550,9 @@ async def upsert_peerpay_deposit(
     merchant_order_id: str | None,
     status: str,
 ) -> None:
-    """Record/refresh a PeerPay deposit row from a status event.
-
-    Never credits — status bookkeeping only. Existing credited state is kept.
-    """
-    async with aiosqlite.connect(settings.database_path) as db:
+    """Record/refresh a PeerPay deposit row from a status event."""
+    db = await get_db()
+    async with _write_lock:
         await db.execute(
             """
             INSERT INTO peerpay_deposits
@@ -455,13 +568,12 @@ async def upsert_peerpay_deposit(
 
 
 async def get_peerpay_deposit(payment_id: str) -> dict | None:
-    async with aiosqlite.connect(settings.database_path) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM peerpay_deposits WHERE payment_id = ?", (payment_id,)
-        ) as cursor:
-            row = await cursor.fetchone()
-            return dict(row) if row else None
+    db = await get_db()
+    async with db.execute(
+        "SELECT * FROM peerpay_deposits WHERE payment_id = ?", (payment_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+        return dict(row) if row else None
 
 
 async def credit_peerpay_deposit_once(
@@ -470,16 +582,9 @@ async def credit_peerpay_deposit_once(
     amount: float,
     merchant_order_id: str | None = None,
 ) -> tuple[bool, float, bool]:
-    """Idempotently credit a confirmed PeerPay deposit.
-
-    Returns (credited, new_balance, is_duplicate). Keyed by the PeerPay
-    deposit resource id, so duplicate deliveries or events arriving out of
-    order can never credit the wallet twice.
-    """
-    async with aiosqlite.connect(settings.database_path) as db:
-        db.row_factory = aiosqlite.Row
-
-        # Ensure a base row exists even when deposit.created was missed.
+    """Idempotently credit a confirmed PeerPay deposit."""
+    db = await get_db()
+    async with _write_lock:
         await db.execute(
             """
             INSERT OR IGNORE INTO peerpay_deposits
@@ -510,7 +615,7 @@ async def credit_peerpay_deposit_once(
         if rec["credited"]:
             return False, current_balance, True
 
-        new_balance = current_balance + amount
+        new_balance = round(current_balance + amount, 2)
         fingerprint = f"peerpay_dep:{payment_id}"
 
         await db.execute(
@@ -533,8 +638,7 @@ async def credit_peerpay_deposit_once(
             (payment_id,),
         )
         await db.commit()
-
-    return True, new_balance, False
+        return True, new_balance, False
 
 
 async def create_peerpay_withdrawal_hold(
@@ -545,7 +649,8 @@ async def create_peerpay_withdrawal_hold(
     decision_code: str | None = None,
 ) -> None:
     """Record a PeerPay withdrawal hold after withdrawal creation."""
-    async with aiosqlite.connect(settings.database_path) as db:
+    db = await get_db()
+    async with _write_lock:
         await db.execute(
             """
             INSERT OR IGNORE INTO peerpay_withdrawals
@@ -558,13 +663,12 @@ async def create_peerpay_withdrawal_hold(
 
 
 async def get_peerpay_withdrawal(payment_id: str) -> dict | None:
-    async with aiosqlite.connect(settings.database_path) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM peerpay_withdrawals WHERE payment_id = ?", (payment_id,)
-        ) as cursor:
-            row = await cursor.fetchone()
-            return dict(row) if row else None
+    db = await get_db()
+    async with db.execute(
+        "SELECT * FROM peerpay_withdrawals WHERE payment_id = ?", (payment_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+        return dict(row) if row else None
 
 
 async def update_peerpay_withdrawal_progress(
@@ -574,7 +678,8 @@ async def update_peerpay_withdrawal_progress(
     decision_code: str | None = None,
 ) -> None:
     """Persist non-wallet-mutating withdrawal events (the hold is unchanged)."""
-    async with aiosqlite.connect(settings.database_path) as db:
+    db = await get_db()
+    async with _write_lock:
         await db.execute(
             """
             UPDATE peerpay_withdrawals
@@ -589,13 +694,9 @@ async def update_peerpay_withdrawal_progress(
 
 
 async def capture_peerpay_withdrawal_once(payment_id: str) -> tuple[bool, int]:
-    """Capture the wallet hold for a completed withdrawal — exactly once.
-
-    Returns (captured, telegram_id). The hold money was already deducted at
-    creation, so capture only finalizes the ledger state.
-    """
-    async with aiosqlite.connect(settings.database_path) as db:
-        db.row_factory = aiosqlite.Row
+    """Capture the wallet hold for a completed withdrawal — exactly once."""
+    db = await get_db()
+    async with _write_lock:
         async with db.execute(
             """
             SELECT telegram_id, captured, released
@@ -619,18 +720,13 @@ async def capture_peerpay_withdrawal_once(payment_id: str) -> tuple[bool, int]:
             (payment_id,),
         )
         await db.commit()
-
-    return True, int(row["telegram_id"])
+        return True, int(row["telegram_id"])
 
 
 async def release_peerpay_withdrawal_once(payment_id: str) -> tuple[bool, float]:
-    """Release the hold for a failed/expired/cancelled withdrawal — exactly once.
-
-    Returns (released, new_balance). Refunds the held amount back to the user
-    wallet idempotently.
-    """
-    async with aiosqlite.connect(settings.database_path) as db:
-        db.row_factory = aiosqlite.Row
+    """Release the hold for a failed/expired/cancelled withdrawal — exactly once."""
+    db = await get_db()
+    async with _write_lock:
         async with db.execute(
             """
             SELECT telegram_id, amount, captured, released
@@ -652,7 +748,7 @@ async def release_peerpay_withdrawal_once(payment_id: str) -> tuple[bool, float]
         if not user_row:
             return False, 0.0
 
-        new_balance = float(user_row["balance"]) + amount
+        new_balance = round(float(user_row["balance"]) + amount, 2)
         fingerprint = f"peerpay_wd_refund:{payment_id}"
 
         await db.execute(
@@ -676,8 +772,7 @@ async def release_peerpay_withdrawal_once(payment_id: str) -> tuple[bool, float]
             (payment_id,),
         )
         await db.commit()
-
-    return True, new_balance
+        return True, new_balance
 
 
 async def record_house_revenue(
@@ -687,7 +782,8 @@ async def record_house_revenue(
     total_revenue: float,
 ) -> None:
     """Record house commission earnings from a completed bingo round."""
-    async with aiosqlite.connect(settings.database_path) as db:
+    db = await get_db()
+    async with _write_lock:
         await db.execute(
             """
             INSERT INTO house_revenue (room_id, cards_count, cut_per_card, total_revenue)
@@ -700,15 +796,79 @@ async def record_house_revenue(
 
 async def get_house_revenue_summary() -> dict:
     """Return total income and per-room totals for house revenue."""
-    async with aiosqlite.connect(settings.database_path) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT room_id, COUNT(*) as rounds, SUM(cards_count) as total_cards, SUM(total_revenue) as total_revenue FROM house_revenue GROUP BY room_id"
-        ) as cursor:
-            rows = await cursor.fetchall()
-        by_room = {r["room_id"]: dict(r) for r in rows}
-        async with db.execute("SELECT SUM(total_revenue) FROM house_revenue") as cursor:
-            row = await cursor.fetchone()
-            total = float(row[0] or 0.0) if row else 0.0
-        return {"total_revenue": total, "by_room": by_room}
+    db = await get_db()
+    async with db.execute(
+        "SELECT room_id, COUNT(*) as rounds, SUM(cards_count) as total_cards, SUM(total_revenue) as total_revenue FROM house_revenue GROUP BY room_id"
+    ) as cursor:
+        rows = await cursor.fetchall()
+    by_room = {r["room_id"]: dict(r) for r in rows}
+    async with db.execute("SELECT SUM(total_revenue) FROM house_revenue") as cursor:
+        row = await cursor.fetchone()
+        total = float(row[0] or 0.0) if row else 0.0
+    return {"total_revenue": total, "by_room": by_room}
 
+
+# ---------------------------------------------------------------------------
+# Active round persistence (crash recovery)
+# ---------------------------------------------------------------------------
+
+async def save_active_round(
+    room_id: str,
+    phase: str,
+    pot: float,
+    house_income: float,
+    called_numbers: list[int],
+    taken_cards: dict[int, int],
+    player_data: dict,
+) -> None:
+    """Persist current round state for crash recovery."""
+    db = await get_db()
+    async with _write_lock:
+        await db.execute(
+            """
+            INSERT INTO active_rounds (room_id, phase, pot, house_income, called_numbers, taken_cards, player_data, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(room_id) DO UPDATE SET
+                phase = excluded.phase,
+                pot = excluded.pot,
+                house_income = excluded.house_income,
+                called_numbers = excluded.called_numbers,
+                taken_cards = excluded.taken_cards,
+                player_data = excluded.player_data,
+                updated_at = datetime('now')
+            """,
+            (
+                room_id,
+                phase,
+                pot,
+                house_income,
+                json.dumps(called_numbers),
+                json.dumps({str(k): v for k, v in taken_cards.items()}),
+                json.dumps(player_data),
+            ),
+        )
+        await db.commit()
+
+
+async def get_active_round(room_id: str) -> dict | None:
+    """Load a persisted round for crash recovery."""
+    db = await get_db()
+    async with db.execute(
+        "SELECT * FROM active_rounds WHERE room_id = ?", (room_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["called_numbers"] = json.loads(d["called_numbers"])
+    d["taken_cards"] = {int(k): v for k, v in json.loads(d["taken_cards"]).items()}
+    d["player_data"] = json.loads(d["player_data"])
+    return d
+
+
+async def clear_active_round(room_id: str) -> None:
+    """Remove persisted round state after a round completes normally."""
+    db = await get_db()
+    async with _write_lock:
+        await db.execute("DELETE FROM active_rounds WHERE room_id = ?", (room_id,))
+        await db.commit()

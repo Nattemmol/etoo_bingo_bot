@@ -50,6 +50,10 @@ def run_server() -> None:
         host="0.0.0.0",
         port=settings.server_port,
         log_level="info",
+        ws_ping_interval=20,
+        ws_ping_timeout=20,
+        timeout_keep_alive=30,
+        backlog=2048,
     )
 
 

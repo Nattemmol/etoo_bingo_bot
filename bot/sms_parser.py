@@ -158,7 +158,7 @@ _REF_RE = re.compile(
 _TELEBIRR_REF_RE = re.compile(r"\b(DI[A-Z0-9]{8})\b", re.IGNORECASE)
 _CBE_FT_REF_RE = re.compile(r"\b(FT[0-9A-Z]{8,16})\b", re.IGNORECASE)
 _RECEIPT_URL_RE = re.compile(
-    r"https?://(?:transactioninfo\.ethiotelecom\.et/receipt/|telebirr[^\s]*/receipt/)([A-Za-z0-9_\-]+)",
+    r"https?://(?:(?:transactioninfo\.ethiotelecom\.et/receipt/)([A-Za-z0-9_-]+)|(?:mbreciept\.cbe\.com\.et/)([A-Za-z0-9_-]+)|(?:apps\.cbe\.com\.et:100/BranchReceipt/)(FT[0-9A-Z]+)(?:&[0-9]+)?)",
     re.IGNORECASE,
 )
 _DIGIT_RUN_RE = re.compile(r"(?<!\d)(\d{9,16})(?!\d)")
@@ -184,9 +184,9 @@ def extract_reference_and_url(text: str) -> tuple[str | None, str | None, float 
     # 1. Check for receipt URL
     url_m = _RECEIPT_URL_RE.search(clean)
     if url_m:
-        ref = url_m.group(1).strip()
+        ref = next((group for group in url_m.groups() if group), "").strip()
         url = url_m.group(0).strip()
-        return ref, url, None
+        return ref or None, url, None
 
     # 2. Check for bare Telebirr or CBE reference
     tb_m = _TELEBIRR_REF_RE.search(clean)
@@ -212,7 +212,7 @@ async def fetch_telebirr_receipt(ref_or_url: str) -> dict | None:
 
     target_url = url or f"https://transactioninfo.ethiotelecom.et/receipt/{txn_id}"
     try:
-        async with httpx.AsyncClient(timeout=8.0, verify=False) as client:
+        async with httpx.AsyncClient(timeout=8.0, follow_redirects=False) as client:
             resp = await client.get(target_url)
             if resp.status_code == 200 and "telebirr receipt" in resp.text:
                 html = resp.text
