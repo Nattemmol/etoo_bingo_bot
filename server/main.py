@@ -1746,7 +1746,7 @@ async def api_user_me(request: Request):
 
 @app.post("/api/deposit/create")
 async def api_deposit_create(request: Request):
-    """Create a PeerPay deposit checkout link from the Mini App."""
+    """Create a verified PeerPay deposit checkout link for the Mini App."""
     init_data = request.headers.get("X-Telegram-Init-Data")
     body = {}
     try:
@@ -1763,36 +1763,82 @@ async def api_deposit_create(request: Request):
         return JSONResponse(status_code=401, content={"error": str(exc)})
 
     amount = body.get("amount")
-    payment_method = body.get("payment_method")
+    payment_method = str(body.get("payment_method", "telebirr")).lower()
+    peerpay_method = "telebirr" if payment_method == "telebirr" else ("cbebirr" if payment_method == "cbebirr" else "cbe")
+    idempotency_key = f"etoobingo-deposit-{uuid.uuid4().hex}"
+
     try:
         res = await peerpay_client.create_deposit(
             merchant_customer_id=f"tg_{tg_id}",
             amount=amount,
-            payment_method=payment_method,
+            payment_method=peerpay_method,
             return_url=f"{settings.webapp_url}/deposits/return",
+            idempotency_key=idempotency_key,
         )
-        return JSONResponse({"ok": True, "data": res.get("data", {})})
+        dep_data = res.get("data", {})
+        deposit_id = dep_data.get("id")
+        if deposit_id:
+            await db.upsert_peerpay_deposit(
+                payment_id=deposit_id,
+                telegram_id=tg_id,
+                amount=float(dep_data.get("amount") or amount or 0.0),
+                currency="ETB",
+                merchant_order_id=dep_data.get("merchant_order_id"),
+                status=dep_data.get("status", "awaiting_transfer"),
+            )
+        return JSONResponse({"ok": True, "data": dep_data})
     except Exception as exc:
+        logger.exception("Failed to create PeerPay deposit: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.get("/api/deposit/status/{deposit_id}")
+async def api_deposit_status(deposit_id: str, request: Request):
+    """Poll authoritative deposit status from PeerPay and credit on success."""
+    init_data = request.headers.get("X-Telegram-Init-Data") or request.query_params.get("init_data")
+    if not init_data:
+        return JSONResponse(status_code=401, content={"error": "Missing init_data"})
+    try:
+        user_info = validate_init_data(init_data)
+        tg_id = int(user_info["id"])
+    except Exception as exc:
+        return JSONResponse(status_code=401, content={"error": str(exc)})
+
+    try:
+        res = await peerpay_client.get_deposit(deposit_id)
+        dep_data = res.get("data", {})
+        status = dep_data.get("status", "unknown")
+        amount = float(dep_data.get("amount") or 0.0)
+
+        if status == "succeeded":
+            credited, new_balance, is_dup = await db.credit_peerpay_deposit_once(
+                payment_id=deposit_id,
+                telegram_id=tg_id,
+                amount=amount,
+                merchant_order_id=dep_data.get("merchant_order_id"),
+            )
+            return JSONResponse({
+                "ok": True,
+                "status": "succeeded",
+                "credited": credited or is_dup,
+                "amount": amount,
+                "new_balance": new_balance,
+                "message": f"✅ {amount:.2f} ETB ወደ ሂሳብዎ ተጨምሯል!",
+            })
+
+        return JSONResponse({
+            "ok": True,
+            "status": status,
+            "data": dep_data,
+        })
+    except Exception as exc:
+        logger.exception("Failed to check deposit status: %s", exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 @app.post("/api/deposit/submit-reference")
 async def api_deposit_submit_reference(request: Request):
-    """Verify and credit a deposit from the Mini App.
-
-    Accepts:
-      • A full SMS text pasted by the user
-      • A bare Transaction ID / reference (DI..., FT...)
-      • An official receipt URL for any supported provider
-
-    Verification priority:
-      1. Live receipt scraping (Telebirr HTML, CBE MB JSON API)
-      2. Verify.et API (CBE FT refs, CBE Birr, fallback)
-      3. SMS directional analysis (full text)
-
-    Amount is optional — extracted from receipt when possible.
-    Credit happens immediately on successful receipt verification with known amount.
-    """
+    """Submit payment reference to PeerPay Checkout API and verify with bank."""
     try:
         body = await request.json()
     except Exception:
@@ -1809,90 +1855,91 @@ async def api_deposit_submit_reference(request: Request):
     if not raw_input:
         return JSONResponse(
             status_code=400,
-            content={"error": "Paste your SMS text, a receipt link, or a transaction ID."},
+            content={"error": "እባክዎ የደረሰኝ ሊንክ ወይም Transaction ID ያስገቡ።"},
         )
 
-    user = await db.get_user(tg_id)
-    if not user:
-        return JSONResponse(status_code=400, content={"error": "User not registered."})
+    # Extract bare reference token
+    ref_match = re.search(r"\b(DI[A-Z0-9]{8}|FT[0-9A-Z]{8,16})\b", raw_input, re.I)
+    ref = ref_match.group(1) if ref_match else raw_input.split("/")[-1].strip()
 
-    # --- Run full multi-layer verification ---
-    expected_method = str(body.get("payment_method", "")).strip().lower() or None
-    verification = await verify_deposit_submission(raw_input, expected_method=expected_method)
-
-    if not verification["valid"]:
-        return JSONResponse(
-            status_code=400,
-            content={"error": verification.get("error_message", "Verification failed.")},
-        )
-
-    reference = verification["reference"]
-    amount = verification.get("amount")
-    fp = verification["fingerprint"]
-    receipt_verified = verification.get("receipt_verified", False)
-    method = verification.get("method") or expected_method or "telebirr"
-
-    # --- Anti-duplicate checks ---
-    existing_tx = await db.get_deposit_by_fingerprint(fp)
-    if existing_tx:
-        return JSONResponse(
-            status_code=409,
-            content={
-                "error": "This receipt has already been credited.",
-                "credited_amount": existing_tx.get("amount"),
-            },
-        )
-
-    existing_dep = await db.get_peerpay_deposit(reference)
+    # Check anti-duplicate locally
+    existing_dep = await db.get_peerpay_deposit(ref)
     if existing_dep and existing_dep.get("credited"):
         return JSONResponse(
             status_code=409,
-            content={
-                "error": "This transaction reference has already been credited.",
-                "credited_amount": existing_dep.get("amount"),
-            },
+            content={"error": "ይህ ግብይት ቀድሞውኑ ተረጋግጦ ጥቅም ላይ ውሏል!"},
         )
 
-    # --- Immediate credit when verified and amount is known ---
-    if amount and amount > 0:
-        method_label = {
-            "telebirr": "Telebirr",
-            "cbebirr": "CBE Birr",
-            "cbe_bank": "CBE Mobile Banking",
-        }.get(method, "Manual")
+    deposit_id = str(body.get("deposit_id", "")).strip()
+    checkout_url = str(body.get("checkout_url", "")).strip()
+    payment_method = str(body.get("payment_method", "telebirr")).lower()
 
-        credited, new_balance, already_used = await db.auto_credit_deposit(
-            telegram_id=tg_id,
-            amount=amount,
-            fingerprint=fp,
-            description=f"Deposit via {method_label} | ref:{reference}",
-        )
-
-        if already_used:
-            return JSONResponse(
-                status_code=409,
-                content={"error": "This receipt has already been credited."},
+    # If no active deposit session, create one with PeerPay
+    if not deposit_id or not checkout_url:
+        peerpay_method = "telebirr" if ref.startswith("DI") else "cbe"
+        try:
+            create_res = await peerpay_client.create_deposit(
+                merchant_customer_id=f"tg_{tg_id}",
+                payment_method=peerpay_method,
             )
+            dep_data = create_res.get("data", {})
+            deposit_id = dep_data.get("id", "")
+            checkout_url = dep_data.get("checkout_url", "")
+            if deposit_id:
+                await db.upsert_peerpay_deposit(
+                    payment_id=deposit_id,
+                    telegram_id=tg_id,
+                    amount=0.0,
+                    currency="ETB",
+                    merchant_order_id=dep_data.get("merchant_order_id"),
+                    status=dep_data.get("status", "created"),
+                )
+        except Exception as exc:
+            logger.warning("Error creating deposit for reference submission: %s", exc)
 
-        if credited:
+    if not deposit_id or not checkout_url:
+        return JSONResponse(status_code=400, content={"error": "የክፍያ ማስፈንጠሪያ ማዘጋጀት አልተቻለም።"})
+
+    try:
+        verify_res = await peerpay_client.submit_and_verify_reference(
+            deposit_id=deposit_id,
+            checkout_url=checkout_url,
+            reference=ref,
+            payment_method=payment_method,
+        )
+
+        if not verify_res.get("ok"):
+            err_msg = verify_res.get("error", "ይህ ግብይት አልተረጋገጠም ወይም የተሳሳተ ነው!")
+            return JSONResponse(status_code=400, content={"error": err_msg})
+
+        status = verify_res.get("status")
+        amount = verify_res.get("amount") or 0.0
+
+        if status == "succeeded":
+            credited, new_balance, is_dup = await db.credit_peerpay_deposit_once(
+                payment_id=deposit_id,
+                telegram_id=tg_id,
+                amount=amount,
+            )
             return JSONResponse({
                 "ok": True,
                 "status": "credited",
                 "amount": amount,
                 "new_balance": new_balance,
-                "reference": reference,
-                "method": method,
-                "message": f"✅ {amount:.2f} ETB ወደ አካውንትዎ ተጨምሯል!",
+                "reference": ref,
+                "message": f"✅ {amount:.2f} ETB ወደ ሂሳብዎ ተጨምሯል!",
             })
 
-    # --- Amount unknown — ask user to confirm amount ---
-    return JSONResponse({
-        "ok": True,
-        "status": "amount_needed",
-        "reference": reference,
-        "method": method,
-        "message": f"✅ የማስረጃ ቁጥር `{reference}` ደርሶናል። ያስተላለፉትን *የብር መጠን* ያስገቡ።",
-    })
+        return JSONResponse({
+            "ok": True,
+            "status": "verification_pending",
+            "deposit_id": deposit_id,
+            "reference": ref,
+            "message": "⏳ ክፍያው በ PeerPayment በኩል በማረጋገጥ ላይ ነው። ማረጋገጫው እንደተጠናቀቀ በራስ-ሰር ይጨመርልዎታል!",
+        })
+    except Exception as exc:
+        logger.exception("Error submitting reference to PeerPay: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 

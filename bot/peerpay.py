@@ -237,6 +237,48 @@ class PeerPayClient:
                 data = {"status_code": resp.status_code, "text": resp.text}
             return data
 
+    async def submit_and_verify_reference(
+        self,
+        deposit_id: str,
+        checkout_url: str,
+        reference: str,
+        payment_method: str = "telebirr",
+        phone: str | None = None,
+    ) -> dict[str, Any]:
+        """Submit reference to checkout and fetch updated deposit status."""
+        # 1. Submit reference to checkout API
+        sub_res = await self.submit_deposit_reference(
+            checkout_token_or_url=checkout_url,
+            reference=reference,
+            payment_method=payment_method,
+            phone=phone,
+        )
+        if isinstance(sub_res, dict) and sub_res.get("error"):
+            err_dict = sub_res["error"] if isinstance(sub_res["error"], dict) else {}
+            return {
+                "ok": False,
+                "error": err_dict.get("message", "PeerPay rejected this reference."),
+                "code": err_dict.get("code", "rejected"),
+            }
+
+        # 2. Fetch authoritative deposit status
+        dep_res = await self.get_deposit(deposit_id)
+        dep_data = dep_res.get("data") or {}
+        status = dep_data.get("status", "verification_pending")
+        amount = None
+        try:
+            amount = float(dep_data.get("amount") or 0)
+        except Exception:
+            pass
+
+        return {
+            "ok": True,
+            "status": status,
+            "amount": amount,
+            "data": dep_data,
+            "verified": dep_data.get("verification", {}).get("verified", False),
+        }
+
     async def get_deposit(self, deposit_id: str) -> dict[str, Any]:
         """Fetch current status and verification state of a deposit."""
         headers = self._auth_headers()

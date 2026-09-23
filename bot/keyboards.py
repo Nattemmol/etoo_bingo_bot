@@ -44,20 +44,39 @@ def withdraw_method_keyboard():
     )
 
 
-def peerpay_pay_keyboard(checkout_url: str):
-    """Single inline button that opens the PeerPay hosted checkout page."""
+def deposit_amount_keyboard(method: str):
+    """Inline keyboard for quick deposit amount selection."""
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton(
-                    "💳 Pay on PeerPay",
-                    url=checkout_url,
-                )
-            ]
+                InlineKeyboardButton("25 ETB", callback_data=f"dep_amt_{method}_25"),
+                InlineKeyboardButton("50 ETB", callback_data=f"dep_amt_{method}_50"),
+                InlineKeyboardButton("100 ETB", callback_data=f"dep_amt_{method}_100"),
+            ],
+            [
+                InlineKeyboardButton("200 ETB", callback_data=f"dep_amt_{method}_200"),
+                InlineKeyboardButton("500 ETB", callback_data=f"dep_amt_{method}_500"),
+                InlineKeyboardButton("1,000 ETB", callback_data=f"dep_amt_{method}_1000"),
+            ],
+            [
+                InlineKeyboardButton("✏️ ሌላ መጠን (Custom)", callback_data=f"dep_amt_{method}_custom"),
+            ],
         ]
     )
+
+
+def peerpay_pay_keyboard(checkout_url: str, deposit_id: str = ""):
+    """Inline button that opens the PeerPay hosted checkout page and check status button."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    buttons = [
+        [InlineKeyboardButton("💳 በ PeerPay ክፈሉ (Pay on PeerPay)", url=checkout_url)],
+    ]
+    if deposit_id:
+        buttons.append([InlineKeyboardButton("🔄 ሁኔታውን አረጋግጥ (Check Status)", callback_data=f"dep_status_{deposit_id}")])
+    return InlineKeyboardMarkup(buttons)
 
 
 def peerpay_withdraw_confirm_keyboard(checkout_url: str):
