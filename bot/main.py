@@ -32,6 +32,7 @@ from bot.handlers.withdraw import (
     withdraw_cancel,
     withdraw_command,
     withdraw_method_callback,
+    withdraw_status_callback,
 )
 
 logging.basicConfig(
@@ -105,6 +106,7 @@ def build_application() -> Application:
     app.add_handler(CallbackQueryHandler(deposit_callback, pattern=r"^deposit_"))
     app.add_handler(CallbackQueryHandler(deposit_amount_callback, pattern=r"^dep_amt_"))
     app.add_handler(CallbackQueryHandler(deposit_status_callback, pattern=r"^dep_status_"))
+    app.add_handler(CallbackQueryHandler(withdraw_status_callback, pattern=r"^wd_status_"))
     app.add_handler(CallbackQueryHandler(instructions_callback, pattern=r"^inst_"))
     app.add_handler(CallbackQueryHandler(action_button_callback, pattern=r"^btn_action_"))
 

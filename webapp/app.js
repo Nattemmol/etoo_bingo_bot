@@ -442,6 +442,57 @@ if (els.btnSubmitDepositRef) {
   });
 }
 
+let withdrawPollInterval = null;
+
+function stopWithdrawPolling() {
+  if (withdrawPollInterval) {
+    clearInterval(withdrawPollInterval);
+    withdrawPollInterval = null;
+  }
+}
+
+function startWithdrawPolling(withdrawalId) {
+  stopWithdrawPolling();
+  let attempts = 0;
+  const maxAttempts = 60; // ~4 minutes
+
+  withdrawPollInterval = setInterval(async () => {
+    attempts++;
+    if (attempts > maxAttempts) {
+      stopWithdrawPolling();
+      return;
+    }
+
+    try {
+      const resp = await fetch(apiUrl(`/api/withdraw/status/${withdrawalId}`));
+      const data = await resp.json();
+      if (data.ok) {
+        if (data.status === "succeeded") {
+          stopWithdrawPolling();
+          if (els.withdrawStatusMsg) {
+            els.withdrawStatusMsg.className = "wallet-status-msg success";
+            els.withdrawStatusMsg.textContent = data.message || `✅ የ ${data.amount ? data.amount.toFixed(2) + " ETB" : ""} ክፍያ ወደ Telebirr ተላልፏል!`;
+          }
+          tg.HapticFeedback?.notificationOccurred("success");
+        } else if (data.status === "failed" || data.status === "expired" || data.status === "cancelled") {
+          stopWithdrawPolling();
+          if (data.refund_amount) {
+            updateBalanceDisplay(state.balance + data.refund_amount);
+            if (els.modalUserBalance) els.modalUserBalance.textContent = state.balance.toFixed(2);
+          }
+          if (els.withdrawStatusMsg) {
+            els.withdrawStatusMsg.className = "wallet-status-msg error";
+            els.withdrawStatusMsg.textContent = data.message || `❌ የገንዘብ ማውጣቱ አልተሳካም። ገንዘቡ ወደ ሂሳብዎ ተመልሷል።`;
+          }
+          tg.HapticFeedback?.notificationOccurred("error");
+        }
+      }
+    } catch (err) {
+      console.warn("Error polling withdrawal status:", err);
+    }
+  }, 4000);
+}
+
 if (els.btnRequestWithdraw) {
   els.btnRequestWithdraw.addEventListener("click", async () => {
     const amt = parseFloat(els.withdrawAmountInput?.value || "0");
@@ -481,6 +532,8 @@ if (els.btnRequestWithdraw) {
       els.withdrawStatusMsg.classList.remove("hidden");
     }
 
+    els.btnRequestWithdraw.disabled = true;
+
     try {
       const resp = await fetch(apiUrl("/api/withdraw/create"), {
         method: "POST",
@@ -502,10 +555,14 @@ if (els.btnRequestWithdraw) {
         }
         if (els.withdrawStatusMsg) {
           els.withdrawStatusMsg.className = "wallet-status-msg success";
-          els.withdrawStatusMsg.textContent = `✅ የ ${amt.toFixed(2)} ETB ማውጣት ጥያቄ ተልኳል! ገንዘቡ ሲላክ ይደርስዎታል።`;
+          els.withdrawStatusMsg.textContent = `✅ የ ${amt.toFixed(2)} ETB ማውጣት ጥያቄ ተልኳል! ክፍያው እንደተጠናቀቀ በራስ-ሰር ይረጋገጣል።`;
         }
         if (els.withdrawAmountInput) els.withdrawAmountInput.value = "";
         if (els.withdrawAccountInput) els.withdrawAccountInput.value = "";
+        
+        if (data.withdrawal_id) {
+          startWithdrawPolling(data.withdrawal_id);
+        }
       } else {
         if (els.withdrawStatusMsg) {
           els.withdrawStatusMsg.className = "wallet-status-msg error";
@@ -517,6 +574,8 @@ if (els.btnRequestWithdraw) {
         els.withdrawStatusMsg.className = "wallet-status-msg error";
         els.withdrawStatusMsg.textContent = "❌ ችግር አጋጥሟል: " + err.message;
       }
+    } finally {
+      els.btnRequestWithdraw.disabled = false;
     }
   });
 }
@@ -1525,10 +1584,17 @@ buildPool();
 
 ws = connect();
 
-// Auto-open wallet/deposit if requested via deep-link
+// Auto-open wallet/deposit/withdraw if requested via deep-link
 if (params.get("action") === "deposit" || params.get("action") === "wallet") {
   setTimeout(() => {
     openWalletModal();
+  }, 300);
+} else if (params.get("action") === "withdraw") {
+  setTimeout(() => {
+    openWalletModal();
+    if (els.tabWithdraw) {
+      els.tabWithdraw.click();
+    }
   }, 300);
 }
 

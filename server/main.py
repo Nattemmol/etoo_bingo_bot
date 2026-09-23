@@ -2023,6 +2023,7 @@ async def api_withdraw_create(request: Request):
     except Exception as exc:
         logger.exception("Failed to create PeerPay withdrawal: %s", exc)
 
+    new_balance = round(balance - amount, 2)
     await db.update_balance(tg_id, new_balance)
     await db.create_peerpay_withdrawal_hold(
         payment_id=payment_id,
@@ -2047,6 +2048,44 @@ async def api_withdraw_create(request: Request):
         "method": "telebirr",
         "phone": digits,
     })
+
+
+@app.get("/api/withdraw/status/{withdrawal_id}")
+async def api_withdraw_status(withdrawal_id: str):
+    """Authoritatively poll PeerPay withdrawal status and reconcile hold/capture/release."""
+    try:
+        res = await peerpay_client.get_withdrawal(withdrawal_id)
+        wd_data = res.get("data", {})
+        status = wd_data.get("status", "unknown")
+        amount = float(wd_data.get("amount") or 0.0)
+
+        if status == "succeeded":
+            captured, tg_id = await db.capture_peerpay_withdrawal_once(withdrawal_id)
+            return JSONResponse({
+                "ok": True,
+                "status": "succeeded",
+                "captured": captured,
+                "amount": amount,
+                "message": f"✅ {amount:.2f} ETB ወደ Telebirr ቁጥርዎ በተሳካ ሁኔታ ተላልፏል!",
+            })
+        elif status in ("failed", "expired", "cancelled"):
+            released, refund_amt = await db.release_peerpay_withdrawal_once(withdrawal_id)
+            return JSONResponse({
+                "ok": True,
+                "status": status,
+                "released": released,
+                "refund_amount": refund_amt,
+                "message": f"❌ ክፍያው አልተሳካም ({status})። {refund_amt:.2f} ETB ወደ ሂሳብዎ ተመልሷል።",
+            })
+
+        return JSONResponse({
+            "ok": True,
+            "status": status,
+            "data": wd_data,
+        })
+    except Exception as exc:
+        logger.exception("Failed to check withdrawal status: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 

@@ -10,6 +10,7 @@ from bot import database as db
 from bot import messages as msg
 from bot.config import settings
 from bot.handlers.menu import require_registration
+from bot.keyboards import peerpay_withdraw_confirm_keyboard
 from bot.peerpay import PeerPayClient
 
 logger = logging.getLogger(__name__)
@@ -208,11 +209,87 @@ async def withdraw_account_handler(update: Update, context: ContextTypes.DEFAULT
             f"💳 አዲስ ቀሪ ሂሳብ: *{new_balance:.2f} ETB*\n\n"
             "ጥያቄዎ ወደ ክፍያ ስርዓት ተልኳል። ክፍያው ሲጠናቀቅ በራስ-ሰር ማረጋገጫ ይደርስዎታል! 🎱"
         ),
+        reply_markup=peerpay_withdraw_confirm_keyboard(
+            checkout_url=checkout_url,
+            withdrawal_id=payment_id,
+        ),
         parse_mode="Markdown",
     )
 
     context.user_data.clear()
     return ConversationHandler.END
+
+
+async def withdraw_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Check withdrawal status on PeerPay and reconcile wallet hold."""
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+
+    data = query.data or ""
+    if not data.startswith("wd_status_"):
+        return
+
+    withdrawal_id = data[len("wd_status_") :]
+    user = update.effective_user
+    assert user is not None
+
+    try:
+        res = await peerpay_client.get_withdrawal(withdrawal_id)
+        wd_data = res.get("data", {})
+        status = wd_data.get("status", "unknown")
+        amount = float(wd_data.get("amount") or 0.0)
+
+        if status == "succeeded":
+            captured, _ = await db.capture_peerpay_withdrawal_once(withdrawal_id)
+            await query.message.reply_text(
+                (
+                    "✅ *ገንዘቡ በተሳካ ሁኔታ ተላልፏል!*\n\n"
+                    f"💰 የተላለፈ መጠን: *{amount:.2f} ETB*\n"
+                    "🔵 መንገድ: *Telebirr*\n\n"
+                    "ገንዘቡ ወደ Telebirr አካውንትዎ ገብቷል። መልካም እድል! 🎱"
+                ),
+                parse_mode="Markdown",
+            )
+        elif status in ("failed", "expired", "cancelled"):
+            released, refund_amt = await db.release_peerpay_withdrawal_once(withdrawal_id)
+            user_data = await db.get_user(user.id)
+            current_bal = float(user_data["balance"]) if user_data else 0.0
+            await query.message.reply_text(
+                (
+                    f"❌ *የገንዘብ ማውጣቱ አልተሳካም ({status})*\n\n"
+                    f"🔄 የተያዘው *{refund_amt:.2f} ETB* ወደ ቀሪ ሂሳብዎ ተመልሷል!\n"
+                    f"💳 ወቅታዊ ቀሪ ሂሳብ: *{current_bal:.2f} ETB*"
+                ),
+                parse_mode="Markdown",
+            )
+        elif status in ("transfer_submitted", "verification_pending"):
+            await query.message.reply_text(
+                "⏳ *ክፍያው ተልኮ በባንክ በማረጋገጥ ላይ ነው*\n\n"
+                "ወኪሉ ክፍያውን ፈጽሞ Transaction ID አስገብቷል። ባንኩ እንዳረጋገጠው ይጠናቀቃል!",
+                parse_mode="Markdown",
+            )
+        elif status in ("assigned", "customer_confirmed", "created"):
+            await query.message.reply_text(
+                "⏳ *የገንዘብ ማውጣት ጥያቄዎ በሂደት ላይ ነው*\n\n"
+                "ወኪል ተመድቦ ገንዘቡን ወደ ቴሌብር ቁጥርዎ በመላክ ላይ ነው። እባክዎ ጥቂት ደቂቃዎች ይጠብቁ።",
+                parse_mode="Markdown",
+            )
+        elif status == "review_required":
+            await query.message.reply_text(
+                "⏳ *ጥያቄው በግምገማ ላይ ነው*\n\n"
+                "ስርዓቱ ጥያቄዎን በመፈተሽ ላይ ነው። ጥቂት ቆይተው እንደገና ያረጋግጡ።",
+                parse_mode="Markdown",
+            )
+        else:
+            await query.message.reply_text(
+                f"ℹ️ የጥያቄው ሁኔታ: *{status}*",
+                parse_mode="Markdown",
+            )
+    except Exception as exc:
+        logger.exception("Error checking withdrawal status: %s", exc)
+        await query.message.reply_text("❌ የጥያቄውን ሁኔታ ማረጋገጥ አልተቻለም።", parse_mode="Markdown")
 
 
 async def withdraw_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

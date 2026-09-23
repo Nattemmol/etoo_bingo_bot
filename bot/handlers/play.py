@@ -98,13 +98,13 @@ async def action_button_callback(update: Update, context: ContextTypes.DEFAULT_T
     elif data == "btn_action_deposit":
         await query.message.reply_text(
             msg.DEPOSIT_METHOD_PROMPT,
-            reply_markup=deposit_method_keyboard(),
+            reply_markup=deposit_method_keyboard(webapp_url=settings.webapp_url),
             parse_mode="Markdown",
         )
     elif data == "btn_action_withdraw":
         await query.message.reply_text(
             "💸 *ገንዘብ ማውጣት (Telebirr Payout)*\n\n"
             "ገንዘብ ማውጣት የሚፈልጉትን የብር መጠን በ /withdraw በኩል ያስገቡ (ዝቅተኛ: 10 ETB)።",
-            reply_markup=withdraw_method_keyboard(),
+            reply_markup=withdraw_method_keyboard(webapp_url=settings.webapp_url),
             parse_mode="Markdown",
         )

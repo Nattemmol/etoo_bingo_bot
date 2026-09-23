@@ -45,12 +45,17 @@ def deposit_method_keyboard(webapp_url: str = ""):
     )
 
 
-def withdraw_method_keyboard():
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+def withdraw_method_keyboard(webapp_url: str = ""):
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+
+    base_url = (webapp_url or "https://etoobingogame.vercel.app").rstrip("/")
+    sep = "&" if "?" in base_url else "?"
+    withdraw_webapp_url = f"{base_url}{sep}action=withdraw"
 
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("🔵 Telebirr (ቴሌብር)", callback_data="withdraw_telebirr")],
+            [InlineKeyboardButton("📱 በ Mini App አውጣ (Withdraw in Mini App)", web_app=WebAppInfo(url=withdraw_webapp_url))],
         ]
     )
 
@@ -93,20 +98,21 @@ def peerpay_pay_keyboard(checkout_url: str, deposit_id: str = ""):
     return InlineKeyboardMarkup(buttons)
 
 
-def peerpay_withdraw_confirm_keyboard(checkout_url: str):
-    """Inline button to confirm destination account on PeerPay hosted checkout."""
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+def peerpay_withdraw_confirm_keyboard(checkout_url: str = "", withdrawal_id: str = ""):
+    """Inline button to confirm destination account on PeerPay hosted checkout in Telegram WebApp or browser."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
-    return InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton(
-                    "🏦 Confirm Destination Account",
-                    url=checkout_url,
-                )
-            ]
-        ]
-    )
+    buttons = []
+    if checkout_url:
+        buttons.append([
+            InlineKeyboardButton("📱 በ Telegram አረጋግጡ (Confirm in App)", web_app=WebAppInfo(url=checkout_url)),
+            InlineKeyboardButton("🌐 Browser", url=checkout_url),
+        ])
+    if withdrawal_id:
+        buttons.append([
+            InlineKeyboardButton("🔄 ሁኔታውን አረጋግጥ (Check Status)", callback_data=f"wd_status_{withdrawal_id}")
+        ])
+    return InlineKeyboardMarkup(buttons)
 
 
 def balance_action_keyboard():
