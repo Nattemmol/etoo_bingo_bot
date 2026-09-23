@@ -67,6 +67,7 @@ rooms: dict[str, GameRoom] = {}
 room_tasks: dict[str, asyncio.Task] = {}
 connections: dict[str, WebSocket] = {}  # ws_id -> websocket
 player_ws: dict[str, str] = {}  # ws_id -> room_id
+user_ws: dict[int, set[str]] = {}  # telegram_id -> set of ws_ids
 snapshot_tasks: dict[str, asyncio.Task] = {}
 
 
@@ -267,6 +268,23 @@ async def broadcast(room: GameRoom, message: dict, exclude: str | None = None) -
 
 async def send(ws: WebSocket, message: dict) -> None:
     await asyncio.wait_for(ws.send_json(message), timeout=SOCKET_SEND_TIMEOUT_SECONDS)
+
+
+async def broadcast_user_balance(telegram_id: int, new_balance: float) -> None:
+    """Broadcast real-time balance update to all open WebSockets for this user."""
+    if not telegram_id:
+        return
+    ws_ids = user_ws.get(telegram_id, set())
+    if not ws_ids:
+        return
+    msg = {"type": "balance", "balance": float(new_balance)}
+    for wid in list(ws_ids):
+        ws = connections.get(wid)
+        if ws:
+            try:
+                await send(ws, msg)
+            except Exception:
+                pass
 
 
 async def run_lobby_countdown(room: GameRoom) -> None:
@@ -811,6 +829,7 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
     room = get_room(room_id)
     room.connections.add(ws_id)
 
+    telegram_id: int | None = None
     try:
         raw = await websocket.receive_text()
         data = json.loads(raw)
@@ -827,7 +846,8 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
             await websocket.close()
             return
 
-        telegram_id = user["id"]
+        telegram_id = int(user["id"])
+        user_ws.setdefault(telegram_id, set()).add(ws_id)
         display_name = user.get("first_name") or user.get("username") or str(telegram_id)
 
         user_db = await db.get_user(telegram_id)
@@ -1324,6 +1344,10 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
         room.connections.discard(ws_id)
         connections.pop(ws_id, None)
         player_ws.pop(ws_id, None)
+        if telegram_id is not None and telegram_id in user_ws:
+            user_ws[telegram_id].discard(ws_id)
+            if not user_ws[telegram_id]:
+                user_ws.pop(telegram_id, None)
 
         # Keep a player's selected cards and marks in every phase. A socket
         # closing is normal on mobile; it must never refund or release a seat.
@@ -1576,8 +1600,9 @@ async def peerpay_webhook(request: Request) -> Response:
 async def _apply_peerpay_event(payload: dict) -> None:
     """Dispatch a verified PeerPay event to the deposit/withdrawal handlers."""
     try:
-        event_type = payload.get("type", "")
-        obj = (payload.get("data") or {}).get("object") or {}
+        event_type = payload.get("type") or payload.get("event") or ""
+        data_dict = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        obj = data_dict.get("object") if isinstance(data_dict.get("object"), dict) else (data_dict if data_dict.get("id") else payload)
         payment_id = obj.get("id", "")
         if not payment_id:
             logger.warning("PeerPay event %s without object.id — ignored", event_type)
@@ -1598,14 +1623,31 @@ async def _resolve_deposit_telegram_id(payment_id: str, merchant_customer_id):
     if telegram_id is not None:
         return telegram_id
     rec = await db.get_peerpay_deposit(payment_id)
-    return rec["telegram_id"] if rec else None
+    if rec and rec.get("telegram_id"):
+        return rec["telegram_id"]
+    try:
+        dep_res = await peerpay_client.get_deposit(payment_id)
+        if dep_res and dep_res.get("data"):
+            cust_id = dep_res["data"].get("merchant_customer_id")
+            return customer_id_to_telegram_id(cust_id)
+    except Exception as exc:
+        logger.warning("Could not resolve merchant_customer_id from PeerPay API: %s", exc)
+    return None
 
 
 async def _apply_peerpay_deposit(event_type: str, obj: dict) -> None:
-    payment_id = obj["id"]
+    payment_id = obj.get("id", "")
     amount = _as_amount(obj.get("amount"))
     currency = obj.get("currency") or "ETB"
     merchant_order_id = obj.get("merchant_order_id")
+
+    if amount <= 0:
+        try:
+            dep_res = await peerpay_client.get_deposit(payment_id)
+            if dep_res and dep_res.get("data"):
+                amount = _as_amount(dep_res["data"].get("amount"))
+        except Exception as exc:
+            logger.warning("Could not fetch deposit amount from PeerPay for %s: %s", payment_id, exc)
 
     if event_type in _CREDIT_DEPOSIT_EVENTS:
         telegram_id = await _resolve_deposit_telegram_id(
@@ -1623,11 +1665,13 @@ async def _apply_peerpay_deposit(event_type: str, obj: dict) -> None:
         )
         if credited:
             logger.info(
-                "PeerPay deposit %s credited %.2f ETB to user %s",
+                "PeerPay deposit %s credited %.2f ETB to user %s (new balance: %.2f)",
                 payment_id,
                 amount,
                 telegram_id,
+                new_balance,
             )
+            await broadcast_user_balance(telegram_id, new_balance)
             await _notify_telegram(
                 telegram_id,
                 (
@@ -1638,7 +1682,8 @@ async def _apply_peerpay_deposit(event_type: str, obj: dict) -> None:
                 ),
             )
         elif is_dup:
-            logger.info("PeerPay deposit %s — duplicate, already credited", payment_id)
+            logger.info("PeerPay deposit %s — duplicate, already credited (balance: %.2f)", payment_id, new_balance)
+            await broadcast_user_balance(telegram_id, new_balance)
         return
 
     # Status bookkeeping only — never credit on non-terminal events.
@@ -1683,6 +1728,9 @@ async def _apply_peerpay_withdrawal(event_type: str, obj: dict) -> None:
         captured, target_id = await db.capture_peerpay_withdrawal_once(payment_id)
         if captured:
             logger.info("PeerPay withdrawal %s captured for user %s", payment_id, target_id)
+            user_data = await db.get_user(target_id)
+            if user_data:
+                await broadcast_user_balance(target_id, float(user_data["balance"]))
             await _notify_telegram(
                 target_id,
                 (
@@ -1703,6 +1751,8 @@ async def _apply_peerpay_withdrawal(event_type: str, obj: dict) -> None:
                 payment_id,
                 amount,
             )
+            if telegram_id:
+                await broadcast_user_balance(telegram_id, new_balance)
             await _notify_telegram(
                 telegram_id or 0,
                 (
@@ -1783,6 +1833,7 @@ async def api_deposit_create(request: Request):
         )
         dep_data = res.get("data", {})
         deposit_id = dep_data.get("id")
+        checkout_url = dep_data.get("checkout_url")
         if deposit_id:
             await db.upsert_peerpay_deposit(
                 payment_id=deposit_id,
@@ -1792,7 +1843,13 @@ async def api_deposit_create(request: Request):
                 merchant_order_id=dep_data.get("merchant_order_id"),
                 status=dep_data.get("status", "awaiting_transfer"),
             )
-        return JSONResponse({"ok": True, "data": dep_data})
+        return JSONResponse({
+            "ok": True,
+            "deposit_id": deposit_id,
+            "checkout_url": checkout_url,
+            "amount": dep_data.get("amount") or amount,
+            "data": dep_data,
+        })
     except Exception as exc:
         logger.exception("Failed to create PeerPay deposit: %s", exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
@@ -1823,6 +1880,17 @@ async def api_deposit_status(deposit_id: str, request: Request):
                 amount=amount,
                 merchant_order_id=dep_data.get("merchant_order_id"),
             )
+            if credited:
+                await _notify_telegram(
+                    tg_id,
+                    (
+                        "✅ *ፔይመንት ተረጋግጧል (Payment Verified)!*\n\n"
+                        f"💰 *{amount:.2f} ETB* ወደ ሂሳብዎ ተጨምሯል።\n"
+                        f"💳 አዲስ ሂሳብ: *{new_balance:.2f} ETB*\n\n"
+                        "እንኳን ደስ ያልዎ! መልካም እድል! 🎱"
+                    ),
+                )
+            await broadcast_user_balance(tg_id, new_balance)
             return JSONResponse({
                 "ok": True,
                 "status": "succeeded",
@@ -1927,6 +1995,17 @@ async def api_deposit_submit_reference(request: Request):
                 telegram_id=tg_id,
                 amount=amount,
             )
+            if credited:
+                await _notify_telegram(
+                    tg_id,
+                    (
+                        "✅ *ፔይመንት ተረጋግጧል (Payment Verified)!*\n\n"
+                        f"💰 *{amount:.2f} ETB* ወደ ሂሳብዎ ተጨምሯል።\n"
+                        f"💳 አዲስ ሂሳብ: *{new_balance:.2f} ETB*\n\n"
+                        "እንኳን ደስ ያልዎ! መልካም እድል! 🎱"
+                    ),
+                )
+            await broadcast_user_balance(tg_id, new_balance)
             return JSONResponse({
                 "ok": True,
                 "status": "credited",
@@ -2067,6 +2146,10 @@ async def api_withdraw_status(withdrawal_id: str):
 
         if status == "succeeded":
             captured, tg_id = await db.capture_peerpay_withdrawal_once(withdrawal_id)
+            if captured and tg_id:
+                user_data = await db.get_user(tg_id)
+                if user_data:
+                    await broadcast_user_balance(tg_id, float(user_data["balance"]))
             return JSONResponse({
                 "ok": True,
                 "status": "succeeded",
@@ -2076,6 +2159,12 @@ async def api_withdraw_status(withdrawal_id: str):
             })
         elif status in ("failed", "expired", "cancelled"):
             released, refund_amt = await db.release_peerpay_withdrawal_once(withdrawal_id)
+            if released:
+                rec = await db.get_peerpay_withdrawal(withdrawal_id)
+                if rec and rec.get("telegram_id"):
+                    user_data = await db.get_user(rec["telegram_id"])
+                    if user_data:
+                        await broadcast_user_balance(rec["telegram_id"], float(user_data["balance"]))
             return JSONResponse({
                 "ok": True,
                 "status": status,
@@ -2094,7 +2183,13 @@ async def api_withdraw_status(withdrawal_id: str):
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
-
+@app.get("/deposits/return")
+@app.get("/deposits/return/")
+@app.get("/withdrawals/return")
+@app.get("/withdrawals/return/")
+async def return_page():
+    from fastapi.responses import FileResponse
+    return FileResponse(os.path.join(WEBAPP_DIR, "index.html"))
 
 
 @app.get("/healthz")

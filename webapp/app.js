@@ -260,6 +260,8 @@ function startDepositPolling(depositId, expectedAmt) {
       const data = await resp.json();
       if (data.ok && (data.status === "succeeded" || data.credited)) {
         stopDepositPolling();
+        sessionStorage.removeItem("peerpay_pending_deposit_id");
+        sessionStorage.removeItem("peerpay_pending_deposit_amt");
         const creditedAmt = data.amount || expectedAmt || 0;
         if (data.new_balance != null) {
           updateBalanceDisplay(data.new_balance);
@@ -313,9 +315,14 @@ if (els.btnDepositPeerpay) {
       });
 
       const data = await resp.json();
-      if (data.ok && data.checkout_url) {
-        const checkoutUrl = data.checkout_url;
-        const depositId = data.deposit_id;
+      const checkoutUrl = data.checkout_url || data.data?.checkout_url;
+      const depositId = data.deposit_id || data.data?.id || data.data?.deposit_id;
+
+      if (data.ok && checkoutUrl) {
+        if (depositId) {
+          sessionStorage.setItem("peerpay_pending_deposit_id", depositId);
+          sessionStorage.setItem("peerpay_pending_deposit_amt", String(amt));
+        }
 
         // Open checkout in Telegram / WebApp browser
         if (tg.openLink) {
@@ -334,7 +341,9 @@ if (els.btnDepositPeerpay) {
           els.depositStatusMsg.classList.remove("hidden");
         }
 
-        startDepositPolling(depositId, amt);
+        if (depositId) {
+          startDepositPolling(depositId, amt);
+        }
       } else {
         if (els.depositStatusMsg) {
           els.depositStatusMsg.className = "wallet-status-msg error";
@@ -1123,8 +1132,24 @@ function connect() {
 let reconnectDelay = 1000;
 let ws;
 
+function updateCalledCell(number) {
+  document.querySelectorAll(`.card-cell[data-value="${number}"]`).forEach((cell) => {
+    cell.classList.add("called");
+  });
+}
+
 function handleMessage(socket, msg) {
   switch (msg.type) {
+    case "balance": {
+      if (msg.balance != null) {
+        updateBalanceDisplay(msg.balance);
+        if (els.modalUserBalance) {
+          els.modalUserBalance.textContent = Number(msg.balance).toFixed(2);
+        }
+      }
+      break;
+    }
+
     case "init": {
       state.room = msg.room;
       state.phase = msg.room.phase === "playing" ? "playing" : "lobby";
@@ -1304,12 +1329,6 @@ function handleMessage(socket, msg) {
       showScreen("screen-game");
       tg.HapticFeedback?.impactOccurred("medium");
       break;
-
-function updateCalledCell(number) {
-  document.querySelectorAll(`.card-cell[data-value="${number}"]`).forEach(cell => {
-    cell.classList.add("called");
-  });
-}
 
     case "call":
       state.called = msg.called;
@@ -1584,19 +1603,67 @@ buildPool();
 
 ws = connect();
 
-// Auto-open wallet/deposit/withdraw if requested via deep-link
-if (params.get("action") === "deposit" || params.get("action") === "wallet") {
+// Auto-sync user balance with server
+async function syncUserBalance() {
+  if (!tg.initData) return;
+  try {
+    const resp = await fetch(apiUrl("/api/user/me"), {
+      headers: { "X-Telegram-Init-Data": tg.initData },
+    });
+    const data = await resp.json();
+    if (data.ok && data.balance != null) {
+      updateBalanceDisplay(data.balance);
+      if (els.modalUserBalance) {
+        els.modalUserBalance.textContent = Number(data.balance).toFixed(2);
+      }
+    }
+  } catch (err) {
+    console.warn("Error syncing user balance:", err);
+  }
+}
+
+// Auto-open wallet/deposit/withdraw or resume pending verification on return
+const isDepositReturn = window.location.pathname.includes("/deposits/return") || params.get("action") === "deposit" || params.get("action") === "wallet";
+const isWithdrawReturn = window.location.pathname.includes("/withdrawals/return") || params.get("action") === "withdraw";
+
+if (isDepositReturn) {
   setTimeout(() => {
     openWalletModal();
+    syncUserBalance();
+    const pendingDepId = sessionStorage.getItem("peerpay_pending_deposit_id") || params.get("deposit_id") || params.get("id");
+    const pendingAmt = parseFloat(sessionStorage.getItem("peerpay_pending_deposit_amt") || "0");
+    if (pendingDepId) {
+      startDepositPolling(pendingDepId, pendingAmt);
+    }
   }, 300);
-} else if (params.get("action") === "withdraw") {
+} else if (isWithdrawReturn) {
   setTimeout(() => {
     openWalletModal();
+    syncUserBalance();
     if (els.tabWithdraw) {
       els.tabWithdraw.click();
     }
   }, 300);
 }
+
+// Listen for tab focus or returning from browser/Telebirr
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    syncUserBalance();
+    const pendingDepId = sessionStorage.getItem("peerpay_pending_deposit_id");
+    const pendingAmt = parseFloat(sessionStorage.getItem("peerpay_pending_deposit_amt") || "0");
+    if (pendingDepId) {
+      startDepositPolling(pendingDepId, pendingAmt);
+    }
+  }
+});
+
+window.addEventListener("focus", () => {
+  syncUserBalance();
+});
+
+// Initial balance sync on startup
+syncUserBalance();
 
 // Keep-alive ping every 30s
 setInterval(() => {
