@@ -185,7 +185,12 @@ class PeerPayClient:
             "return_url": resolved_return_url,
         }
         if amount is not None:
-            payload["amount"] = f"{float(amount):.2f}"
+            try:
+                amt_f = float(str(amount).replace(",", ".").strip())
+                if amt_f > 0:
+                    payload["amount"] = f"{amt_f:.2f}"
+            except (ValueError, TypeError):
+                pass
         if payment_method:
             payload["payment_method"] = payment_method
 

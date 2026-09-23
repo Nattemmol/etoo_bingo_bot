@@ -1762,7 +1762,14 @@ async def api_deposit_create(request: Request):
     except Exception as exc:
         return JSONResponse(status_code=401, content={"error": str(exc)})
 
-    amount = body.get("amount")
+    amount_raw = body.get("amount")
+    amount = None
+    if amount_raw is not None:
+        try:
+            amount = float(amount_raw)
+        except (ValueError, TypeError):
+            pass
+
     payment_method = str(body.get("payment_method", "telebirr")).lower()
     peerpay_method = "telebirr" if payment_method == "telebirr" else ("cbebirr" if payment_method == "cbebirr" else "cbe")
     idempotency_key = f"etoobingo-deposit-{uuid.uuid4().hex}"
@@ -1770,7 +1777,7 @@ async def api_deposit_create(request: Request):
     try:
         res = await peerpay_client.create_deposit(
             merchant_customer_id=f"tg_{tg_id}",
-            amount=None,
+            amount=amount,
             payment_method=peerpay_method,
             idempotency_key=idempotency_key,
         )
