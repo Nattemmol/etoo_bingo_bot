@@ -22,14 +22,25 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-def deposit_method_keyboard():
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+def deposit_method_keyboard(webapp_url: str = ""):
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+
+    base_url = (webapp_url or "https://etoobingogame.vercel.app").rstrip("/")
+    sep = "&" if "?" in base_url else "?"
+    deposit_webapp_url = f"{base_url}{sep}action=deposit"
 
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("🔵 Telebirr (ቴሌብር)", callback_data="deposit_telebirr")],
-            [InlineKeyboardButton("🟢 CBE Birr (ሲቢኢ ብር)", callback_data="deposit_cbebirr")],
-            [InlineKeyboardButton("🏦 Mobile Banking (ንግድ ባንክ)", callback_data="deposit_cbe_bank")],
+            [
+                InlineKeyboardButton("🔵 Telebirr (ቴሌብር)", callback_data="deposit_telebirr"),
+                InlineKeyboardButton("🟢 CBE Birr (ሲቢኢ ብር)", callback_data="deposit_cbebirr"),
+            ],
+            [
+                InlineKeyboardButton("🏦 Mobile Banking (ንግድ ባንክ)", callback_data="deposit_cbe_bank"),
+            ],
+            [
+                InlineKeyboardButton("📱 በ Mini App ክፈት (Open in Mini App)", web_app=WebAppInfo(url=deposit_webapp_url)),
+            ],
         ]
     )
 
@@ -68,11 +79,14 @@ def deposit_amount_keyboard(method: str):
 
 
 def peerpay_pay_keyboard(checkout_url: str, deposit_id: str = ""):
-    """Inline button that opens the PeerPay hosted checkout page and check status button."""
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    """Inline button that opens the PeerPay hosted checkout page in Telegram WebApp or browser, plus status check button."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
     buttons = [
-        [InlineKeyboardButton("💳 በ PeerPay ክፈሉ (Pay on PeerPay)", url=checkout_url)],
+        [
+            InlineKeyboardButton("💳 በ Telegram ክፈሉ (Pay in App)", web_app=WebAppInfo(url=checkout_url)),
+            InlineKeyboardButton("🌐 Browser", url=checkout_url),
+        ],
     ]
     if deposit_id:
         buttons.append([InlineKeyboardButton("🔄 ሁኔታውን አረጋግጥ (Check Status)", callback_data=f"dep_status_{deposit_id}")])

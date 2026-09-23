@@ -100,7 +100,7 @@ async def deposit_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if message:
         await message.reply_text(
             text,
-            reply_markup=deposit_method_keyboard(),
+            reply_markup=deposit_method_keyboard(webapp_url=settings.webapp_url),
             parse_mode="Markdown",
         )
 
