@@ -103,12 +103,8 @@ async def action_button_callback(update: Update, context: ContextTypes.DEFAULT_T
         )
     elif data == "btn_action_withdraw":
         await query.message.reply_text(
-            "💸 *ገንዘብ ማውጣት (Withdrawal)*\n\n"
-            "ገንዘብ የሚቀበሉበትን መንገድ ይምረጡ:\n"
-            "1️⃣ 🔵 Telebirr (ቴሌብር)\n"
-            "2️⃣ 🟢 CBE Birr (ሲቢኢ ብር)\n"
-            "3️⃣ 🏦 Mobile Banking (የንግድ ባንክ አካውንት)\n\n"
-            "ከታች ካሉት አማራጮች አንዱን ይጫኑ:",
+            "💸 *ገንዘብ ማውጣት (Telebirr Payout)*\n\n"
+            "ገንዘብ ማውጣት የሚፈልጉትን የብር መጠን በ /withdraw በኩል ያስገቡ (ዝቅተኛ: 10 ETB)።",
             reply_markup=withdraw_method_keyboard(),
             parse_mode="Markdown",
         )

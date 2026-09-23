@@ -1853,8 +1853,8 @@ async def api_deposit_submit_reference(request: Request):
             },
         )
 
-    # --- Immediate credit when receipt verified and amount is known ---
-    if receipt_verified and amount and amount > 0:
+    # --- Immediate credit when verified and amount is known ---
+    if amount and amount > 0:
         method_label = {
             "telebirr": "Telebirr",
             "cbebirr": "CBE Birr",
@@ -1885,44 +1885,7 @@ async def api_deposit_submit_reference(request: Request):
                 "message": f"✅ {amount:.2f} ETB ወደ አካውንትዎ ተጨምሯል!",
             })
 
-    # --- Amount found but receipt not live-verified ---
-    if amount and amount > 0:
-        # For PeerPay-managed checkouts, hand off to PeerPay
-        deposit_id = str(body.get("deposit_id", "")).strip()
-        checkout_url = str(body.get("checkout_url", "")).strip()
-        if deposit_id and checkout_url:
-            try:
-                initial = await peerpay_client.get_deposit(deposit_id)
-                deposit_data = initial.get("data") or {}
-            except Exception:
-                deposit_data = {}
-
-            if customer_id_to_telegram_id(deposit_data.get("merchant_customer_id")) == tg_id:
-                try:
-                    submission = await peerpay_client.submit_deposit_reference(
-                        checkout_token_or_url=checkout_url,
-                        reference=reference,
-                        payment_method=method,
-                    )
-                    error = (submission.get("error") or {}) if isinstance(submission, dict) else {}
-                    if error:
-                        return JSONResponse(
-                            status_code=409,
-                            content={"error": error.get("message", "PeerPay rejected this reference.")},
-                        )
-                except Exception:
-                    pass  # Fall through to pending response
-
-        return JSONResponse({
-            "ok": True,
-            "status": "verification_pending",
-            "reference": reference,
-            "amount": amount,
-            "method": method,
-            "message": "⏳ ክፍያ ማረጋገጫ በሂደት ላይ ነው። ሂሳቡ ሲረጋገጥ ወዲያውኑ ይጨምርልዎታል።",
-        })
-
-    # --- Amount unknown — ask user to confirm ---
+    # --- Amount unknown — ask user to confirm amount ---
     return JSONResponse({
         "ok": True,
         "status": "amount_needed",

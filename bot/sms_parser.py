@@ -606,6 +606,16 @@ def verify_directional_match(text: str, expected_method: str | None = None) -> t
     if any(num in clean_text for num in merchant_cbebirr_numbers) and any(n in clean_text for n in OFFICIAL_ACCOUNTS["cbebirr"]["valid_names"]):
         return True, "cbebirr", None
 
+    # Check incoming notification naming our official account holders
+    has_income_signal = any(kw in clean_text for kw in ("received", "credited", "ተቀብለዋል", "ገቢ", "dear", "ውድ", "transferred", "ተላልፏል", "የተላከ", "ይድረሳቸው"))
+    if has_income_signal:
+        if any(n in clean_text for n in OFFICIAL_ACCOUNTS["telebirr"]["valid_names"]):
+            return True, "telebirr", None
+        if any(n in clean_text for n in OFFICIAL_ACCOUNTS["cbebirr"]["valid_names"]):
+            return True, "cbebirr", None
+        if any(n in clean_text for n in OFFICIAL_ACCOUNTS["cbe_bank"]["valid_names"]):
+            return True, "cbe_bank", None
+
     if any(acc in clean_text for acc in merchant_bank_accounts):
         return True, "cbe_bank", None
 

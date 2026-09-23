@@ -129,8 +129,8 @@ async def handle_sms_or_reference_text(update: Update, context: ContextTypes.DEF
         )
         return True
 
-    # ── If amount is available and receipt was verified — credit immediately ─
-    if amount and amount > 0 and verification.get("receipt_verified"):
+    # ── If amount is available and verified — credit immediately ─────────
+    if amount and amount > 0:
         method_label = {
             "telebirr": "Telebirr",
             "cbebirr": "CBE Birr",
@@ -157,17 +157,6 @@ async def handle_sms_or_reference_text(update: Update, context: ContextTypes.DEF
                 parse_mode="Markdown",
             )
             return True
-
-    # ── Amount found but receipt not verified via live API ───────────────
-    if amount and amount > 0:
-        await update.message.reply_text(
-            f"⏳ *የክፍያ ማረጋገጫ በመካሄድ ላይ ነው*\n\n"
-            f"📋 *የማስረጃ ቁጥር:* `{reference}`\n"
-            f"💰 *መጠን:* {amount:.2f} ETB\n\n"
-            "ሂሳቡ ማረጋገጫ ካጠናቀቀ በኋላ ወዲያውኑ ይጨምርልዎታል።",
-            parse_mode="Markdown",
-        )
-        return True
 
     # ── Amount is missing — ask user to provide it ───────────────────────
     context.user_data["pending_deposit_reference"] = reference

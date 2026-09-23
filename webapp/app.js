@@ -281,34 +281,13 @@ if (els.btnSubmitDepositRef) {
       }
       return;
     }
-    // A checkout is created before money is sent.  Its assigned account is the
-    // only receiver PeerPay will accept for this user and payment method.
-    if (!activeDepositCheckout) {
-      if (!optAmt || optAmt <= 0) {
-        if (els.depositStatusMsg) {
-          els.depositStatusMsg.className = "wallet-status-msg error";
-          els.depositStatusMsg.textContent = "Enter the payment amount first, then start the verified checkout.";
-          els.depositStatusMsg.classList.remove("hidden");
-        }
-        return;
-      }
-      const createResp = await fetch(apiUrl("/api/deposit/create"), {
-        method: "POST", headers: { "Content-Type": "application/json", "X-Telegram-Init-Data": tg.initData || "" },
-        body: JSON.stringify({ amount: optAmt, payment_method: selectedDepositMethod, init_data: tg.initData }),
-      });
-      const createData = await createResp.json();
-      const checkout = createData.data || {};
-      if (!createResp.ok || !checkout.id || !checkout.checkout_url) throw new Error(createData.error || "Could not start verified checkout");
-      activeDepositCheckout = { id: checkout.id, url: checkout.checkout_url, method: selectedDepositMethod };
-      sessionStorage.setItem("peerpayDepositCheckout", JSON.stringify(activeDepositCheckout));
-      window.location.href = checkout.checkout_url;
-      return;
-    }
+
     if (els.depositStatusMsg) {
       els.depositStatusMsg.className = "wallet-status-msg pending";
       els.depositStatusMsg.textContent = "⏳ የክፍያ ማረጋገጫ በመካሄድ ላይ ነው... እባክዎ ይጠብቁ።";
       els.depositStatusMsg.classList.remove("hidden");
     }
+
     try {
       const resp = await fetch(apiUrl("/api/deposit/submit-reference"), {
         method: "POST",
@@ -318,24 +297,38 @@ if (els.btnSubmitDepositRef) {
         },
         body: JSON.stringify({
           reference: ref,
-          deposit_id: activeDepositCheckout.id,
-          checkout_url: activeDepositCheckout.url,
-          payment_method: activeDepositCheckout.method,
+          payment_method: selectedDepositMethod,
+          amount: optAmt,
           init_data: tg.initData,
         }),
       });
       const data = await resp.json();
       if (data.ok) {
-        const depData = data.data || {};
-        if (els.depositStatusMsg) {
-          els.depositStatusMsg.className = "wallet-status-msg success";
-          els.depositStatusMsg.textContent = depData.message || "✅ ክፍያዎ በተሳካ ሁኔታ ተረጋግጧል!";
+        if (data.status === "credited") {
+          updateBalanceDisplay(data.new_balance);
+          if (els.modalUserBalance) {
+            els.modalUserBalance.textContent = Number(data.new_balance).toFixed(2);
+          }
+          if (els.depositStatusMsg) {
+            els.depositStatusMsg.className = "wallet-status-msg success";
+            els.depositStatusMsg.textContent = data.message || `✅ ${data.amount ? data.amount.toFixed(2) + " ETB" : ""} ወደ አካውንትዎ ተጨምሯል!`;
+          }
+          if (els.depositReferenceInput) els.depositReferenceInput.value = "";
+          if (els.depositAmountOptionalInput) els.depositAmountOptionalInput.value = "";
+        } else if (data.status === "amount_needed") {
+          if (els.depositStatusMsg) {
+            els.depositStatusMsg.className = "wallet-status-msg pending";
+            els.depositStatusMsg.textContent = data.message || "✅ የማስረጃ ቁጥር ደርሶናል። እባክዎ ያስተላለፉትን የብር መጠን ያስገቡ።";
+          }
+          if (els.depositAmountOptionalInput) {
+            els.depositAmountOptionalInput.focus();
+          }
+        } else {
+          if (els.depositStatusMsg) {
+            els.depositStatusMsg.className = "wallet-status-msg pending";
+            els.depositStatusMsg.textContent = data.message || "⏳ ክፍያ ማረጋገጫ በሂደት ላይ ነው።";
+          }
         }
-        if (depData.new_balance !== undefined && typeof updateBalanceUI === "function") {
-          updateBalanceUI(depData.new_balance);
-        }
-        if (els.depositReferenceInput) els.depositReferenceInput.value = "";
-        if (els.depositAmountOptionalInput) els.depositAmountOptionalInput.value = "";
       } else {
         if (els.depositStatusMsg) {
           els.depositStatusMsg.className = "wallet-status-msg error";
