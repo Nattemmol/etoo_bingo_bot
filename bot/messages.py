@@ -148,8 +148,11 @@ TELEBIRR_DEPOSIT_INSTRUCTIONS = (
     "📱 ስልክ ቁጥር: `0963572327`\n"
     "👤 ስም: *Habtamu Melese*\n\n"
     "*መመሪያ:*\n"
-    "1. ወደ Telebirr በመግባት ወደ `0963572327` (Habtamu Melese) የሚፈልጉትን መጠን ያስተላልፉ።\n"
-    "2. ክፍያው እንደተጠናቀቀ ከ Telebirr የደረሰዎትን ሙሉ የ SMS መልዕክት ወይም *Transaction ID* እዚሁ ይላኩልን (paste ያድርጉ)።\n"
+    "1. ወደ Telebirr በመግባት ወደ `0963572327` (Habtamu Melese) ያስተላልፉ።\n"
+    "2. ክፍያው ሲጠናቀቅ ከታች ካሉት *አንዱን* እዚሁ ይላኩ (paste ያድርጉ):\n"
+    "   • 🔗 *ደረሰኝ ሊንክ* (receipt link) ፦ `https://transactioninfo.ethiotelecom.et/receipt/...`\n"
+    "   • 🔢 *Transaction ID* (ለምሳሌ: `DIK7W7R5VZ`)\n"
+    "   • 📩 *ሙሉ SMS መልዕክት* (ከ Telebirr የደረሰዎ)\n"
     "3. ስርዓታችን ወዲያውኑ አረጋግጦ ሂሳብዎ ላይ ይጨምራል! 🎱"
 )
 
@@ -158,8 +161,11 @@ CBE_DEPOSIT_INSTRUCTIONS = (
     "📱 ስልክ ቁጥር: `0934920411`\n"
     "👤 ስም: *Natnael Temesegen*\n\n"
     "*መመሪያ:*\n"
-    "1. ወደ CBE Birr በመግባት ወደ `0934920411` (Natnael Temesegen) የሚፈልጉትን መጠን ያስተላልፉ።\n"
-    "2. ክፍያው እንደተጠናቀቀ ከ CBE Birr የደረሰዎትን ሙሉ የ SMS መልዕክት ወይም *Transaction ID* እዚሁ ይላኩልን (paste ያድርጉ)።\n"
+    "1. ወደ CBE Birr በመግባት ወደ `0934920411` (Natnael Temesegen) ያስተላልፉ።\n"
+    "2. ክፍያው ሲጠናቀቅ ከታች ካሉት *አንዱን* እዚሁ ይላኩ (paste ያድርጉ):\n"
+    "   • 🔗 *ደረሰኝ ሊንክ* ፦ `https://apps.cbe.com.et:100/BranchReceipt/...`\n"
+    "   • 🔢 *Transaction ID / FT ቁጥር*\n"
+    "   • 📩 *ሙሉ SMS መልዕክት*\n"
     "3. ስርዓታችን ወዲያውኑ አረጋግጦ ሂሳብዎ ላይ ይጨምራል! 🎱"
 )
 
@@ -169,8 +175,11 @@ MOBILE_BANKING_DEPOSIT_INSTRUCTIONS = (
     "👤 ስም: *Natnael Temesegen*\n\n"
     "🏦 ባንክ: *የኢትዮጵያ ንግድ ባንክ (Commercial Bank of Ethiopia)*\n\n"
     "*መመሪያ:*\n"
-    "1. በ CBE Mobile App ወይም በ *889# ወደ `1000413343538` (Natnael Temesegen) የሚፈልጉትን መጠን ያስተላልፉ።\n"
-    "2. ክፍያው እንደተጠናቀቀ ከባንክ የደረሰዎትን ሙሉ የ SMS መልዕክት ወይም *Transaction ID* እዚሁ ይላኩልን (paste ያድርጉ)።\n"
+    "1. በ CBE Mobile App ወይም በ *889# ወደ `1000413343538` ያስተላልፉ።\n"
+    "2. ክፍያው ሲጠናቀቅ ከታች ካሉት *አንዱን* እዚሁ ይላኩ (paste ያድርጉ):\n"
+    "   • 🔗 *ደረሰኝ ሊንክ* ፦ `https://mbreciept.cbe.com.et/...`\n"
+    "   • 🔢 *Transaction ID / FT ቁጥር* (ለምሳሌ: `FT262641DG9X`)\n"
+    "   • 📩 *ሙሉ SMS መልዕክት*\n"
     "3. ስርዓታችን ወዲያውኑ አረጋግጦ ሂሳብዎ ላይ ይጨምራል! 🎱"
 )
 

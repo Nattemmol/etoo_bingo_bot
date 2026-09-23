@@ -15,6 +15,7 @@ primary_region = "fra"
   DATABASE_PATH = "/data/goodbingo.db"
   WEBAPP_URL = "https://etoobingobot.fly.dev"
   VERIFY_BASE_URL = "https://verify.et"
+  # VERIFY_ET_API_KEY is set as a fly secret: fly secrets set VERIFY_ET_API_KEY=VERIFY_BANK_ET_...
 
 [http_service]
   internal_port = 8080

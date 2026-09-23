@@ -286,11 +286,9 @@
       <!-- Withdraw Panel -->
       <div id="panel-withdraw" class="wallet-panel">
         <div class="form-group">
-          <label for="withdraw-bank-select">የመቀበያ መንገድ ይምረጡ:</label>
+          <label for="withdraw-bank-select">የመቀበያ መንገድ:</label>
           <select id="withdraw-bank-select" class="wallet-input">
-            <option value="telebirr">🔵 Telebirr (ቴሌብር)</option>
-            <option value="cbebirr">🟢 CBE Birr (ሲቢኢ ብር)</option>
-            <option value="cbe">🏦 Mobile Banking (የንግድ ባንክ አካውንት)</option>
+            <option value="telebirr" selected>🔵 Telebirr (ቴሌብር)</option>
           </select>
         </div>
         <div class="form-group">
@@ -298,7 +296,7 @@
           <input type="number" id="withdraw-amount-input" class="wallet-input" placeholder="ለምሳሌ: 200" min="10" />
         </div>
         <div class="form-group">
-          <label for="withdraw-account-input" id="withdraw-account-label">የስልክ ወይም የአካውንት ቁጥር:</label>
+          <label for="withdraw-account-input" id="withdraw-account-label">የ Telebirr ስልክ ቁጥር:</label>
           <input type="text" id="withdraw-account-input" class="wallet-input" placeholder="ለምሳሌ: 0911223344" />
         </div>
         <button class="btn btn-primary btn-block" id="btn-request-withdraw">ገንዘብ አውጣ (Request Withdrawal)</button>

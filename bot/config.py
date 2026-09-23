@@ -29,6 +29,9 @@ class Settings:
     peerpay_api_key: str = ""
     peerpay_base_url: str = "https://api.peerpayment.org"
     peerpay_webhook_secret: str = ""
+    # Verify.et transaction verification (https://verify.et/docs/api)
+    verify_et_api_key: str = ""
+    verify_et_base_url: str = "https://verify.et"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -61,6 +64,8 @@ class Settings:
             peerpay_api_key=os.getenv("PEERPAY_API_KEY", ""),
             peerpay_base_url=os.getenv("PEERPAY_BASE_URL", "https://api.peerpayment.org"),
             peerpay_webhook_secret=os.getenv("PEERPAY_WEBHOOK_SECRET", ""),
+            verify_et_api_key=os.getenv("VERIFY_ET_API_KEY", ""),
+            verify_et_base_url=os.getenv("VERIFY_BASE_URL", "https://verify.et"),
         )
 
 

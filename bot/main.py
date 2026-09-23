@@ -12,7 +12,12 @@ from telegram.ext import (
 
 from bot.config import settings
 from bot.database import init_db
-from bot.handlers.deposit import deposit_callback, deposit_command, handle_sms_or_reference_text
+from bot.handlers.deposit import (
+    deposit_callback,
+    deposit_command,
+    handle_pending_deposit_amount,
+    handle_sms_or_reference_text,
+)
 from bot.handlers.menu import balance_command, history_command, instructions_callback, instructions_command
 from bot.handlers.play import action_button_callback, play_command, play_room_callback
 from bot.handlers.start import contact_handler, start_command
@@ -99,8 +104,13 @@ def build_application() -> Application:
     app.add_handler(CallbackQueryHandler(instructions_callback, pattern=r"^inst_"))
     app.add_handler(CallbackQueryHandler(action_button_callback, pattern=r"^btn_action_"))
 
-    # Listen for pasted SMS receipts and transaction references
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_sms_or_reference_text))
+    # Combined text handler: pending deposit amount → SMS / receipt parser
+    async def _text_dispatcher(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:  # type: ignore[override]
+        if await handle_pending_deposit_amount(update, context):  # type: ignore[arg-type]
+            return
+        await handle_sms_or_reference_text(update, context)  # type: ignore[arg-type]
+
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _text_dispatcher))
 
     return app
 

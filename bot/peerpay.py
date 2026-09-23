@@ -184,7 +184,7 @@ class PeerPayClient:
         if payment_method:
             payload["payment_method"] = payment_method
 
-        key = idempotency_key or f"dep-{merchant_customer_id}-{uuid.uuid4().hex[:12]}"
+        key = idempotency_key or f"etoobingo-deposit-{uuid.uuid4().hex}"
         headers = self._auth_headers(idempotency_key=key)
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -269,7 +269,7 @@ class PeerPayClient:
         if metadata:
             payload["metadata"] = metadata
 
-        key = idempotency_key or f"wd-{merchant_customer_id}-{uuid.uuid4().hex[:12]}"
+        key = idempotency_key or f"etoobingo-withdrawal-{uuid.uuid4().hex}"
         headers = self._auth_headers(idempotency_key=key)
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:

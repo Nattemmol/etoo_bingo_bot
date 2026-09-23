@@ -21,10 +21,13 @@ from bot.database import (
 from bot.peerpay import PeerPayClient, customer_id_to_telegram_id, verify_peerpay_signature
 from bot.sms_parser import (
     extract_reference_and_url,
+    fetch_cbe_mobile_banking_receipt,
     fetch_telebirr_receipt,
     fingerprint,
     parse_deposit_sms,
     verify_deposit_submission,
+    verify_via_verify_et,
+    OFFICIAL_ACCOUNTS,
 )
 from bot.telebirr import verify_callback_signature
 from server.auth import validate_init_data
@@ -1775,11 +1778,20 @@ async def api_deposit_create(request: Request):
 
 @app.post("/api/deposit/submit-reference")
 async def api_deposit_submit_reference(request: Request):
-    """Submit a receipt reference to its authenticated PeerPay checkout.
+    """Verify and credit a deposit from the Mini App.
 
-    Receipt pages provide a reference only. PeerPay is the settlement authority:
-    it checks the actual provider transaction, assigned receiver, amount,
-    currency, freshness, and one-time use before a signed webhook can credit.
+    Accepts:
+      • A full SMS text pasted by the user
+      • A bare Transaction ID / reference (DI..., FT...)
+      • An official receipt URL for any supported provider
+
+    Verification priority:
+      1. Live receipt scraping (Telebirr HTML, CBE MB JSON API)
+      2. Verify.et API (CBE FT refs, CBE Birr, fallback)
+      3. SMS directional analysis (full text)
+
+    Amount is optional — extracted from receipt when possible.
+    Credit happens immediately on successful receipt verification with known amount.
     """
     try:
         body = await request.json()
@@ -1794,48 +1806,132 @@ async def api_deposit_submit_reference(request: Request):
         return JSONResponse(status_code=401, content={"error": str(exc)})
 
     raw_input = str(body.get("reference", "")).strip()
-    deposit_id = str(body.get("deposit_id", "")).strip()
-    checkout_url = str(body.get("checkout_url", "")).strip()
-    payment_method = str(body.get("payment_method", "")).strip().lower()
-    reference, receipt_url, _ = extract_reference_and_url(raw_input)
-    if not reference:
-        return JSONResponse(status_code=400, content={"error": "Paste an official Telebirr, CBE Birr, or CBE receipt link, or a valid transaction ID."})
-    if not deposit_id or not checkout_url or not payment_method:
-        return JSONResponse(status_code=400, content={"error": "Start a PeerPay checkout first. A receipt by itself can never be credited."})
-
-    # Check that the checkout belongs to this Telegram user before accepting a
-    # reference. This prevents a customer from attaching a receipt to another
-    # user's order, even when they know a checkout URL.
-    try:
-        initial = await peerpay_client.get_deposit(deposit_id)
-        deposit = initial.get("data") or {}
-    except Exception:
-        return JSONResponse(status_code=503, content={"error": "Unable to read the secure payment order. Please retry shortly."})
-    if customer_id_to_telegram_id(deposit.get("merchant_customer_id")) != tg_id:
-        return JSONResponse(status_code=403, content={"error": "This checkout does not belong to the current user."})
-    if deposit.get("payment_method") and deposit["payment_method"].lower() != payment_method:
-        return JSONResponse(status_code=400, content={"error": "The receipt method does not match the selected checkout method."})
-
-    try:
-        submission = await peerpay_client.submit_deposit_reference(
-            checkout_token_or_url=checkout_url,
-            reference=reference,
-            payment_method=payment_method,
+    if not raw_input:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Paste your SMS text, a receipt link, or a transaction ID."},
         )
-    except Exception:
-        return JSONResponse(status_code=503, content={"error": "Unable to submit the receipt for provider verification. Please retry."})
-    error = (submission.get("error") or {}) if isinstance(submission, dict) else {}
-    if error:
-        return JSONResponse(status_code=409, content={"error": error.get("message", "PeerPay rejected this transaction reference.")})
 
-    # Never credit here. The signed deposit.succeeded / manually_succeeded
-    # webhook owns that idempotent balance transition by PeerPay deposit ID.
-    return JSONResponse({"ok": True, "data": {
-        "status": "verification_pending",
+    user = await db.get_user(tg_id)
+    if not user:
+        return JSONResponse(status_code=400, content={"error": "User not registered."})
+
+    # --- Run full multi-layer verification ---
+    expected_method = str(body.get("payment_method", "")).strip().lower() or None
+    verification = await verify_deposit_submission(raw_input, expected_method=expected_method)
+
+    if not verification["valid"]:
+        return JSONResponse(
+            status_code=400,
+            content={"error": verification.get("error_message", "Verification failed.")},
+        )
+
+    reference = verification["reference"]
+    amount = verification.get("amount")
+    fp = verification["fingerprint"]
+    receipt_verified = verification.get("receipt_verified", False)
+    method = verification.get("method") or expected_method or "telebirr"
+
+    # --- Anti-duplicate checks ---
+    existing_tx = await db.get_deposit_by_fingerprint(fp)
+    if existing_tx:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": "This receipt has already been credited.",
+                "credited_amount": existing_tx.get("amount"),
+            },
+        )
+
+    existing_dep = await db.get_peerpay_deposit(reference)
+    if existing_dep and existing_dep.get("credited"):
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": "This transaction reference has already been credited.",
+                "credited_amount": existing_dep.get("amount"),
+            },
+        )
+
+    # --- Immediate credit when receipt verified and amount is known ---
+    if receipt_verified and amount and amount > 0:
+        method_label = {
+            "telebirr": "Telebirr",
+            "cbebirr": "CBE Birr",
+            "cbe_bank": "CBE Mobile Banking",
+        }.get(method, "Manual")
+
+        credited, new_balance, already_used = await db.auto_credit_deposit(
+            telegram_id=tg_id,
+            amount=amount,
+            fingerprint=fp,
+            description=f"Deposit via {method_label} | ref:{reference}",
+        )
+
+        if already_used:
+            return JSONResponse(
+                status_code=409,
+                content={"error": "This receipt has already been credited."},
+            )
+
+        if credited:
+            return JSONResponse({
+                "ok": True,
+                "status": "credited",
+                "amount": amount,
+                "new_balance": new_balance,
+                "reference": reference,
+                "method": method,
+                "message": f"✅ {amount:.2f} ETB ወደ አካውንትዎ ተጨምሯል!",
+            })
+
+    # --- Amount found but receipt not live-verified ---
+    if amount and amount > 0:
+        # For PeerPay-managed checkouts, hand off to PeerPay
+        deposit_id = str(body.get("deposit_id", "")).strip()
+        checkout_url = str(body.get("checkout_url", "")).strip()
+        if deposit_id and checkout_url:
+            try:
+                initial = await peerpay_client.get_deposit(deposit_id)
+                deposit_data = initial.get("data") or {}
+            except Exception:
+                deposit_data = {}
+
+            if customer_id_to_telegram_id(deposit_data.get("merchant_customer_id")) == tg_id:
+                try:
+                    submission = await peerpay_client.submit_deposit_reference(
+                        checkout_token_or_url=checkout_url,
+                        reference=reference,
+                        payment_method=method,
+                    )
+                    error = (submission.get("error") or {}) if isinstance(submission, dict) else {}
+                    if error:
+                        return JSONResponse(
+                            status_code=409,
+                            content={"error": error.get("message", "PeerPay rejected this reference.")},
+                        )
+                except Exception:
+                    pass  # Fall through to pending response
+
+        return JSONResponse({
+            "ok": True,
+            "status": "verification_pending",
+            "reference": reference,
+            "amount": amount,
+            "method": method,
+            "message": "⏳ ክፍያ ማረጋገጫ በሂደት ላይ ነው። ሂሳቡ ሲረጋገጥ ወዲያውኑ ይጨምርልዎታል።",
+        })
+
+    # --- Amount unknown — ask user to confirm ---
+    return JSONResponse({
+        "ok": True,
+        "status": "amount_needed",
         "reference": reference,
-        "receipt_url": receipt_url,
-        "message": "Receipt submitted. The provider is checking the intended receiver, amount, currency, transaction age, and duplicate use. Your balance updates only after verified success.",
-    }})
+        "method": method,
+        "message": f"✅ የማስረጃ ቁጥር `{reference}` ደርሶናል። ያስተላለፉትን *የብር መጠን* ያስገቡ።",
+    })
+
+
 
 @app.post("/api/withdraw/create")
 async def api_withdraw_create(request: Request):
@@ -1871,27 +1967,45 @@ async def api_withdraw_create(request: Request):
     if balance < amount:
         return JSONResponse(status_code=400, content={"error": "Insufficient balance"})
 
-    new_balance = balance - amount
-    destination = body.get("destination")
+    destination = body.get("destination") or {}
+    bank = str(destination.get("bank", "telebirr")).lower()
+    if bank != "telebirr":
+        return JSONResponse(status_code=400, content={"error": "Currently withdrawals are supported via Telebirr only."})
+
+    account_raw = str(destination.get("account_number", "")).strip()
+    digits = re.sub(r"\D", "", account_raw)
+    if digits.startswith("251") and len(digits) == 12:
+        digits = "0" + digits[3:]
+    elif digits.startswith("9") and len(digits) == 9:
+        digits = "0" + digits
+    elif digits.startswith("7") and len(digits) == 9:
+        digits = "0" + digits
+
+    if not (len(digits) == 10 and (digits.startswith("09") or digits.startswith("07"))):
+        return JSONResponse(status_code=400, content={"error": "Invalid Telebirr phone number. Please provide a 10-digit number (e.g. 0911223344)."})
+
+    clean_dest = {"bank": "telebirr", "account_number": digits}
     payment_id = f"wd_{uuid.uuid4().hex[:12]}"
+    idempotency_key = f"etoobingo-withdrawal-{uuid.uuid4().hex}"
     checkout_url = ""
 
     try:
         res = await peerpay_client.create_withdrawal(
             merchant_customer_id=f"tg_{tg_id}",
             amount=amount,
-            destination=destination,
+            destination=clean_dest,
+            idempotency_key=idempotency_key,
         )
         wd_data = res.get("data", {})
         if wd_data.get("id"):
             payment_id = wd_data["id"]
         checkout_url = wd_data.get("checkout_url") or ""
-        if checkout_url and destination and destination.get("bank") and destination.get("account_number"):
+        if checkout_url:
             try:
                 await peerpay_client.confirm_withdrawal_destination(
                     checkout_token_or_url=checkout_url,
-                    bank=destination["bank"],
-                    account_number=destination["account_number"],
+                    bank="telebirr",
+                    account_number=digits,
                 )
                 logger.info("Auto-confirmed withdrawal %s destination on checkout API", payment_id)
             except Exception as conf_err:
@@ -1911,7 +2025,7 @@ async def api_withdraw_create(request: Request):
         tx_type="withdraw",
         amount=amount,
         status="pending",
-        description=f"PeerPay withdrawal hold — {payment_id}",
+        description=f"PeerPay withdrawal hold — {payment_id} (Telebirr: {digits})",
     )
 
     return JSONResponse({
@@ -1920,6 +2034,8 @@ async def api_withdraw_create(request: Request):
         "checkout_url": checkout_url,
         "amount": amount,
         "new_balance": new_balance,
+        "method": "telebirr",
+        "phone": digits,
     })
 
 

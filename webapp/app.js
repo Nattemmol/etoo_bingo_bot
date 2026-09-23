@@ -366,10 +366,10 @@ if (els.btnRequestWithdraw) {
       return;
     }
 
-    if (!acc || acc.length < 9) {
+    if (!acc || acc.replace(/\D/g, "").length < 9) {
       if (els.withdrawStatusMsg) {
         els.withdrawStatusMsg.className = "wallet-status-msg error";
-        els.withdrawStatusMsg.textContent = "⚠️ እባክዎ ትክክለኛ የስልክ ወይም የአካውንት ቁጥር ያስገቡ።";
+        els.withdrawStatusMsg.textContent = "⚠️ እባክዎ ትክክለኛ የ Telebirr ስልክ ቁጥር ያስገቡ (ለምሳሌ: 0911223344)።";
         els.withdrawStatusMsg.classList.remove("hidden");
       }
       return;
