@@ -174,10 +174,15 @@ class PeerPayClient:
 
         Returns the response dict containing data: {id, checkout_url, status, payment_options, ...}.
         """
+        resolved_return_url = (
+            return_url
+            or settings.peerpay_return_url
+            or f"{settings.webapp_url}/deposits/return"
+        )
         payload: dict[str, Any] = {
             "merchant_customer_id": merchant_customer_id,
             "currency": "ETB",
-            "return_url": return_url or f"{settings.webapp_url}/deposits/return",
+            "return_url": resolved_return_url,
         }
         if amount is not None:
             payload["amount"] = f"{float(amount):.2f}"

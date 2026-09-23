@@ -29,6 +29,7 @@ class Settings:
     peerpay_api_key: str = ""
     peerpay_base_url: str = "https://api.peerpayment.org"
     peerpay_webhook_secret: str = ""
+    peerpay_return_url: str = ""
     # Verify.et transaction verification (https://verify.et/docs/api)
     verify_et_api_key: str = ""
     verify_et_base_url: str = "https://verify.et"
@@ -43,7 +44,7 @@ class Settings:
         always_open = os.getenv("SUPER_BINGO_ALWAYS_OPEN", "false").lower() in ("1", "true", "yes")
         return cls(
             bot_token=token,
-            webapp_url=os.getenv("WEBAPP_URL", "https://example.com").rstrip("/"),
+            webapp_url=os.getenv("WEBAPP_URL", "https://etoo-bingo-game.onrender.com").rstrip("/"),
             database_path=db_path if db_path.is_absolute() else BASE_DIR / db_path,
             server_port=int(os.getenv("SERVER_PORT", "8080")),
             super_bingo_always_open=always_open,
@@ -64,6 +65,7 @@ class Settings:
             peerpay_api_key=os.getenv("PEERPAY_API_KEY", ""),
             peerpay_base_url=os.getenv("PEERPAY_BASE_URL", "https://api.peerpayment.org"),
             peerpay_webhook_secret=os.getenv("PEERPAY_WEBHOOK_SECRET", ""),
+            peerpay_return_url=os.getenv("PEERPAY_RETURN_URL", "").rstrip("/"),
             verify_et_api_key=os.getenv("VERIFY_ET_API_KEY", ""),
             verify_et_base_url=os.getenv("VERIFY_BASE_URL", "https://verify.et"),
         )
