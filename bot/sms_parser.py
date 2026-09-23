@@ -518,23 +518,29 @@ def extract_directional_accounts(text: str) -> dict[str, str | None]:
     if sender_m:
         sender_account = sender_m.group(1).strip()
 
-    # Receiver bank account: e.g. "to Commercial Bank of Ethiopia account number 1000418895067"
-    to_acc_m = re.search(
-        r"(?:to|ወደ)\s*(?:commercial\s*bank(?:\s*of\s*ethiopia)?|cbe|telebirr|cbebirr|ንግድ\s*ባንክ)?\s*(?:account\s*(?:number|no)?|አካውንት\s*(?:ቁጥር)?|a/c)\s*[:#]?\s*(\d{10,16})",
+    # Receiver destination: check for bank account or phone number
+    to_m = re.search(
+        r"(?:to|ወደ)\s*(?:commercial\s*bank(?:\s*of\s*ethiopia)?|cbe|telebirr|cbebirr|ንግድ\s*ባንክ)?\s*(?:account\s*(?:number|no)?|አካውንት\s*(?:ቁጥር)?|phone|ስልክ|ቁጥር|a/c)?\s*[:#]?\s*(\+?251\d{9}|09\d{8}|07\d{8}|\d{10,16})",
         text,
         re.IGNORECASE,
     )
-    if to_acc_m:
-        receiver_account = to_acc_m.group(1).strip()
+    if to_m:
+        dest = to_m.group(1).strip()
+        digits = re.sub(r"\D", "", dest)
+        if digits.startswith("09") or digits.startswith("07") or digits.startswith("2519") or digits.startswith("2517"):
+            receiver_phone = dest
+        else:
+            receiver_account = dest
 
-    # Receiver phone: e.g. "transferred to 0963572327"
-    to_phone_m = re.search(
-        r"(?:to|ወደ)\s*(?:(?:phone|ስልክ|ቁጥር|account)\s*[:#]?\s*)?(\+?251\d{9}|09\d{8}|07\d{8})",
-        text,
-        re.IGNORECASE,
-    )
-    if to_phone_m:
-        receiver_phone = to_phone_m.group(1).strip()
+    # Separate phone search fallback if not set
+    if not receiver_phone:
+        to_phone_m = re.search(
+            r"(?:to|ወደ)\s*(?:(?:phone|ስልክ|ቁጥር|telebirr|cbebirr)\s*[:#]?\s*)?(\+?251\d{9}|09\d{8}|07\d{8})",
+            text,
+            re.IGNORECASE,
+        )
+        if to_phone_m:
+            receiver_phone = to_phone_m.group(1).strip()
 
     return {
         "sender": sender_account,
@@ -547,6 +553,7 @@ def verify_directional_match(text: str, expected_method: str | None = None) -> t
     """Verify that the SMS is an INCOMING transfer TO one of our official accounts.
 
     Returns (is_valid, matched_method, rejection_reason).
+    Permits inter-account transfers between official accounts (e.g. owner's Telebirr to CBE).
     """
     clean_text = text.lower()
     directional = extract_directional_accounts(text)
@@ -555,63 +562,57 @@ def verify_directional_match(text: str, expected_method: str | None = None) -> t
     receiver_acc = directional["receiver_account"]
     receiver_phone = directional["receiver_phone"]
 
-    # 1. Check if the merchant's account is the SENDER (outgoing transfer)
     merchant_telebirr_numbers = OFFICIAL_ACCOUNTS["telebirr"]["valid_numbers"]
     merchant_cbebirr_numbers = OFFICIAL_ACCOUNTS["cbebirr"]["valid_numbers"]
     merchant_bank_accounts = OFFICIAL_ACCOUNTS["cbe_bank"]["valid_accounts"]
 
-    is_sender_merchant = (
-        (sender and any(num in sender for num in merchant_telebirr_numbers))
-        or (sender and any(num in sender for num in merchant_cbebirr_numbers))
-        or (sender and any(acc in sender for acc in merchant_bank_accounts))
-    )
-
-    # 2. Check destination / receiver
-    if receiver_acc:
-        # Check if the destination bank account matches our official CBE account
-        if any(acc == receiver_acc or acc in receiver_acc for acc in merchant_bank_accounts):
-            return True, "cbe_bank", None
-        else:
-            # Transfer was explicitly sent to someone else's bank account!
-            return (
-                False,
-                None,
-                f"ክፍያው የተላከው ወደ ሌላ የባንክ አካውንት ({receiver_acc}) ነው! እባክዎ ወደ EtooBingo ይፋዊ አካውንት (1000413343538 - Natnael Temesegen) ያስተላለፉበትን የ SMS መልዕክት ያስገቡ።",
-            )
-
+    # 1. Check destination phone
     if receiver_phone:
-        # Check if the destination phone matches our official Telebirr or CBE Birr
         if any(num == receiver_phone or num in receiver_phone for num in merchant_telebirr_numbers):
             return True, "telebirr", None
         elif any(num == receiver_phone or num in receiver_phone for num in merchant_cbebirr_numbers):
             return True, "cbebirr", None
+        elif any(acc == receiver_phone or acc in receiver_phone for acc in merchant_bank_accounts):
+            return True, "cbe_bank", None
         else:
-            # Transfer was sent to someone else's phone!
             return (
                 False,
                 None,
                 f"ክፍያው የተላከው ወደ ሌላ ስልክ ቁጥር ({receiver_phone}) ነው! እባክዎ ወደ EtooBingo ይፋዊ አካውንት ያስተላለፉበትን የ SMS መልዕክት ያስገቡ።",
             )
 
-    # If merchant was the sender and no valid receiver was found, reject as outgoing
-    if is_sender_merchant:
-        return (
-            False,
-            None,
-            "ይህ መልዕክት ከ EtooBingo አካውንት ወደ ሌላ ሰው የተደረገ ወጪ ዝውውር (Outgoing Transfer) ነው! እባክዎ ወደ EtooBingo የተላከበትን የገቢ SMS ያስገቡ።",
-        )
+    # 2. Check destination bank account
+    if receiver_acc:
+        if any(acc == receiver_acc or acc in receiver_acc for acc in merchant_bank_accounts):
+            return True, "cbe_bank", None
+        elif any(num == receiver_acc or num in receiver_acc for num in merchant_telebirr_numbers):
+            return True, "telebirr", None
+        elif any(num == receiver_acc or num in receiver_acc for num in merchant_cbebirr_numbers):
+            return True, "cbebirr", None
+        else:
+            return (
+                False,
+                None,
+                f"ክፍያው የተላከው ወደ ሌላ የባንክ አካውንት ({receiver_acc}) ነው! እባክዎ ወደ EtooBingo ይፋዊ አካውንት (1000413343538 - Natnael Temesegen) ያስተላለፉበትን የ SMS መልዕክት ያስገቡ።",
+            )
 
-    # Fallback to name/keyword check if explicit directional patterns weren't present
-    # Check CBE Bank
+    # 3. Fallback to presence of accounts and names in text
     if any(acc in clean_text for acc in merchant_bank_accounts) and any(n in clean_text for n in OFFICIAL_ACCOUNTS["cbe_bank"]["valid_names"]):
         return True, "cbe_bank", None
 
-    # Check Telebirr
     if any(num in clean_text for num in merchant_telebirr_numbers) and any(n in clean_text for n in OFFICIAL_ACCOUNTS["telebirr"]["valid_names"]):
         return True, "telebirr", None
 
-    # Check CBE Birr
     if any(num in clean_text for num in merchant_cbebirr_numbers) and any(n in clean_text for n in OFFICIAL_ACCOUNTS["cbebirr"]["valid_names"]):
+        return True, "cbebirr", None
+
+    if any(acc in clean_text for acc in merchant_bank_accounts):
+        return True, "cbe_bank", None
+
+    if any(num in clean_text for num in merchant_telebirr_numbers):
+        return True, "telebirr", None
+
+    if any(num in clean_text for num in merchant_cbebirr_numbers):
         return True, "cbebirr", None
 
     return (
@@ -697,15 +698,32 @@ def parse_deposit_sms(sms_text: str) -> dict | None:
 # ---------------------------------------------------------------------------
 
 def _verify_telebirr_receipt_receiver(fetched: dict) -> tuple[bool, str | None]:
-    """Return (is_valid, rejection_reason) for a fetched Telebirr receipt."""
+    """Return (is_valid, rejection_reason) for a fetched Telebirr receipt.
+
+    Accepts transfers to any official account, including transfers initiated
+    from one of our own accounts to another.
+    """
     bank_account = fetched.get("receiver_account") or fetched.get("bank_account", "")
     credited_party = fetched.get("credited_party", "")
     payer_name = fetched.get("payer_name", "")
 
+    all_accounts = OFFICIAL_ACCOUNTS["cbe_bank"]["valid_accounts"]
+    all_names = (
+        OFFICIAL_ACCOUNTS["telebirr"]["valid_names"]
+        + OFFICIAL_ACCOUNTS["cbebirr"]["valid_names"]
+        + OFFICIAL_ACCOUNTS["cbe_bank"]["valid_names"]
+    )
+    all_numbers = (
+        OFFICIAL_ACCOUNTS["telebirr"]["valid_numbers"]
+        + OFFICIAL_ACCOUNTS["cbebirr"]["valid_numbers"]
+    )
+
+    # 1. If bank account is present on receipt (transfer to CBE Bank)
     if bank_account:
-        merchant_bank_accounts = OFFICIAL_ACCOUNTS["cbe_bank"]["valid_accounts"]
-        is_our_bank = any(acc in bank_account for acc in merchant_bank_accounts)
-        if not is_our_bank:
+        is_our_bank = any(acc in bank_account for acc in all_accounts)
+        if is_our_bank:
+            return True, None
+        else:
             return (
                 False,
                 f"ክፍያው የተላከው ወደ ሌላ የባንክ አካውንት ({bank_account}) ነው! "
@@ -713,64 +731,77 @@ def _verify_telebirr_receipt_receiver(fetched: dict) -> tuple[bool, str | None]:
                 "• 🏦 *CBE Bank:* `1000413343538` (Natnael Temesegen)",
             )
 
-    # Check if payer is our merchant sending outgoing
-    if "habtamu" in payer_name.lower():
-        if not bank_account or not any(
-            acc in bank_account for acc in OFFICIAL_ACCOUNTS["cbe_bank"]["valid_accounts"]
-        ):
-            if credited_party and not any(
-                n in credited_party.lower() for n in OFFICIAL_ACCOUNTS["telebirr"]["valid_names"]
-            ):
-                return False, "ይህ የደረሰኝ ማስረጃ ከ EtooBingo አካውንት ወደ ሌላ ሰው የተደረገ ወጪ ዝውውር ነው!"
+    # 2. If credited party is present
+    if credited_party:
+        is_our_name = any(n in credited_party.lower() for n in all_names)
+        is_our_num = any(num in credited_party for num in all_numbers)
+        if is_our_name or is_our_num:
+            return True, None
+        # Only reject if credited party explicitly does not match any official name
+        return False, f"ክፍያው የተላከው ወደ ሌላ ሰው ({credited_party}) ነው! እባክዎ ወደ EtooBingo ይፋዊ አካውንት ያስተላልፉ።"
 
     return True, None
 
 
 def _verify_cbe_mb_receipt_receiver(fetched: dict) -> tuple[bool, str | None]:
-    """Return (is_valid, rejection_reason) for a fetched CBE MB receipt."""
+    """Return (is_valid, rejection_reason) for a fetched CBE MB receipt.
+
+    Accepts transfers to our CBE bank account, or wallet transfers (Telebirr / CBE Birr)
+    with our official phone numbers in description/details, including transfers
+    from one official account to another.
+    """
     debit_account = fetched.get("payer_account", "")
     credit_account = fetched.get("receiver_account", "")
+    receiver_name = fetched.get("receiver_name", "")
     status = fetched.get("status", "")
+    raw = fetched.get("raw", {})
+    description = raw.get("description", "")
+    payment_details = raw.get("paymentDetails", [])
 
     if status and status not in ("completed", "success"):
         return False, f"ይህ ግብይት ያልተሳካ ነው (ሁኔታ: {status})!"
 
-    # Check that the credit account matches one of our official accounts
-    merchant_accounts = OFFICIAL_ACCOUNTS["cbe_bank"]["valid_accounts"]
+    all_accounts = OFFICIAL_ACCOUNTS["cbe_bank"]["valid_accounts"]
+    all_names = (
+        OFFICIAL_ACCOUNTS["telebirr"]["valid_names"]
+        + OFFICIAL_ACCOUNTS["cbebirr"]["valid_names"]
+        + OFFICIAL_ACCOUNTS["cbe_bank"]["valid_names"]
+    )
+    all_numbers = (
+        OFFICIAL_ACCOUNTS["telebirr"]["valid_numbers"]
+        + OFFICIAL_ACCOUNTS["cbebirr"]["valid_numbers"]
+    )
 
-    if credit_account:
-        # The API returns masked accounts like "E***********0162" or "1********3538"
-        # Check both masked matching and substring matching
-        matched = False
-        for official in merchant_accounts:
-            if _mask_matches(credit_account, official) or official in credit_account or credit_account in official:
-                matched = True
-                break
+    # Check matches:
+    # A. Credit account matches our CBE account
+    matched_account = credit_account and any(
+        _mask_matches(credit_account, acc) or acc in credit_account or credit_account in acc
+        for acc in all_accounts
+    )
 
-        if not matched:
-            # Also check CBE Birr phone (description may contain the phone)
-            raw = fetched.get("raw", {})
-            description = raw.get("description", "")
-            payment_details = raw.get("paymentDetails", [])
-            cbebirr_numbers = OFFICIAL_ACCOUNTS["cbebirr"]["valid_numbers"]
+    # B. Receiver name matches any of our official names
+    matched_name = receiver_name and any(n in receiver_name.lower() for n in all_names)
 
-            desc_match = any(num in description for num in cbebirr_numbers)
-            detail_match = any(
-                any(num in str(d) for num in cbebirr_numbers)
-                for d in payment_details
-            )
-            if not desc_match and not detail_match:
-                return (
-                    False,
-                    f"ክፍያው ወደ EtooBingo ይፋዊ አካውንት አልተላከም! "
-                    "እባክዎ ወደ `1000413343538` (Natnael Temesegen) ያስተላለፉበትን ማስረጃ ይላኩ።",
-                )
+    # C. Wallet settlement transfer (To Telebirr Transfer Settlement / To Cbe Birr Transfer Settlement)
+    is_settlement = any(
+        kw in receiver_name.lower() for kw in ("settlement", "telebirr", "cbe birr", "cbebirr", "transfer", "wallet")
+    )
+    desc_match = any(num in description for num in all_numbers)
+    detail_match = any(
+        any(num in str(d) for num in all_numbers)
+        for d in payment_details
+    )
 
-    # Also check if the debit account IS our own account (outgoing)
-    if debit_account:
-        for official in merchant_accounts:
-            if _mask_matches(debit_account, official) or official in debit_account:
-                return False, "ይህ ግብይት ከ EtooBingo አካውንት ወደ ሌላ ሰው የተደረገ ወጪ ዝውውር ነው!"
+    if matched_account or matched_name or (is_settlement and (desc_match or detail_match)) or desc_match or detail_match:
+        return True, None
+
+    # If it is an explicit transfer to a non-matching account:
+    if credit_account and not matched_account and not is_settlement:
+        return (
+            False,
+            f"ክፍያው ወደ EtooBingo ይፋዊ አካውንት አልተላከም! "
+            "እባክዎ ወደ `1000413343538` (Natnael Temesegen) ያስተላለፉበትን ማስረጃ ይላኩ።",
+        )
 
     return True, None
 
