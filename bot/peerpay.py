@@ -304,13 +304,17 @@ class PeerPayClient:
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         """Create a withdrawal request on PeerPay."""
+        resolved_return_url = (
+            return_url
+            or settings.peerpay_return_url
+            or f"{settings.webapp_url}/withdrawals/return"
+        )
         payload: dict[str, Any] = {
             "merchant_customer_id": merchant_customer_id,
             "amount": f"{float(amount):.2f}",
             "currency": "ETB",
+            "return_url": resolved_return_url,
         }
-        if return_url:
-            payload["return_url"] = return_url
         if destination:
             payload["destination"] = destination
         if metadata:

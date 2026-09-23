@@ -172,9 +172,10 @@ async def _create_and_send_peerpay_checkout(
     idempotency_key = f"etoobingo-deposit-{uuid.uuid4().hex}"
 
     try:
+        # Create open/variable-amount checkout so PeerPay accepts any transferred amount
         res = await peerpay_client.create_deposit(
             merchant_customer_id=f"tg_{telegram_id}",
-            amount=amount,
+            amount=None,
             payment_method=peerpay_method_code,
             idempotency_key=idempotency_key,
         )

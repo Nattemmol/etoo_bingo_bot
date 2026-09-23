@@ -1770,9 +1770,8 @@ async def api_deposit_create(request: Request):
     try:
         res = await peerpay_client.create_deposit(
             merchant_customer_id=f"tg_{tg_id}",
-            amount=amount,
+            amount=None,
             payment_method=peerpay_method,
-            return_url=f"{settings.webapp_url}/deposits/return",
             idempotency_key=idempotency_key,
         )
         dep_data = res.get("data", {})
