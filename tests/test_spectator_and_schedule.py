@@ -113,7 +113,7 @@ class TestSpectatorAndSchedule(unittest.TestCase):
         self.assertIn("reply_markup", kwargs)
         msg_text = args[0] if args else kwargs.get("text", "")
         self.assertIn("PLAY", msg_text)
-        self.assertIn("Watching is free", msg_text)
+        self.assertIn("የቦርድ እይታ በነፃ ነው", msg_text)
 
     def test_websocket_spectator_and_insufficient_balance_card_selection(self):
         user_id = 999222

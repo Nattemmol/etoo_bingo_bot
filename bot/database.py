@@ -248,6 +248,20 @@ async def create_user(
     return user
 
 
+async def ensure_user(
+    telegram_id: int,
+    phone_number: str = "+251900000000",
+    username: str | None = None,
+    first_name: str | None = None,
+    balance: float | None = None,
+) -> dict:
+    user = await create_user(telegram_id, phone_number, username, first_name)
+    if balance is not None:
+        await update_balance(telegram_id, balance)
+        user["balance"] = balance
+    return user
+
+
 async def get_balance(telegram_id: int) -> float:
     user = await get_user(telegram_id)
     return float(user["balance"]) if user else 0.0
@@ -587,10 +601,11 @@ async def upsert_peerpay_deposit(
         await db.commit()
 
 
-async def get_peerpay_deposit(payment_id: str) -> dict | None:
+async def get_peerpay_deposit(payment_id_or_ref: str) -> dict | None:
     db = await get_db()
     async with db.execute(
-        "SELECT * FROM peerpay_deposits WHERE payment_id = ?", (payment_id,)
+        "SELECT * FROM peerpay_deposits WHERE payment_id = ? OR merchant_order_id = ? LIMIT 1",
+        (payment_id_or_ref, payment_id_or_ref),
     ) as cursor:
         row = await cursor.fetchone()
         return dict(row) if row else None

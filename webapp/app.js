@@ -103,26 +103,6 @@ const els = {
   winnerProgressFill: document.getElementById("winner-progress-fill"),
   btnWinnerContinue: document.getElementById("btn-winner-continue"),
   themeToggleBtn: document.getElementById("theme-toggle-btn"),
-  btnOpenWallet: document.getElementById("btn-open-wallet"),
-  modalWallet: document.getElementById("modal-wallet"),
-  btnWalletClose: document.getElementById("btn-wallet-close"),
-  modalUserBalance: document.getElementById("modal-user-balance"),
-  tabDeposit: document.getElementById("tab-deposit"),
-  tabWithdraw: document.getElementById("tab-withdraw"),
-  panelDeposit: document.getElementById("panel-deposit"),
-  panelWithdraw: document.getElementById("panel-withdraw"),
-  depositAmountInput: document.getElementById("deposit-amount-input"),
-  depositAmountManualInput: document.getElementById("deposit-amount-manual-input"),
-  btnDepositPeerpay: document.getElementById("btn-deposit-peerpay"),
-  depositReferenceInput: document.getElementById("deposit-reference-input"),
-  depositAmountOptionalInput: document.getElementById("deposit-amount-optional-input"),
-  btnSubmitDepositRef: document.getElementById("btn-submit-deposit-ref"),
-  depositStatusMsg: document.getElementById("deposit-status-msg"),
-  withdrawAmountInput: document.getElementById("withdraw-amount-input"),
-  withdrawBankSelect: document.getElementById("withdraw-bank-select"),
-  withdrawAccountInput: document.getElementById("withdraw-account-input"),
-  btnRequestWithdraw: document.getElementById("btn-request-withdraw"),
-  withdrawStatusMsg: document.getElementById("withdraw-status-msg"),
 };
 
 // Theme Management (Defaults to Dark Mode)
@@ -156,465 +136,6 @@ if (els.themeToggleBtn) {
 }
 
 initTheme();
-
-// ---------------------------------------------------------------------------
-// Wallet Management (Deposit & Withdraw via PeerPayment.org)
-// ---------------------------------------------------------------------------
-function openWalletModal() {
-  if (!els.modalWallet) return;
-  if (els.modalUserBalance) {
-    els.modalUserBalance.textContent = Number(state.balance || 0).toFixed(2);
-  }
-  els.modalWallet.classList.remove("hidden");
-  tg.HapticFeedback?.impactOccurred("medium");
-}
-
-function closeWalletModal() {
-  if (els.modalWallet) {
-    els.modalWallet.classList.add("hidden");
-  }
-}
-
-if (els.btnOpenWallet) {
-  els.btnOpenWallet.addEventListener("click", openWalletModal);
-}
-if (els.btnWalletClose) {
-  els.btnWalletClose.addEventListener("click", closeWalletModal);
-}
-if (els.modalWallet) {
-  els.modalWallet.addEventListener("click", (e) => {
-    if (e.target === els.modalWallet) closeWalletModal();
-  });
-}
-
-if (els.tabDeposit && els.tabWithdraw) {
-  els.tabDeposit.addEventListener("click", () => {
-    els.tabDeposit.classList.add("active");
-    els.tabWithdraw.classList.remove("active");
-    els.panelDeposit?.classList.add("active");
-    els.panelWithdraw?.classList.remove("active");
-  });
-  els.tabWithdraw.addEventListener("click", () => {
-    els.tabWithdraw.classList.add("active");
-    els.tabDeposit.classList.remove("active");
-    els.panelWithdraw?.classList.add("active");
-    els.panelDeposit?.classList.remove("active");
-  });
-}
-
-let selectedDepositMethod = "telebirr";
-let depositPollInterval = null;
-
-// Method card selection
-document.querySelectorAll(".deposit-accounts-list .account-card").forEach((card) => {
-  card.addEventListener("click", () => {
-    document.querySelectorAll(".deposit-accounts-list .account-card").forEach((c) => c.classList.remove("active"));
-    card.classList.add("active");
-    selectedDepositMethod = card.getAttribute("data-method") || "telebirr";
-    tg.HapticFeedback?.selectionChanged();
-  });
-});
-
-// Quick amount buttons
-document.querySelectorAll(".btn-quick-amount").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".btn-quick-amount").forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    const amt = btn.getAttribute("data-amount");
-    if (amt && els.depositAmountInput) {
-      els.depositAmountInput.value = amt;
-    }
-    tg.HapticFeedback?.selectionChanged();
-  });
-});
-
-if (els.depositAmountInput) {
-  els.depositAmountInput.addEventListener("input", () => {
-    const val = els.depositAmountInput.value;
-    document.querySelectorAll(".btn-quick-amount").forEach((b) => {
-      b.classList.toggle("active", b.getAttribute("data-amount") === val);
-    });
-  });
-}
-
-function stopDepositPolling() {
-  if (depositPollInterval) {
-    clearInterval(depositPollInterval);
-    depositPollInterval = null;
-  }
-}
-
-function onDepositSuccess(amount, newBalance) {
-  if (newBalance != null) {
-    updateBalanceDisplay(newBalance);
-    if (els.modalUserBalance) {
-      els.modalUserBalance.textContent = Number(newBalance).toFixed(2);
-    }
-  }
-  const amtNum = Number(amount || 0);
-  const msgText = amtNum > 0 ? `✅ ${amtNum.toFixed(2)} ETB ወደ ሂሳብዎ ተጨምሯል!` : "✅ ክፍያዎ ተረጋግጦ ወደ ሂሳብዎ ተጨምሯል!";
-  showBanner(msgText);
-  tg.HapticFeedback?.notificationOccurred("success");
-
-  // Auto-close wallet modal and return to homepage/card selection or ongoing game
-  setTimeout(() => {
-    if (els.modalWallet) els.modalWallet.classList.add("hidden");
-    if (state.phase === "playing") {
-      showScreen("screen-game");
-    } else {
-      showScreen("screen-lobby");
-      renderPool();
-    }
-  }, 1200);
-}
-
-function startDepositPolling(depositId, expectedAmt) {
-  stopDepositPolling();
-  let attempts = 0;
-  const maxAttempts = 100; // ~5 minutes
-
-  depositPollInterval = setInterval(async () => {
-    attempts++;
-    if (attempts > maxAttempts) {
-      stopDepositPolling();
-      return;
-    }
-
-    try {
-      const resp = await fetch(apiUrl(`/api/deposit/status/${depositId}`));
-      const data = await resp.json();
-      if (data.ok && (data.status === "succeeded" || data.credited)) {
-        stopDepositPolling();
-        sessionStorage.removeItem("peerpay_pending_deposit_id");
-        sessionStorage.removeItem("peerpay_pending_deposit_amt");
-        const creditedAmt = data.amount || expectedAmt || 0;
-        if (els.depositStatusMsg) {
-          els.depositStatusMsg.className = "wallet-status-msg success";
-          els.depositStatusMsg.textContent = `✅ ${creditedAmt > 0 ? creditedAmt.toFixed(2) + " ETB" : ""} ክፍያዎ ተረጋግጦ ወደ አካውንትዎ ተጨምሯል!`;
-          els.depositStatusMsg.classList.remove("hidden");
-        }
-        onDepositSuccess(creditedAmt, data.new_balance);
-      }
-    } catch (err) {
-      console.warn("Error polling deposit status:", err);
-    }
-  }, 3000);
-}
-
-if (els.btnDepositPeerpay) {
-  els.btnDepositPeerpay.addEventListener("click", async () => {
-    const amt = parseFloat(els.depositAmountInput?.value || "0");
-    if (isNaN(amt) || amt < 10) {
-      if (els.depositStatusMsg) {
-        els.depositStatusMsg.className = "wallet-status-msg error";
-        els.depositStatusMsg.textContent = "⚠️ ዝቅተኛው የማስገቢያ መጠን 10 ETB ነው።";
-        els.depositStatusMsg.classList.remove("hidden");
-      }
-      return;
-    }
-
-    if (els.depositStatusMsg) {
-      els.depositStatusMsg.className = "wallet-status-msg pending";
-      els.depositStatusMsg.textContent = "⏳ የክፍያ ማስፈንጠሪያ በማዘጋጀት ላይ...";
-      els.depositStatusMsg.classList.remove("hidden");
-    }
-
-    els.btnDepositPeerpay.disabled = true;
-
-    try {
-      const resp = await fetch(apiUrl("/api/deposit/create"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Telegram-Init-Data": tg.initData || "",
-        },
-        body: JSON.stringify({
-          amount: amt,
-          payment_method: selectedDepositMethod,
-          init_data: tg.initData,
-        }),
-      });
-
-      const data = await resp.json();
-      const checkoutUrl = data.checkout_url || data.data?.checkout_url;
-      const depositId = data.deposit_id || data.data?.id || data.data?.deposit_id;
-
-      if (data.ok && checkoutUrl) {
-        if (depositId) {
-          sessionStorage.setItem("peerpay_pending_deposit_id", depositId);
-          sessionStorage.setItem("peerpay_pending_deposit_amt", String(amt));
-        }
-
-        // Open checkout in Telegram / WebApp browser
-        if (tg.openLink) {
-          tg.openLink(checkoutUrl);
-        } else {
-          window.open(checkoutUrl, "_blank");
-        }
-
-        if (els.depositStatusMsg) {
-          els.depositStatusMsg.className = "wallet-status-msg pending";
-          els.depositStatusMsg.innerHTML = `
-            <div>🔐 <strong>የክፍያ ገጽ ተከፍቷል!</strong></div>
-            <div style="margin-top:4px; font-size:12px;">ክፍያውን በከፈቱት ገጽ ላይ እንደጨረሱ ሂሳብዎ በራስ-ሰር ይጨመራል።</div>
-            <a href="${checkoutUrl}" target="_blank" style="display:inline-block; margin-top:6px; color:#00E676; text-decoration:underline;">🔗 ገጹ ካልተከፈተ እዚህ ይጫኑ</a>
-          `;
-          els.depositStatusMsg.classList.remove("hidden");
-        }
-
-        if (depositId) {
-          startDepositPolling(depositId, amt);
-        }
-      } else {
-        if (els.depositStatusMsg) {
-          els.depositStatusMsg.className = "wallet-status-msg error";
-          els.depositStatusMsg.textContent = "❌ " + (data.error || "የክፍያ ማስፈንጠሪያ ማዘጋጀት አልተቻለም");
-        }
-      }
-    } catch (err) {
-      if (els.depositStatusMsg) {
-        els.depositStatusMsg.className = "wallet-status-msg error";
-        els.depositStatusMsg.textContent = "❌ ችግር አጋጥሟል: " + err.message;
-      }
-    } finally {
-      els.btnDepositPeerpay.disabled = false;
-    }
-  });
-}
-
-if (els.withdrawBankSelect) {
-  els.withdrawBankSelect.addEventListener("change", () => {
-    const val = els.withdrawBankSelect.value;
-    const label = document.getElementById("withdraw-account-label");
-    const input = els.withdrawAccountInput;
-    if (val === "cbe") {
-      if (label) label.textContent = "የ CBE (ንግድ ባንክ) አካውንት ቁጥር (13 ዲጂት):";
-      if (input) input.placeholder = "ለምሳሌ: 1000413343538";
-    } else {
-      if (label) label.textContent = "የስልክ ቁጥር (Telebirr / CBE Birr):";
-      if (input) input.placeholder = "ለምሳሌ: 0911223344";
-    }
-  });
-}
-
-if (els.btnSubmitDepositRef) {
-  els.btnSubmitDepositRef.addEventListener("click", async () => {
-    const ref = els.depositReferenceInput?.value?.trim();
-    const optAmt = parseFloat(els.depositAmountManualInput?.value || els.depositAmountInput?.value || "0");
-    if (!ref) {
-      if (els.depositStatusMsg) {
-        els.depositStatusMsg.className = "wallet-status-msg error";
-        els.depositStatusMsg.textContent = "⚠️ እባክዎ የ SMS መልዕክት፣ Receipt Link ወይም Transaction ID ያስገቡ።";
-        els.depositStatusMsg.classList.remove("hidden");
-      }
-      return;
-    }
-
-    if (isNaN(optAmt) || optAmt < 10) {
-      if (els.depositStatusMsg) {
-        els.depositStatusMsg.className = "wallet-status-msg error";
-        els.depositStatusMsg.textContent = "⚠️ እባክዎ ያስተላለፉትን የብር መጠን ያስገቡ (ዝቅተኛ 10 ETB)።";
-        els.depositStatusMsg.classList.remove("hidden");
-      }
-      return;
-    }
-
-    if (els.depositStatusMsg) {
-      els.depositStatusMsg.className = "wallet-status-msg pending";
-      els.depositStatusMsg.textContent = `⏳ የ ${optAmt.toFixed(2)} ETB ክፍያ ማረጋገጫ በመካሄድ ላይ ነው...`;
-      els.depositStatusMsg.classList.remove("hidden");
-    }
-
-    try {
-      const resp = await fetch(apiUrl("/api/deposit/submit-reference"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Telegram-Init-Data": tg.initData || "",
-        },
-        body: JSON.stringify({
-          reference: ref,
-          payment_method: selectedDepositMethod,
-          amount: optAmt,
-          init_data: tg.initData,
-        }),
-      });
-      const data = await resp.json();
-      if (data.ok) {
-        if (data.status === "credited") {
-          if (els.depositStatusMsg) {
-            els.depositStatusMsg.className = "wallet-status-msg success";
-            els.depositStatusMsg.textContent = data.message || `✅ ${data.amount ? data.amount.toFixed(2) + " ETB" : ""} ወደ አካውንትዎ ተጨምሯል!`;
-          }
-          if (els.depositReferenceInput) els.depositReferenceInput.value = "";
-          if (els.depositAmountOptionalInput) els.depositAmountOptionalInput.value = "";
-          onDepositSuccess(data.amount, data.new_balance);
-        } else if (data.status === "amount_needed") {
-          if (els.depositStatusMsg) {
-            els.depositStatusMsg.className = "wallet-status-msg pending";
-            els.depositStatusMsg.textContent = data.message || "✅ የማስረጃ ቁጥር ደርሶናል። እባክዎ ያስተላለፉትን የብር መጠን ያስገቡ።";
-          }
-          if (els.depositAmountOptionalInput) {
-            els.depositAmountOptionalInput.focus();
-          }
-        } else {
-          if (els.depositStatusMsg) {
-            els.depositStatusMsg.className = "wallet-status-msg pending";
-            els.depositStatusMsg.textContent = data.message || "⏳ ክፍያ ማረጋገጫ በሂደት ላይ ነው።";
-          }
-        }
-      } else {
-        if (els.depositStatusMsg) {
-          els.depositStatusMsg.className = "wallet-status-msg error";
-          els.depositStatusMsg.textContent = "❌ " + (data.error || "ማረጋገጥ አልተቻለም");
-        }
-      }
-    } catch (err) {
-      if (els.depositStatusMsg) {
-        els.depositStatusMsg.className = "wallet-status-msg error";
-        els.depositStatusMsg.textContent = "❌ ችግር አጋጥሟል: " + err.message;
-      }
-    }
-  });
-}
-
-let withdrawPollInterval = null;
-
-function stopWithdrawPolling() {
-  if (withdrawPollInterval) {
-    clearInterval(withdrawPollInterval);
-    withdrawPollInterval = null;
-  }
-}
-
-function startWithdrawPolling(withdrawalId) {
-  stopWithdrawPolling();
-  let attempts = 0;
-  const maxAttempts = 60; // ~4 minutes
-
-  withdrawPollInterval = setInterval(async () => {
-    attempts++;
-    if (attempts > maxAttempts) {
-      stopWithdrawPolling();
-      return;
-    }
-
-    try {
-      const resp = await fetch(apiUrl(`/api/withdraw/status/${withdrawalId}`));
-      const data = await resp.json();
-      if (data.ok) {
-        if (data.status === "succeeded") {
-          stopWithdrawPolling();
-          if (els.withdrawStatusMsg) {
-            els.withdrawStatusMsg.className = "wallet-status-msg success";
-            els.withdrawStatusMsg.textContent = data.message || `✅ የ ${data.amount ? data.amount.toFixed(2) + " ETB" : ""} ክፍያ ወደ Telebirr ተላልፏል!`;
-          }
-          tg.HapticFeedback?.notificationOccurred("success");
-        } else if (data.status === "failed" || data.status === "expired" || data.status === "cancelled") {
-          stopWithdrawPolling();
-          if (data.refund_amount) {
-            updateBalanceDisplay(state.balance + data.refund_amount);
-            if (els.modalUserBalance) els.modalUserBalance.textContent = state.balance.toFixed(2);
-          }
-          if (els.withdrawStatusMsg) {
-            els.withdrawStatusMsg.className = "wallet-status-msg error";
-            els.withdrawStatusMsg.textContent = data.message || `❌ የገንዘብ ማውጣቱ አልተሳካም። ገንዘቡ ወደ ሂሳብዎ ተመልሷል።`;
-          }
-          tg.HapticFeedback?.notificationOccurred("error");
-        }
-      }
-    } catch (err) {
-      console.warn("Error polling withdrawal status:", err);
-    }
-  }, 4000);
-}
-
-if (els.btnRequestWithdraw) {
-  els.btnRequestWithdraw.addEventListener("click", async () => {
-    const amt = parseFloat(els.withdrawAmountInput?.value || "0");
-    const bank = els.withdrawBankSelect?.value || "telebirr";
-    const acc = els.withdrawAccountInput?.value?.trim() || "";
-
-    if (isNaN(amt) || amt < 10) {
-      if (els.withdrawStatusMsg) {
-        els.withdrawStatusMsg.className = "wallet-status-msg error";
-        els.withdrawStatusMsg.textContent = "⚠️ ዝቅተኛው የማውጣት መጠን 10 ETB ነው።";
-        els.withdrawStatusMsg.classList.remove("hidden");
-      }
-      return;
-    }
-
-    if (!acc || acc.replace(/\D/g, "").length < 9) {
-      if (els.withdrawStatusMsg) {
-        els.withdrawStatusMsg.className = "wallet-status-msg error";
-        els.withdrawStatusMsg.textContent = "⚠️ እባክዎ ትክክለኛ የ Telebirr ስልክ ቁጥር ያስገቡ (ለምሳሌ: 0911223344)።";
-        els.withdrawStatusMsg.classList.remove("hidden");
-      }
-      return;
-    }
-
-    if (amt > state.balance) {
-      if (els.withdrawStatusMsg) {
-        els.withdrawStatusMsg.className = "wallet-status-msg error";
-        els.withdrawStatusMsg.textContent = "❌ በቂ ቀሪ ሂሳብ የሎትም።";
-        els.withdrawStatusMsg.classList.remove("hidden");
-      }
-      return;
-    }
-
-    if (els.withdrawStatusMsg) {
-      els.withdrawStatusMsg.className = "wallet-status-msg pending";
-      els.withdrawStatusMsg.textContent = "⏳ የገንዘብ ማውጣት ጥያቄ በመላክ ላይ...";
-      els.withdrawStatusMsg.classList.remove("hidden");
-    }
-
-    els.btnRequestWithdraw.disabled = true;
-
-    try {
-      const resp = await fetch(apiUrl("/api/withdraw/create"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Telegram-Init-Data": tg.initData || "",
-        },
-        body: JSON.stringify({
-          amount: amt,
-          destination: { bank: bank, account_number: acc },
-          init_data: tg.initData,
-        }),
-      });
-      const data = await resp.json();
-      if (data.ok) {
-        updateBalanceDisplay(data.new_balance);
-        if (els.modalUserBalance) {
-          els.modalUserBalance.textContent = Number(data.new_balance).toFixed(2);
-        }
-        if (els.withdrawStatusMsg) {
-          els.withdrawStatusMsg.className = "wallet-status-msg success";
-          els.withdrawStatusMsg.textContent = `✅ የ ${amt.toFixed(2)} ETB ማውጣት ጥያቄ ተልኳል! ክፍያው እንደተጠናቀቀ በራስ-ሰር ይረጋገጣል።`;
-        }
-        if (els.withdrawAmountInput) els.withdrawAmountInput.value = "";
-        if (els.withdrawAccountInput) els.withdrawAccountInput.value = "";
-        
-        if (data.withdrawal_id) {
-          startWithdrawPolling(data.withdrawal_id);
-        }
-      } else {
-        if (els.withdrawStatusMsg) {
-          els.withdrawStatusMsg.className = "wallet-status-msg error";
-          els.withdrawStatusMsg.textContent = "❌ ማውጣት አልተቻለም: " + (data.error || "እባክዎ እንደገና ይሞክሩ");
-        }
-      }
-    } catch (err) {
-      if (els.withdrawStatusMsg) {
-        els.withdrawStatusMsg.className = "wallet-status-msg error";
-        els.withdrawStatusMsg.textContent = "❌ ችግር አጋጥሟል: " + err.message;
-      }
-    } finally {
-      els.btnRequestWithdraw.disabled = false;
-    }
-  });
-}
 
 buildCalledBoard(els.calledBoard);
 
@@ -736,7 +257,7 @@ function setupScheduleTimer(seconds) {
   state.countdownInterval = setInterval(tick, 1000);
 }
 
-// ---- Lobby "Starts in" countdown (DD, hr:min:sec) ----
+// ---- Lobby "Starts in" countdown ----
 function formatCountdown(seconds) {
   const total = Math.max(0, Math.floor(seconds || 0));
   const d = Math.floor(total / 86400);
@@ -744,11 +265,14 @@ function formatCountdown(seconds) {
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
 
-  const timeStr = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  const mmss = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   if (d > 0) {
-    return `${String(d).padStart(2, "0")}d, ${timeStr}`;
+    return `${String(d).padStart(2, "0")}d, ${String(h).padStart(2, "0")}:${mmss}`;
   }
-  return timeStr;
+  if (h > 0) {
+    return `${String(h).padStart(2, "0")}:${mmss}`;
+  }
+  return mmss;
 }
 
 function syncLobbyCountdown(seconds) {
@@ -797,13 +321,13 @@ function updatePoolChip(cardId) {
 }
 
 function buildPool() {
-  const maxCards = state.room?.max_cards || (roomId === "room_super_50" ? 1500 : 150);
+  const maxCards = state.room?.max_cards || (roomId === "room_super_50" ? 1500 : 450);
   if (els.cardActionTitle) els.cardActionTitle.textContent = `Card Pool (1-${maxCards})`;
   if (els.quickCardInput) {
     els.quickCardInput.max = maxCards;
     els.quickCardInput.placeholder = `መጫወቻ ቁጥር (1-${maxCards})`;
   }
-  // Preserve the existing 1,500 nodes across reconnects.
+  // Preserve the existing pool nodes across reconnects if size matches.
   if (poolChips.length === maxCards) {
     renderPool();
     return;
@@ -830,7 +354,7 @@ els.cardPool?.addEventListener("click", (event) => {
 if (els.btnQuickPick) {
   els.btnQuickPick.addEventListener("click", () => {
     const val = parseInt(els.quickCardInput?.value, 10);
-    const maxCards = state.room?.max_cards || (roomId === "room_super_50" ? 1500 : 150);
+    const maxCards = state.room?.max_cards || (roomId === "room_super_50" ? 1500 : 450);
     if (!val || val < 1 || val > maxCards) {
       showCardError(`እባክዎ ከ 1 እስከ ${maxCards} ውስጥ ቁጥር ያስገቡ`);
       return;
@@ -841,7 +365,7 @@ if (els.btnQuickPick) {
 
 if (els.btnRandomPick) {
   els.btnRandomPick.addEventListener("click", () => {
-    const maxCards = state.room?.max_cards || (roomId === "room_super_50" ? 1500 : 150);
+    const maxCards = state.room?.max_cards || (roomId === "room_super_50" ? 1500 : 450);
     const available = [];
     for (let i = 1; i <= maxCards; i++) {
       if (state.takenCards[i] == null && !state.cardIds.includes(i)) {
@@ -1249,16 +773,19 @@ function handleMessage(socket, msg) {
         els.lobbyPot.textContent = Number(msg.pot).toFixed(0);
       }
       updateGameStats(msg.pot, msg.players, state.called.length);
-      if (state.countdownInterval) {
-        clearInterval(state.countdownInterval);
-        state.countdownInterval = null;
-      }
       if (msg.deadline != null) {
-        const deadlineTs = msg.deadline > 1e10 ? msg.deadline : (Date.now() + msg.deadline * 1000);
-        state.countdownInterval = setInterval(() => {
-          const left = Math.max(0, Math.ceil((deadlineTs - Date.now()) / 1000));
-          if (els.lobbyCountdown) els.lobbyCountdown.textContent = formatCountdown(left);
-        }, 1000);
+        let leftSecs = 0;
+        if (msg.deadline > 1e11) {
+          // Absolute timestamp in milliseconds
+          leftSecs = Math.max(0, (msg.deadline - Date.now()) / 1000);
+        } else if (msg.deadline > 1e8) {
+          // Absolute timestamp in seconds
+          leftSecs = Math.max(0, msg.deadline - Date.now() / 1000);
+        } else {
+          // Relative seconds remaining
+          leftSecs = Math.max(0, msg.deadline);
+        }
+        syncLobbyCountdown(leftSecs);
       } else if (msg.countdown != null) {
         syncLobbyCountdown(msg.countdown);
       }
@@ -1517,7 +1044,6 @@ function openWinnerModal(msg) {
     if (msg.balance != null) {
       state.balance = Number(msg.balance);
       if (els.userBalance) els.userBalance.textContent = state.balance.toFixed(2);
-      if (els.modalUserBalance) els.modalUserBalance.textContent = state.balance.toFixed(2);
     }
   } else if (mine && mine.prize != null) {
     if (badgeIcon) badgeIcon.textContent = "🏆";
@@ -1645,48 +1171,24 @@ async function syncUserBalance() {
     const data = await resp.json();
     if (data.ok && data.balance != null) {
       updateBalanceDisplay(data.balance);
-      if (els.modalUserBalance) {
-        els.modalUserBalance.textContent = Number(data.balance).toFixed(2);
-      }
     }
   } catch (err) {
     console.warn("Error syncing user balance:", err);
   }
 }
 
-// Auto-open wallet/deposit/withdraw or resume pending verification on return
-const isDepositReturn = window.location.pathname.includes("/deposits/return") || params.get("action") === "deposit" || params.get("action") === "wallet";
-const isWithdrawReturn = window.location.pathname.includes("/withdrawals/return") || params.get("action") === "withdraw";
-
-if (isDepositReturn) {
+// Sync balance on return or tab focus
+const isReturn = window.location.pathname.includes("/return") || params.get("action") === "deposit" || params.get("action") === "withdraw";
+if (isReturn) {
   setTimeout(() => {
-    openWalletModal();
     syncUserBalance();
-    const pendingDepId = sessionStorage.getItem("peerpay_pending_deposit_id") || params.get("deposit_id") || params.get("id");
-    const pendingAmt = parseFloat(sessionStorage.getItem("peerpay_pending_deposit_amt") || "0");
-    if (pendingDepId) {
-      startDepositPolling(pendingDepId, pendingAmt);
-    }
-  }, 300);
-} else if (isWithdrawReturn) {
-  setTimeout(() => {
-    openWalletModal();
-    syncUserBalance();
-    if (els.tabWithdraw) {
-      els.tabWithdraw.click();
-    }
   }, 300);
 }
 
-// Listen for tab focus or returning from browser/Telebirr
+// Listen for tab focus or returning from browser/Telegram
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") {
     syncUserBalance();
-    const pendingDepId = sessionStorage.getItem("peerpay_pending_deposit_id");
-    const pendingAmt = parseFloat(sessionStorage.getItem("peerpay_pending_deposit_amt") || "0");
-    if (pendingDepId) {
-      startDepositPolling(pendingDepId, pendingAmt);
-    }
   }
 });
 

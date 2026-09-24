@@ -159,6 +159,7 @@ class TestCustomerMapping(unittest.TestCase):
 
 class TestPeerPayDatabase(unittest.TestCase):
     def setUp(self):
+        db._db_conn = None
         self._tmp = tempfile.mkdtemp()
         self._orig = db.settings
         db.settings = SimpleNamespace(database_path=Path(self._tmp) / "test_peerpay.db")
@@ -166,6 +167,7 @@ class TestPeerPayDatabase(unittest.TestCase):
         run(db.create_user(777001, "251911000001", "player1", "Player One"))
 
     def tearDown(self):
+        db._db_conn = None
         db.settings = self._orig
 
     def test_webhook_event_dedupe(self):
@@ -242,6 +244,7 @@ class TestPeerPayDatabase(unittest.TestCase):
 
 class TestPeerPayWebhookEndpoint(unittest.TestCase):
     def setUp(self):
+        db._db_conn = None
         self._tmp = tempfile.mkdtemp()
         shared = SimpleNamespace(
             database_path=Path(self._tmp) / "test_webhook.db",
@@ -263,6 +266,7 @@ class TestPeerPayWebhookEndpoint(unittest.TestCase):
         self.client = TestClient(app)
 
     def tearDown(self):
+        db._db_conn = None
         self._pnotify.stop()
         self._psrv.stop()
         self._pdb.stop()

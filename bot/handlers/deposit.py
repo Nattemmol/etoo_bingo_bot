@@ -23,6 +23,7 @@ from bot.keyboards import (
     peerpay_pay_keyboard,
 )
 from bot.peerpay import PeerPayClient, extract_token_from_url
+from bot.sms_parser import parse_deposit_sms
 
 logger = logging.getLogger(__name__)
 peerpay_client = PeerPayClient()
@@ -58,7 +59,7 @@ def _extract_reference_token(text: str) -> str | None:
         return m.group(1)
 
     # 4. Bare Telebirr ID (DI...)
-    m = re.search(r"\b(DI[A-Z0-9]{8})\b", clean, re.I)
+    m = re.search(r"\b(DI[A-Z0-9]{8,24})\b", clean, re.I)
     if m:
         return m.group(1)
 
@@ -69,7 +70,7 @@ def _extract_reference_token(text: str) -> str | None:
 
     # 6. Generic reference keywords
     m = re.search(
-        r"(?:txn|tx|ref|reference|መለያ|ቁጥር)\s*[:#\-]?\s*([A-Za-z0-9_\-]{6,30})",
+        r"(?:transaction\s*id|txn\s*id|transaction|txn|tx|ref|reference|መለያ|ቁጥር)\s*[:#\-]?\s*([A-Za-z0-9_\-]{6,30})",
         clean,
         re.I,
     )
@@ -250,7 +251,7 @@ async def _verify_and_credit_reference(
                 telegram_id=telegram_id,
                 amount=amount,
                 currency="ETB",
-                merchant_order_id=dep_data.get("merchant_order_id"),
+                merchant_order_id=dep_data.get("merchant_order_id") or ref,
                 status=dep_data.get("status", "created"),
             )
     except Exception as exc:
@@ -292,6 +293,7 @@ async def _verify_and_credit_reference(
                 payment_id=deposit_id,
                 telegram_id=telegram_id,
                 amount=verified_amount,
+                merchant_order_id=ref,
             )
             if credited:
                 await message.reply_text(
@@ -398,8 +400,12 @@ async def handle_sms_or_reference_text(update: Update, context: ContextTypes.DEF
     if not user:
         return False
 
+    user_data = getattr(context, "user_data", None)
+    if user_data is None:
+        user_data = {}
+
     # 1. Check for pending reference amount reply
-    if context.user_data.get("awaiting_reference_amount"):
+    if user_data.get("awaiting_reference_amount"):
         try:
             amt = float(raw_text.replace(",", ".").strip())
             if amt < MIN_DEPOSIT_AMOUNT:
@@ -408,7 +414,7 @@ async def handle_sms_or_reference_text(update: Update, context: ContextTypes.DEF
                     parse_mode="Markdown",
                 )
                 return True
-            ref_info = context.user_data.pop("awaiting_reference_amount")
+            ref_info = user_data.pop("awaiting_reference_amount")
             ref = ref_info["ref"]
             method = ref_info.get("method", "telebirr")
             await _verify_and_credit_reference(update.message, user.id, ref, amt, method)
@@ -417,7 +423,7 @@ async def handle_sms_or_reference_text(update: Update, context: ContextTypes.DEF
             pass
 
     # 2. Check for custom deposit amount reply
-    if context.user_data.get("awaiting_custom_deposit_amount"):
+    if user_data.get("awaiting_custom_deposit_amount"):
         try:
             amt = float(raw_text.replace(",", ".").strip())
             if amt < MIN_DEPOSIT_AMOUNT:
@@ -426,8 +432,8 @@ async def handle_sms_or_reference_text(update: Update, context: ContextTypes.DEF
                     parse_mode="Markdown",
                 )
                 return True
-            context.user_data.pop("awaiting_custom_deposit_amount", None)
-            method = context.user_data.get("selected_deposit_method", "telebirr")
+            user_data.pop("awaiting_custom_deposit_amount", None)
+            method = user_data.get("selected_deposit_method", "telebirr")
             await _create_and_send_peerpay_checkout(update.message, user.id, amt, method, context)
             return True
         except ValueError:
@@ -454,25 +460,53 @@ async def handle_sms_or_reference_text(update: Update, context: ContextTypes.DEF
         )
         return True
 
-    method = context.user_data.get("selected_deposit_method") or context.user_data.get("active_deposit_method") or ("telebirr" if ref.startswith("DI") else "cbe")
+    # Check full SMS text fingerprint if applicable
+    from bot.sms_parser import fingerprint
+    fp = fingerprint(raw_text)
+    existing_fp = await db.get_deposit_by_fingerprint(fp)
+    if existing_fp:
+        await update.message.reply_text(
+            msg.DEPOSIT_REUSED.format(amount=existing_fp.get("amount", "?")),
+            parse_mode="Markdown",
+        )
+        return True
 
-    # 3. Determine transfer amount: parse from SMS, active session, or prompt the user
+    # 3. Determine transfer amount: parse from SMS, inline text, active session, or prompt the user
     amount = None
     parsed = parse_deposit_sms(raw_text)
-    if parsed.is_valid and parsed.amount:
+    if parsed and getattr(parsed, "amount", None):
         try:
-            amount = float(parsed.amount)
+            cand = float(parsed.amount)
+            if cand >= MIN_DEPOSIT_AMOUNT:
+                amount = cand
         except (ValueError, TypeError):
             pass
 
-    if amount is None and context.user_data.get("active_deposit_amount"):
-        try:
-            amount = float(context.user_data["active_deposit_amount"])
-        except (ValueError, TypeError):
-            pass
+    if amount is None:
+        m_amt = re.search(r"(?:etb|birr|ብር)\s*(\d+(?:\.\d{1,2})?)|\b(\d+(?:\.\d{1,2})?)\s*(?:etb|birr|ብር)", raw_text, re.I)
+        if m_amt:
+            val_str = m_amt.group(1) or m_amt.group(2)
+            try:
+                cand = float(val_str)
+                if cand >= MIN_DEPOSIT_AMOUNT and val_str != ref:
+                    amount = cand
+            except Exception:
+                pass
+
+    if amount is None:
+        m_inline = re.search(r"\b(\d+(?:\.\d{1,2})?)\s*(?:etb|birr|ብር)?$", raw_text.strip(), re.I)
+        if m_inline and m_inline.group(1) != ref:
+            try:
+                cand = float(m_inline.group(1))
+                if cand >= MIN_DEPOSIT_AMOUNT:
+                    amount = cand
+            except Exception:
+                pass
+
+    method = user_data.get("selected_deposit_method") or user_data.get("active_deposit_method") or ("telebirr" if ref.startswith("DI") else "cbe")
 
     if amount is None or amount < MIN_DEPOSIT_AMOUNT:
-        context.user_data["awaiting_reference_amount"] = {
+        user_data["awaiting_reference_amount"] = {
             "ref": ref,
             "method": method,
         }

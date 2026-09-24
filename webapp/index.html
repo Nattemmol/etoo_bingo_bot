@@ -16,10 +16,9 @@
   <div id="app">
     <!-- Top Balance & Role Bar -->
     <div class="user-bar">
-      <div class="balance-pill" id="btn-open-wallet" role="button" tabindex="0" title="Deposit / Withdraw">
+      <div class="balance-pill" id="balance-pill-display" title="Balance">
         <span class="wallet-icon">💰</span>
         <span id="user-balance">0.00</span> <span class="currency">ETB</span>
-        <span class="balance-add-icon">+</span>
       </div>
       <div class="user-bar-right">
         <div id="role-pill" class="role-pill role-spectator">
@@ -211,114 +210,6 @@
 
       <div class="modal-actions" style="margin-top: 12px;">
         <button class="btn btn-primary" id="btn-winner-continue">ወደ መጫወቻ ምርጫ ቀጥል</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Wallet Modal (Deposit & Withdraw) -->
-  <div id="modal-wallet" class="modal-backdrop hidden">
-    <div class="modal modal-wallet-box">
-      <div class="wallet-header">
-        <h2>💳 የሂሳብ አስተዳደር (Wallet)</h2>
-        <button class="modal-close-btn" id="btn-wallet-close">&times;</button>
-      </div>
-      <div class="wallet-balance-display">
-        <span class="label">ያለዎት ቀሪ ሂሳብ:</span>
-        <span class="val"><strong id="modal-user-balance">0.00</strong> ETB</span>
-      </div>
-      <div class="wallet-tabs">
-        <button class="wallet-tab-btn active" id="tab-deposit">ገንዘብ ማስገቢያ (Deposit)</button>
-        <button class="wallet-tab-btn" id="tab-withdraw">ገንዘብ ማውጫ (Withdraw)</button>
-      </div>
-
-      <!-- Deposit Panel -->
-      <div id="panel-deposit" class="wallet-panel active">
-        <p class="panel-subtitle">1. የክፍያ መንገድ ይምረጡ:</p>
-        
-        <div class="deposit-accounts-list">
-          <div class="account-card active" id="acc-telebirr" data-method="telebirr">
-            <div class="account-icon">🔵</div>
-            <div class="account-info">
-              <div class="account-name">Telebirr (ቴሌብር)</div>
-              <div class="account-holder">ቀጥታ በ PeerPay የከፈሉት ይረጋገጣል</div>
-            </div>
-          </div>
-
-          <div class="account-card" id="acc-cbebirr" data-method="cbebirr">
-            <div class="account-icon">🟢</div>
-            <div class="account-info">
-              <div class="account-name">CBE Birr (ሲቢኢ ብር)</div>
-              <div class="account-holder">ቀጥታ በ PeerPay የከፈሉት ይረጋገጣል</div>
-            </div>
-          </div>
-
-          <div class="account-card" id="acc-cbe_bank" data-method="cbe_bank">
-            <div class="account-icon">🏦</div>
-            <div class="account-info">
-              <div class="account-name">CBE Bank (ንግድ ባንክ)</div>
-              <div class="account-holder">ቀጥታ በ PeerPay የከፈሉት ይረጋገጣል</div>
-            </div>
-          </div>
-        </div>
-
-        <p class="panel-subtitle" style="margin-top: 12px;">2. የሚያስገቡትን የብር መጠን ይምረጡ:</p>
-        <div class="quick-amounts">
-          <button type="button" class="btn-quick-amount active" data-amount="10">10 ETB</button>
-          <button type="button" class="btn-quick-amount" data-amount="25">25 ETB</button>
-          <button type="button" class="btn-quick-amount" data-amount="50">50 ETB</button>
-          <button type="button" class="btn-quick-amount" data-amount="100">100 ETB</button>
-          <button type="button" class="btn-quick-amount" data-amount="200">200 ETB</button>
-          <button type="button" class="btn-quick-amount" data-amount="500">500 ETB</button>
-          <button type="button" class="btn-quick-amount" data-amount="1000">1,000 ETB</button>
-        </div>
-
-        <div class="form-group">
-          <label for="deposit-amount-input">የብር መጠን (ዝቅተኛ: 10 ETB):</label>
-          <input type="number" id="deposit-amount-input" class="wallet-input" placeholder="መጠን በቁጥር (ምሳሌ: 10)" min="10" step="1" value="10" />
-        </div>
-
-        <button class="btn btn-primary btn-block" id="btn-deposit-peerpay" style="margin-top: 10px; font-size: 1rem; padding: 12px;">
-          💳 በ PeerPay ክፈሉ (Checkout on PeerPay)
-        </button>
-
-        <div id="deposit-status-msg" class="wallet-status-msg hidden"></div>
-
-        <div class="wallet-divider">
-          <span>ወይም ቀድመው ከከፈሉ Transaction ID ያስገቡ</span>
-        </div>
-
-        <div class="form-group" style="margin-top: 10px;">
-          <label for="deposit-amount-manual-input">ያስተላለፉት የብር መጠን (Amount ETB, ዝቅተኛ: 10):</label>
-          <input type="number" id="deposit-amount-manual-input" class="wallet-input" placeholder="መጠን በቁጥር (ለምሳሌ: 10)" min="10" step="1" value="10" />
-        </div>
-
-        <div class="form-group">
-          <label for="deposit-reference-input">የደረሰኝ ሊንክ፣ Transaction ID ወይም የ SMS መልዕክት:</label>
-          <textarea id="deposit-reference-input" class="wallet-input wallet-textarea" rows="2" placeholder="ምሳሌ፦ DI... / FT... / https://mbreciept.cbe.com.et/..."></textarea>
-        </div>
-        <button class="btn btn-secondary btn-block" id="btn-submit-deposit-ref" style="margin-top: 8px;">
-          🔍 ማረጋገጫ አስገባ (Verify Reference)
-        </button>
-      </div>
-
-      <!-- Withdraw Panel -->
-      <div id="panel-withdraw" class="wallet-panel">
-        <div class="form-group">
-          <label for="withdraw-bank-select">የመቀበያ መንገድ:</label>
-          <select id="withdraw-bank-select" class="wallet-input">
-            <option value="telebirr" selected>🔵 Telebirr (ቴሌብር)</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="withdraw-amount-input">የሚወጣው መጠን (Amount ETB, ዝቅተኛ: 10):</label>
-          <input type="number" id="withdraw-amount-input" class="wallet-input" placeholder="ለምሳሌ: 200" min="10" />
-        </div>
-        <div class="form-group">
-          <label for="withdraw-account-input" id="withdraw-account-label">የ Telebirr ስልክ ቁጥር:</label>
-          <input type="text" id="withdraw-account-input" class="wallet-input" placeholder="ለምሳሌ: 0911223344" />
-        </div>
-        <button class="btn btn-primary btn-block" id="btn-request-withdraw">ገንዘብ አውጣ (Request Withdrawal)</button>
-        <div id="withdraw-status-msg" class="wallet-status-msg hidden"></div>
       </div>
     </div>
   </div>

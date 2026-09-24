@@ -81,11 +81,13 @@ class TestPeerPayFullIntegration(unittest.TestCase):
         self._pnotify = patch("server.main._notify_telegram", new_callable=AsyncMock)
         self._notify_mock = self._pnotify.start()
 
+        db._db_conn = None
         run(db.init_db())
         run(db.create_user(777111, "251911000002", "player_full", "Player Full"))
         self.client = TestClient(app)
 
     def tearDown(self):
+        db._db_conn = None
         self._pnotify.stop()
         self._pauth.stop()
         self._pcfg.stop()
@@ -148,23 +150,39 @@ class TestPeerPayFullIntegration(unittest.TestCase):
             self.assertEqual(res["data"]["id"], "wd_123")
 
     def test_handle_sms_pasted_by_user(self):
+        run(db.ensure_user(777111, "+251911777111", "testuser", "Test", 0.0))
         sms_text = "You have received ETB 150.00 from Abebe Kebede. Transaction ID: CHK7M2P9QX. Thank you for using Telebirr."
         update = MagicMock()
         update.message.text = sms_text
         update.effective_user.id = 777111
         update.message.reply_text = AsyncMock()
 
-        handled = run(handle_sms_or_reference_text(update, None))
-        self.assertTrue(handled)
-        update.message.reply_text.assert_awaited()
+        with patch("bot.handlers.deposit.peerpay_client.create_deposit", new_callable=AsyncMock) as mock_create, \
+             patch("bot.handlers.deposit.peerpay_client.submit_and_verify_reference", new_callable=AsyncMock) as mock_sub:
+            mock_create.return_value = {
+                "data": {
+                    "id": "CHK7M2P9QX",
+                    "checkout_url": "https://checkout.peerpayment.org/c/ptk_chk7",
+                }
+            }
+            mock_sub.return_value = {
+                "ok": True,
+                "status": "succeeded",
+                "amount": 150.0,
+            }
 
-        dep = run(db.get_peerpay_deposit("CHK7M2P9QX"))
-        self.assertIsNotNone(dep)
-        self.assertEqual(dep["status"], "succeeded")
-        self.assertEqual(dep["credited"], 1)
-        self.assertAlmostEqual(run(db.get_balance(777111)), 150.0)
+            handled = run(handle_sms_or_reference_text(update, None))
+            self.assertTrue(handled)
+            update.message.reply_text.assert_awaited()
+
+            dep = run(db.get_peerpay_deposit("CHK7M2P9QX"))
+            self.assertIsNotNone(dep)
+            self.assertEqual(dep["status"], "succeeded")
+            self.assertEqual(dep["credited"], 1)
+            self.assertAlmostEqual(run(db.get_balance(777111)), 150.0)
 
     def test_handle_duplicate_sms_rejected(self):
+        run(db.ensure_user(777111, "+251911777111", "testuser", "Test", 0.0))
         sms_text = "You have received ETB 150.00. Transaction ID: DUP1234567. Telebirr."
         update = MagicMock()
         update.message.text = sms_text
@@ -284,15 +302,22 @@ class TestPeerPayFullIntegration(unittest.TestCase):
 
     def test_handle_receipt_url_auto_credited(self):
         update = MagicMock()
-        update.message.text = "https://transactioninfo.ethiotelecom.et/receipt/DIH9URLTEST1"
+        update.message.text = "https://transactioninfo.ethiotelecom.et/receipt/DIH9URLTEST1 75"
         update.effective_user.id = 777111
         update.message.reply_text = AsyncMock()
 
-        with patch("bot.handlers.deposit.fetch_telebirr_receipt", new_callable=AsyncMock) as mock_fetch:
-            mock_fetch.return_value = {
+        with patch("bot.handlers.deposit.peerpay_client.create_deposit", new_callable=AsyncMock) as mock_create, \
+             patch("bot.handlers.deposit.peerpay_client.submit_and_verify_reference", new_callable=AsyncMock) as mock_sub:
+            mock_create.return_value = {
+                "data": {
+                    "id": "DIH9URLTEST1",
+                    "checkout_url": "https://checkout.peerpayment.org/c/ptk_url",
+                }
+            }
+            mock_sub.return_value = {
+                "ok": True,
+                "status": "succeeded",
                 "amount": 75.0,
-                "reference": "DIH9URLTEST1",
-                "status": "completed",
             }
             initial_bal = run(db.get_balance(777111))
             handled = run(handle_sms_or_reference_text(update, None))
@@ -315,36 +340,64 @@ class TestPeerPayFullIntegration(unittest.TestCase):
         update.effective_user.id = 777111
         update.message.reply_text = AsyncMock()
 
-        initial_bal = run(db.get_balance(777111))
-        handled = run(handle_sms_or_reference_text(update, None))
-        self.assertTrue(handled)
-        update.message.reply_text.assert_awaited()
+        with patch("bot.handlers.deposit.peerpay_client.create_deposit", new_callable=AsyncMock) as mock_create, \
+             patch("bot.handlers.deposit.peerpay_client.submit_and_verify_reference", new_callable=AsyncMock) as mock_sub:
+            mock_create.return_value = {
+                "data": {
+                    "id": "DIH9INLINETEST2",
+                    "checkout_url": "https://checkout.peerpayment.org/c/ptk_inline",
+                }
+            }
+            mock_sub.return_value = {
+                "ok": True,
+                "status": "succeeded",
+                "amount": 120.0,
+            }
 
-        # Verify balance credited by 120 ETB
-        new_bal = run(db.get_balance(777111))
-        self.assertAlmostEqual(new_bal, initial_bal + 120.0)
+            initial_bal = run(db.get_balance(777111))
+            handled = run(handle_sms_or_reference_text(update, None))
+            self.assertTrue(handled)
+            update.message.reply_text.assert_awaited()
+
+            # Verify balance credited by 120 ETB
+            new_bal = run(db.get_balance(777111))
+            self.assertAlmostEqual(new_bal, initial_bal + 120.0)
 
     def test_mini_app_api_deposit_submit_reference_with_amount(self):
         init_data = generate_valid_init_data(self.bot_token, user_id=777111)
         initial_bal = run(db.get_balance(777111))
 
-        resp = self.client.post(
-            "/api/deposit/submit-reference",
-            json={
-                "init_data": init_data,
-                "reference": "DIH9APITEST3",
+        with patch("server.main.peerpay_client.create_deposit", new_callable=AsyncMock) as mock_create, \
+             patch("server.main.peerpay_client.submit_and_verify_reference", new_callable=AsyncMock) as mock_sub:
+            mock_create.return_value = {
+                "data": {
+                    "id": "DIH9APITEST3",
+                    "checkout_url": "https://checkout.peerpayment.org/c/ptk_api_sub",
+                }
+            }
+            mock_sub.return_value = {
+                "ok": True,
+                "status": "succeeded",
                 "amount": 80.0,
-            },
-        )
-        self.assertEqual(resp.status_code, 200)
-        data = resp.json()
-        self.assertTrue(data["ok"])
-        self.assertEqual(data["data"]["status"], "succeeded")
-        self.assertAlmostEqual(data["data"]["amount"], 80.0)
+            }
 
-        # Balance in DB
-        new_bal = run(db.get_balance(777111))
-        self.assertAlmostEqual(new_bal, initial_bal + 80.0)
+            resp = self.client.post(
+                "/api/deposit/submit-reference",
+                json={
+                    "init_data": init_data,
+                    "reference": "DIH9APITEST3",
+                    "amount": 80.0,
+                },
+            )
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertTrue(data["ok"])
+            self.assertEqual(data["data"]["status"], "succeeded")
+            self.assertAlmostEqual(data["data"]["amount"], 80.0)
+
+            # Balance in DB
+            new_bal = run(db.get_balance(777111))
+            self.assertAlmostEqual(new_bal, initial_bal + 80.0)
 
 
 if __name__ == "__main__":

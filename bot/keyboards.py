@@ -23,11 +23,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
 
 
 def deposit_method_keyboard(webapp_url: str = ""):
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
-
-    base_url = (webapp_url or "https://etoobingogame.vercel.app").rstrip("/")
-    sep = "&" if "?" in base_url else "?"
-    deposit_webapp_url = f"{base_url}{sep}action=deposit"
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
     return InlineKeyboardMarkup(
         [
@@ -38,24 +34,16 @@ def deposit_method_keyboard(webapp_url: str = ""):
             [
                 InlineKeyboardButton("🏦 Mobile Banking (ንግድ ባንክ)", callback_data="deposit_cbe_bank"),
             ],
-            [
-                InlineKeyboardButton("📱 በ Mini App ክፈት (Open in Mini App)", web_app=WebAppInfo(url=deposit_webapp_url)),
-            ],
         ]
     )
 
 
 def withdraw_method_keyboard(webapp_url: str = ""):
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
-
-    base_url = (webapp_url or "https://etoobingogame.vercel.app").rstrip("/")
-    sep = "&" if "?" in base_url else "?"
-    withdraw_webapp_url = f"{base_url}{sep}action=withdraw"
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("🔵 Telebirr (ቴሌብር)", callback_data="withdraw_telebirr")],
-            [InlineKeyboardButton("📱 በ Mini App አውጣ (Withdraw in Mini App)", web_app=WebAppInfo(url=withdraw_webapp_url))],
         ]
     )
 

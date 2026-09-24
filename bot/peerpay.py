@@ -56,10 +56,11 @@ def verify_peerpay_signature(
         p = part.strip()
         if "=" in p:
             k, v = p.split("=", 1)
+            k = k.strip().lower()
             v = v.strip().lower()
-            if len(v) == 64:
+            if k in ("v2", "v1", "sha256") and len(v) == 64:
                 candidates.append(v)
-            if k.strip().lower() == "t" and not timestamp:
+            elif k == "t" and not timestamp:
                 timestamp = v
         elif len(p) == 64:
             candidates.append(p.lower())
