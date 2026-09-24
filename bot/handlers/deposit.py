@@ -200,6 +200,7 @@ async def _create_and_send_peerpay_checkout(
         context.user_data["active_deposit_id"] = deposit_id
         context.user_data["active_checkout_url"] = checkout_url
         context.user_data["active_deposit_method"] = method
+        context.user_data["active_deposit_amount"] = amount
 
         text = (
             "🔐 *የተረጋገጠ የክፍያ ማስፈንጠሪያ ተዘጋጅቷል (PeerPay)*\n\n"
@@ -220,6 +221,102 @@ async def _create_and_send_peerpay_checkout(
         logger.exception("Error creating PeerPay deposit: %s", exc)
         await message.reply_text(
             "❌ የክፍያ ማስፈንጠሪያ ማዘጋጀት አልተቻለም። እባክዎ ከጥቂት ደቂቃዎች በኋላ እንደገና ይሞክሩ።",
+            parse_mode="Markdown",
+        )
+
+
+async def _verify_and_credit_reference(
+    message, telegram_id: int, ref: str, amount: float, method: str
+) -> None:
+    """Create a PeerPay deposit with the exact specified amount and verify the submitted reference."""
+    peerpay_method = "telebirr" if ref.startswith("DI") else ("cbebirr" if method == "cbebirr" else "cbe")
+    idempotency_key = f"etoobingo-deposit-{uuid.uuid4().hex}"
+    deposit_id = None
+    checkout_url = None
+
+    try:
+        create_res = await peerpay_client.create_deposit(
+            merchant_customer_id=f"tg_{telegram_id}",
+            amount=amount,
+            payment_method=peerpay_method,
+            idempotency_key=idempotency_key,
+        )
+        dep_data = create_res.get("data", {})
+        deposit_id = dep_data.get("id")
+        checkout_url = dep_data.get("checkout_url")
+        if deposit_id:
+            await db.upsert_peerpay_deposit(
+                payment_id=deposit_id,
+                telegram_id=telegram_id,
+                amount=amount,
+                currency="ETB",
+                merchant_order_id=dep_data.get("merchant_order_id"),
+                status=dep_data.get("status", "created"),
+            )
+    except Exception as exc:
+        logger.warning("Error creating deposit for reference: %s", exc)
+
+    if not deposit_id or not checkout_url:
+        await message.reply_text(
+            "⚠️ የክፍያ ማስፈንጠሪያ ማዘጋጀት አልተቻለም። እባክዎ በ /deposit ይሞክሩ።",
+            parse_mode="Markdown",
+        )
+        return
+
+    await message.reply_text(
+        f"⏳ *የ {amount:.2f} ETB ክፍያዎን በ PeerPayment በኩል በማረጋገጥ ላይ ነን...*",
+        parse_mode="Markdown",
+    )
+
+    try:
+        verify_res = await peerpay_client.submit_and_verify_reference(
+            deposit_id=deposit_id,
+            checkout_url=checkout_url,
+            reference=ref,
+            payment_method=method,
+        )
+
+        if not verify_res.get("ok"):
+            err_msg = verify_res.get("error", "የተሳሳተ ወይም ያልተዛመደ የግብይት ቁጥር ነው!")
+            await message.reply_text(
+                f"❌ *ክፍያው አልተረጋገጠም!*\n\n{err_msg}\n\nእባክዎ የተላለፈው የብር መጠንና Transaction ID ትክክል መሆናቸውን ያረጋግጡ።",
+                parse_mode="Markdown",
+            )
+            return
+
+        status = verify_res.get("status")
+        verified_amount = verify_res.get("amount") or amount
+
+        if status == "succeeded":
+            credited, new_balance, is_dup = await db.credit_peerpay_deposit_once(
+                payment_id=deposit_id,
+                telegram_id=telegram_id,
+                amount=verified_amount,
+            )
+            if credited:
+                await message.reply_text(
+                    msg.DEPOSIT_AUTO_APPROVED.format(amount=verified_amount, balance=new_balance),
+                    parse_mode="Markdown",
+                )
+            elif is_dup:
+                await message.reply_text(
+                    msg.DEPOSIT_REUSED.format(amount=verified_amount),
+                    parse_mode="Markdown",
+                )
+        else:
+            await message.reply_text(
+                (
+                    "⏳ *የግብይት ቁጥርዎ ተቀብለናል!*\n\n"
+                    f"📋 የማስረጃ ቁጥር: `{ref}`\n"
+                    f"💰 መጠን: *{amount:.2f} ETB*\n\n"
+                    "PeerPay ከባንክ በማረጋገጥ ላይ ነው። ማረጋገጫው እንደተጠናቀቀ ወዲያውኑ ሂሳብዎ ላይ ይጨመራል! 🎱"
+                ),
+                parse_mode="Markdown",
+            )
+    except Exception as exc:
+        logger.exception("Error verifying reference with PeerPay: %s", exc)
+        await message.reply_text(
+            "❌ ማረጋገጫውን ማጠናቀቅ አልተቻለም። እባክዎ ከጥቂት ደቂቃዎች በኋላ እንደገና ይሞክሩ።",
             parse_mode="Markdown",
         )
 
@@ -301,7 +398,25 @@ async def handle_sms_or_reference_text(update: Update, context: ContextTypes.DEF
     if not user:
         return False
 
-    # Check for custom deposit amount reply
+    # 1. Check for pending reference amount reply
+    if context.user_data.get("awaiting_reference_amount"):
+        try:
+            amt = float(raw_text.replace(",", ".").strip())
+            if amt < MIN_DEPOSIT_AMOUNT:
+                await update.message.reply_text(
+                    f"❌ ዝቅተኛው የማስገቢያ መጠን *{MIN_DEPOSIT_AMOUNT:.0f} ETB* ነው።",
+                    parse_mode="Markdown",
+                )
+                return True
+            ref_info = context.user_data.pop("awaiting_reference_amount")
+            ref = ref_info["ref"]
+            method = ref_info.get("method", "telebirr")
+            await _verify_and_credit_reference(update.message, user.id, ref, amt, method)
+            return True
+        except ValueError:
+            pass
+
+    # 2. Check for custom deposit amount reply
     if context.user_data.get("awaiting_custom_deposit_amount"):
         try:
             amt = float(raw_text.replace(",", ".").strip())
@@ -339,95 +454,40 @@ async def handle_sms_or_reference_text(update: Update, context: ContextTypes.DEF
         )
         return True
 
-    # Create a fresh dynamic deposit session with PeerPay for reference verification
     method = context.user_data.get("selected_deposit_method") or context.user_data.get("active_deposit_method") or ("telebirr" if ref.startswith("DI") else "cbe")
-    peerpay_method = "telebirr" if ref.startswith("DI") else ("cbebirr" if method == "cbebirr" else "cbe")
-    idempotency_key = f"etoobingo-deposit-{uuid.uuid4().hex}"
-    deposit_id = None
-    checkout_url = None
-    try:
-        create_res = await peerpay_client.create_deposit(
-            merchant_customer_id=f"tg_{user.id}",
-            payment_method=peerpay_method,
-            idempotency_key=idempotency_key,
-        )
-        dep_data = create_res.get("data", {})
-        deposit_id = dep_data.get("id")
-        checkout_url = dep_data.get("checkout_url")
-        if deposit_id:
-            await db.upsert_peerpay_deposit(
-                payment_id=deposit_id,
-                telegram_id=user.id,
-                amount=0.0,
-                currency="ETB",
-                merchant_order_id=dep_data.get("merchant_order_id"),
-                status=dep_data.get("status", "created"),
-            )
-    except Exception as exc:
-        logger.warning("Error auto-creating deposit for reference: %s", exc)
 
-    if not deposit_id or not checkout_url:
+    # 3. Determine transfer amount: parse from SMS, active session, or prompt the user
+    amount = None
+    parsed = parse_deposit_sms(raw_text)
+    if parsed.is_valid and parsed.amount:
+        try:
+            amount = float(parsed.amount)
+        except (ValueError, TypeError):
+            pass
+
+    if amount is None and context.user_data.get("active_deposit_amount"):
+        try:
+            amount = float(context.user_data["active_deposit_amount"])
+        except (ValueError, TypeError):
+            pass
+
+    if amount is None or amount < MIN_DEPOSIT_AMOUNT:
+        context.user_data["awaiting_reference_amount"] = {
+            "ref": ref,
+            "method": method,
+        }
         await update.message.reply_text(
-            "⚠️ የክፍያ ማስፈንጠሪያ ማዘጋጀት አልተቻለም። እባክዎ በ /deposit ይሞክሩ።",
+            (
+                f"📋 የማስረጃ ቁጥር: `{ref}`\n\n"
+                "💰 *ያስተላለፉትን የብር መጠን ያስገቡ:*\n"
+                "እባክዎ የተላለፈውን መጠን በቁጥር ይጻፉ (ለምሳሌ: `10` ወይም `50`):"
+            ),
             parse_mode="Markdown",
         )
         return True
 
-    # Submit reference to PeerPay
-    await update.message.reply_text("⏳ *ክፍያዎን በ PeerPayment በኩል በማረጋገጥ ላይ ነን...*", parse_mode="Markdown")
-
-    try:
-        verify_res = await peerpay_client.submit_and_verify_reference(
-            deposit_id=deposit_id,
-            checkout_url=checkout_url,
-            reference=ref,
-            payment_method=method,
-        )
-
-        if not verify_res.get("ok"):
-            err_msg = verify_res.get("error", "የተሳሳተ ወይም የተደገመ የግብይት ቁጥር ነው!")
-            await update.message.reply_text(
-                f"❌ *ክፍያው አልተረጋገጠም!*\n\n{err_msg}\n\nእባክዎ ትክክለኛውን Transaction ID እንደገና ያስገቡ።",
-                parse_mode="Markdown",
-            )
-            return True
-
-        status = verify_res.get("status")
-        amount = verify_res.get("amount") or 0.0
-
-        if status == "succeeded":
-            credited, new_balance, is_dup = await db.credit_peerpay_deposit_once(
-                payment_id=deposit_id,
-                telegram_id=user.id,
-                amount=amount,
-            )
-            if credited:
-                await update.message.reply_text(
-                    msg.DEPOSIT_AUTO_APPROVED.format(amount=amount, balance=new_balance),
-                    parse_mode="Markdown",
-                )
-            elif is_dup:
-                await update.message.reply_text(
-                    msg.DEPOSIT_REUSED.format(amount=amount),
-                    parse_mode="Markdown",
-                )
-        else:
-            await update.message.reply_text(
-                (
-                    "⏳ *የግብይት ቁጥርዎ ተቀብለናል!*\n\n"
-                    f"📋 የማስረጃ ቁጥር: `{ref}`\n\n"
-                    "PeerPay ከባንክ በማረጋገጥ ላይ ነው። ማረጋገጫው እንደተጠናቀቀ ወዲያውኑ ሂሳብዎ ላይ ይጨመራል! 🎱"
-                ),
-                parse_mode="Markdown",
-            )
-        return True
-    except Exception as exc:
-        logger.exception("Error verifying reference with PeerPay: %s", exc)
-        await update.message.reply_text(
-            "❌ ማረጋገጫውን ማጠናቀቅ አልተቻለም። እባክዎ ከጥቂት ደቂቃዎች በኋላ እንደገና ይሞክሩ።",
-            parse_mode="Markdown",
-        )
-        return True
+    await _verify_and_credit_reference(update.message, user.id, ref, amount, method)
+    return True
 
 
 async def handle_pending_deposit_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:

@@ -1944,16 +1944,36 @@ async def api_deposit_submit_reference(request: Request):
             content={"error": "ይህ ግብይት ቀድሞውኑ ተረጋግጦ ጥቅም ላይ ውሏል!"},
         )
 
+    amount_raw = body.get("amount")
+    amount = None
+    if amount_raw is not None:
+        try:
+            amount = float(str(amount_raw).replace(",", ".").strip())
+        except (ValueError, TypeError):
+            pass
+
+    if (amount is None or amount < 10.0) and raw_input:
+        parsed_sms = parse_deposit_sms(raw_input)
+        if parsed_sms.is_valid and parsed_sms.amount:
+            amount = float(parsed_sms.amount)
+
+    if amount is None or amount < 10.0:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "እባክዎ ያስተላለፉትን ትክክለኛ የብር መጠን ያስገቡ (ዝቅተኛ: 10 ETB)።"},
+        )
+
     deposit_id = str(body.get("deposit_id", "")).strip()
     checkout_url = str(body.get("checkout_url", "")).strip()
     payment_method = str(body.get("payment_method", "telebirr")).lower()
 
-    # If no active deposit session, create one with PeerPay
+    # If no active deposit session, create one with PeerPay matching the exact amount
     if not deposit_id or not checkout_url:
-        peerpay_method = "telebirr" if ref.startswith("DI") else "cbe"
+        peerpay_method = "telebirr" if ref.startswith("DI") else ("cbebirr" if payment_method == "cbebirr" else "cbe")
         try:
             create_res = await peerpay_client.create_deposit(
                 merchant_customer_id=f"tg_{tg_id}",
+                amount=amount,
                 payment_method=peerpay_method,
             )
             dep_data = create_res.get("data", {})
@@ -1963,7 +1983,7 @@ async def api_deposit_submit_reference(request: Request):
                 await db.upsert_peerpay_deposit(
                     payment_id=deposit_id,
                     telegram_id=tg_id,
-                    amount=0.0,
+                    amount=amount,
                     currency="ETB",
                     merchant_order_id=dep_data.get("merchant_order_id"),
                     status=dep_data.get("status", "created"),

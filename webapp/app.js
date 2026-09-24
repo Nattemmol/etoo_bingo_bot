@@ -112,6 +112,7 @@ const els = {
   panelDeposit: document.getElementById("panel-deposit"),
   panelWithdraw: document.getElementById("panel-withdraw"),
   depositAmountInput: document.getElementById("deposit-amount-input"),
+  depositAmountManualInput: document.getElementById("deposit-amount-manual-input"),
   btnDepositPeerpay: document.getElementById("btn-deposit-peerpay"),
   depositReferenceInput: document.getElementById("deposit-reference-input"),
   depositAmountOptionalInput: document.getElementById("deposit-amount-optional-input"),
@@ -399,7 +400,7 @@ if (els.withdrawBankSelect) {
 if (els.btnSubmitDepositRef) {
   els.btnSubmitDepositRef.addEventListener("click", async () => {
     const ref = els.depositReferenceInput?.value?.trim();
-    const optAmt = parseFloat(els.depositAmountOptionalInput?.value) || null;
+    const optAmt = parseFloat(els.depositAmountManualInput?.value || els.depositAmountInput?.value || "0");
     if (!ref) {
       if (els.depositStatusMsg) {
         els.depositStatusMsg.className = "wallet-status-msg error";
@@ -409,9 +410,18 @@ if (els.btnSubmitDepositRef) {
       return;
     }
 
+    if (isNaN(optAmt) || optAmt < 10) {
+      if (els.depositStatusMsg) {
+        els.depositStatusMsg.className = "wallet-status-msg error";
+        els.depositStatusMsg.textContent = "⚠️ እባክዎ ያስተላለፉትን የብር መጠን ያስገቡ (ዝቅተኛ 10 ETB)።";
+        els.depositStatusMsg.classList.remove("hidden");
+      }
+      return;
+    }
+
     if (els.depositStatusMsg) {
       els.depositStatusMsg.className = "wallet-status-msg pending";
-      els.depositStatusMsg.textContent = "⏳ የክፍያ ማረጋገጫ በመካሄድ ላይ ነው... እባክዎ ይጠብቁ።";
+      els.depositStatusMsg.textContent = `⏳ የ ${optAmt.toFixed(2)} ETB ክፍያ ማረጋገጫ በመካሄድ ላይ ነው...`;
       els.depositStatusMsg.classList.remove("hidden");
     }
 
