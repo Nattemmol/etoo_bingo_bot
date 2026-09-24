@@ -172,6 +172,35 @@ function updateBalanceDisplay(amount) {
   }
 }
 
+/**
+ * Called when a deposit is credited and the balance goes up.
+ * Shows a brief success toast and haptic feedback.
+ */
+function onDepositSuccess(creditedAmount, newBalance) {
+  // Haptic feedback
+  try { tg.HapticFeedback?.notificationOccurred("success"); } catch (_) {}
+
+  // Show a brief toast notification
+  let toast = document.getElementById("deposit-success-toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "deposit-success-toast";
+    toast.style.cssText =
+      "position:fixed;top:20px;left:50%;transform:translateX(-50%);" +
+      "background:#27ae60;color:#fff;padding:12px 24px;border-radius:12px;" +
+      "font-weight:600;z-index:99999;box-shadow:0 4px 16px rgba(0,0,0,.3);" +
+      "font-size:15px;transition:opacity 0.4s;pointer-events:none;";
+    document.body.appendChild(toast);
+  }
+  toast.textContent = `✅ ${Number(creditedAmount).toFixed(2)} ETB ተጨምሯል! ቀሪ: ${Number(newBalance).toFixed(2)} ETB`;
+  toast.style.opacity = "1";
+  toast.style.display = "block";
+  setTimeout(() => {
+    toast.style.opacity = "0";
+    setTimeout(() => { toast.style.display = "none"; }, 500);
+  }, 3500);
+}
+
 function updateRoleDisplay(isPlayer) {
   state.isPlayer = isPlayer;
   if (!els.rolePill || !els.roleText) return;
@@ -696,10 +725,8 @@ function handleMessage(socket, msg) {
         const oldBal = state.balance;
         const newBal = Number(msg.balance);
         updateBalanceDisplay(newBal);
-        if (els.modalUserBalance) {
-          els.modalUserBalance.textContent = newBal.toFixed(2);
-        }
-        if (newBal > oldBal && els.modalWallet && !els.modalWallet.classList.contains("hidden")) {
+        // If balance went up, show success feedback (deposit credited)
+        if (newBal > oldBal) {
           onDepositSuccess(newBal - oldBal, newBal);
         }
       }
@@ -1170,19 +1197,25 @@ async function syncUserBalance() {
     });
     const data = await resp.json();
     if (data.ok && data.balance != null) {
-      updateBalanceDisplay(data.balance);
+      const oldBal = state.balance;
+      const newBal = Number(data.balance);
+      updateBalanceDisplay(newBal);
+      if (oldBal > 0 && newBal > oldBal) {
+        onDepositSuccess(newBal - oldBal, newBal);
+      }
     }
   } catch (err) {
     console.warn("Error syncing user balance:", err);
   }
 }
 
-// Sync balance on return or tab focus
+// Sync balance on return or tab focus with rapid polling
 const isReturn = window.location.pathname.includes("/return") || params.get("action") === "deposit" || params.get("action") === "withdraw";
 if (isReturn) {
-  setTimeout(() => {
-    syncUserBalance();
-  }, 300);
+  setTimeout(syncUserBalance, 200);
+  setTimeout(syncUserBalance, 1000);
+  setTimeout(syncUserBalance, 2500);
+  setTimeout(syncUserBalance, 5000);
 }
 
 // Listen for tab focus or returning from browser/Telegram

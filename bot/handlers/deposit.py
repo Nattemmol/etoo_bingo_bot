@@ -28,6 +28,19 @@ from bot.sms_parser import parse_deposit_sms
 logger = logging.getLogger(__name__)
 peerpay_client = PeerPayClient()
 
+
+async def _broadcast_balance(telegram_id: int, new_balance: float) -> None:
+    """Push real-time balance update to all open WebSocket sessions for this user.
+
+    Uses a lazy import of the server module to avoid circular imports.
+    Silently skips if the server module is not available (e.g. during testing).
+    """
+    try:
+        import server.main as srv
+        await srv.broadcast_user_balance(telegram_id, new_balance)
+    except Exception:
+        pass
+
 METHOD_LABELS = {
     "telebirr": "🔵 Telebirr (ቴሌብር)",
     "cbebirr": "🟢 CBE Birr (ሲቢኢ ብር)",
@@ -295,6 +308,8 @@ async def _verify_and_credit_reference(
                 amount=verified_amount,
                 merchant_order_id=ref,
             )
+            # Push balance to mini app WebSocket immediately
+            await _broadcast_balance(telegram_id, new_balance)
             if credited:
                 await message.reply_text(
                     msg.DEPOSIT_AUTO_APPROVED.format(amount=verified_amount, balance=new_balance),
@@ -351,6 +366,8 @@ async def deposit_status_callback(update: Update, context: ContextTypes.DEFAULT_
                 amount=amount,
                 merchant_order_id=dep_data.get("merchant_order_id"),
             )
+            # Push balance to mini app WebSocket immediately
+            await _broadcast_balance(user.id, new_balance)
             await query.message.reply_text(
                 (
                     "✅ *ክፍያዎ በተሳካ ሁኔታ ተረጋግጧል!*\n\n"

@@ -1429,6 +1429,7 @@ async def telebirr_notify(request: Request) -> JSONResponse:
             f"💳 አዲስ ሂሳብ: *{new_balance:.2f} ETB*\n\n"
             f"እንኳን ደስ ያልዎ! EtooBingo ለመጫወት ዝግጁ ነዎት። 🎱"
         )
+        await broadcast_user_balance(telegram_id, new_balance)
         await _notify_telegram(telegram_id, text)
     else:
         logger.info("Telebirr order %s already processed or not found.", merch_order_id)
