@@ -461,9 +461,6 @@ async def run_playing_round(room: GameRoom) -> None:
         if len(room.called_numbers) % 5 == 0:
             await _persist_room_snapshot(room)
 
-        # Auto-declare BINGO for any player whose manual marks now win.
-        await check_all_wins(room)
-
 
 async def schedule_lobby(room_id: str) -> None:
     if room_id in room_tasks and not room_tasks[room_id].done():
@@ -863,11 +860,26 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                 player = p
                 break
 
+        # If player disconnected before, reconstruct from room.taken_cards
+        if not player and telegram_id and telegram_id in room.taken_cards.values():
+            my_cids = [cid for cid, tid in room.taken_cards.items() if tid == telegram_id]
+            if my_cids:
+                player = Player(
+                    telegram_id=telegram_id,
+                    name=display_name,
+                    ws_id=ws_id,
+                    card_ids=my_cids,
+                    cards={cid: generate_card_by_id(cid) for cid in my_cids},
+                    marks={},
+                )
+                room.players[ws_id] = player
+
         if player:
             old_ws = player.ws_id
             player.ws_id = ws_id
             room.players[ws_id] = player
-            room.players.pop(old_ws, None)  # remove stale key so old socket disconnect won't double-refund
+            if old_ws != ws_id:
+                room.players.pop(old_ws, None)  # remove stale key
             is_player = len(player.card_ids) > 0
             user_card_ids = list(player.card_ids)
             user_cards = {str(cid): c for cid, c in player.cards.items()}
@@ -1227,8 +1239,6 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                     websocket,
                     {"type": "mark_ack", "card_id": card_id, "flat": flat, "marked": desired},
                 )
-
-                await check_player_win(room, player)
                 continue
 
             if msg_type == "bingo":

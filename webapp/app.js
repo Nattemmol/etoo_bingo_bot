@@ -420,71 +420,37 @@ function onPoolChipClick(cardId) {
     tg.HapticFeedback?.notificationOccurred("error");
     return;
   }
-  if (state.cardIds.includes(cardId)) {
-    openUnselectModal(cardId);
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    showCardError("Connecting... please try again in a moment.");
     return;
   }
+  hideCardError();
+
+  // If already selected by me -> toggle / unselect immediately
+  if (state.cardIds.includes(cardId)) {
+    tg.HapticFeedback?.impactOccurred("medium");
+    ws.send(JSON.stringify({ type: "unselect_card", card_id: cardId }));
+    return;
+  }
+
+  // If taken by another person -> disabled
+  if (state.takenCards[cardId] != null && state.takenCards[cardId] !== state.myId) {
+    tg.HapticFeedback?.notificationOccurred("warning");
+    showCardError(`መጫወቻ #${cardId} በሌላ ተጫዋች ተይዟል (Card #${cardId} is already taken)`);
+    return;
+  }
+
+  // Check card limit (max 2)
   if (state.cardIds.length >= MAX_CARDS) {
     showCardError(`ከፍተኛ ${MAX_CARDS} መጫወቻዎች ብቻ በአንድ ዙር (Maximum ${MAX_CARDS} cards per round)`);
     tg.HapticFeedback?.notificationOccurred("error");
     return;
   }
-  if (state.takenCards[cardId] != null) {
-    openTakenModal(cardId);
-    return;
-  }
-  openConfirmModal(cardId);
-}
 
-// ---- Modals ----
-function openTakenModal(cardId) {
-  if (els.takenTitle) els.takenTitle.textContent = `መጫወቻ #${cardId}`;
-  els.modalTaken.classList.remove("hidden");
-  tg.HapticFeedback?.notificationOccurred("warning");
-}
-
-function openConfirmModal(cardId) {
-  state.previewCardId = cardId;
-  hideCardError();
-  const fee = state.room?.entry_fee || 10;
-  if (els.confirmTitle) els.confirmTitle.textContent = `መጫወቻ #${cardId}`;
-  renderCard(els.confirmCardPreview, generateCardById(cardId), null, null, null, false);
-  els.confirmFee.classList.remove("insufficient");
-  els.confirmFee.textContent = `${fee} ETB`;
-  els.btnConfirmYes.disabled = false;
-  els.modalConfirm.classList.remove("hidden");
-  tg.HapticFeedback?.selectionChanged();
-}
-
-function openUnselectModal(cardId) {
-  state.unselectCardId = cardId;
-  hideCardError();
-  const fee = state.room?.entry_fee || 10;
-  if (els.unselectTitle) els.unselectTitle.textContent = `መጫወቻ #${cardId} መሰረዝ`;
-  renderCard(els.unselectCardPreview, generateCardById(cardId), null, null, null, false);
-  if (els.unselectFee) els.unselectFee.textContent = `የተከፈለው ${fee} ETB ሙሉ በሙሉ ይመለሳል።`;
-  els.modalUnselect?.classList.remove("hidden");
-  tg.HapticFeedback?.selectionChanged();
-}
-
-function closeModals() {
-  els.modalConfirm?.classList.add("hidden");
-  els.modalUnselect?.classList.add("hidden");
-  els.modalTaken?.classList.add("hidden");
-  state.previewCardId = null;
-  state.unselectCardId = null;
-}
-
-els.btnConfirmYes.addEventListener("click", () => {
-  const cardId = state.previewCardId;
-  closeModals();
-  if (cardId == null) return;
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    showCardError("Connecting... please try again in a moment.");
-    return;
-  }
+  // Instant 1-tap selection!
+  tg.HapticFeedback?.impactOccurred("medium");
   ws.send(JSON.stringify({ type: "select_card", card_id: cardId }));
-});
+}
 
 if (els.btnUnselectYes) {
   els.btnUnselectYes.addEventListener("click", () => {
@@ -548,6 +514,7 @@ if (els.btnBingo) {
 
 function renderGameCards() {
   if (!state.cardIds.length) return;
+  els.cardList.className = state.cardIds.length === 2 ? "card-list two-cards" : "card-list";
   els.cardList.innerHTML = "";
 
   state.cardIds.forEach((id) => {
