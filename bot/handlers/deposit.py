@@ -339,38 +339,36 @@ async def handle_sms_or_reference_text(update: Update, context: ContextTypes.DEF
         )
         return True
 
-    deposit_id = context.user_data.get("active_deposit_id")
-    checkout_url = context.user_data.get("active_checkout_url")
-    method = context.user_data.get("active_deposit_method", "telebirr")
-
-    # If no active session, create a deposit with PeerPay
-    if not deposit_id or not checkout_url:
-        peerpay_method = "telebirr" if ref.startswith("DI") else "cbe"
-        idempotency_key = f"etoobingo-deposit-{uuid.uuid4().hex}"
-        try:
-            create_res = await peerpay_client.create_deposit(
-                merchant_customer_id=f"tg_{user.id}",
-                payment_method=peerpay_method,
-                idempotency_key=idempotency_key,
+    # Create a fresh dynamic deposit session with PeerPay for reference verification
+    method = context.user_data.get("selected_deposit_method") or context.user_data.get("active_deposit_method") or ("telebirr" if ref.startswith("DI") else "cbe")
+    peerpay_method = "telebirr" if ref.startswith("DI") else ("cbebirr" if method == "cbebirr" else "cbe")
+    idempotency_key = f"etoobingo-deposit-{uuid.uuid4().hex}"
+    deposit_id = None
+    checkout_url = None
+    try:
+        create_res = await peerpay_client.create_deposit(
+            merchant_customer_id=f"tg_{user.id}",
+            payment_method=peerpay_method,
+            idempotency_key=idempotency_key,
+        )
+        dep_data = create_res.get("data", {})
+        deposit_id = dep_data.get("id")
+        checkout_url = dep_data.get("checkout_url")
+        if deposit_id:
+            await db.upsert_peerpay_deposit(
+                payment_id=deposit_id,
+                telegram_id=user.id,
+                amount=0.0,
+                currency="ETB",
+                merchant_order_id=dep_data.get("merchant_order_id"),
+                status=dep_data.get("status", "created"),
             )
-            dep_data = create_res.get("data", {})
-            deposit_id = dep_data.get("id")
-            checkout_url = dep_data.get("checkout_url")
-            if deposit_id:
-                await db.upsert_peerpay_deposit(
-                    payment_id=deposit_id,
-                    telegram_id=user.id,
-                    amount=0.0,
-                    currency="ETB",
-                    merchant_order_id=dep_data.get("merchant_order_id"),
-                    status=dep_data.get("status", "created"),
-                )
-        except Exception as exc:
-            logger.warning("Error auto-creating deposit for reference: %s", exc)
+    except Exception as exc:
+        logger.warning("Error auto-creating deposit for reference: %s", exc)
 
     if not deposit_id or not checkout_url:
         await update.message.reply_text(
-            "⚠️ እባክዎ መጀመሪያ /deposit በማለት የክፍያ መንገድና መጠን ይምረጡ።",
+            "⚠️ የክፍያ ማስፈንጠሪያ ማዘጋጀት አልተቻለም። እባክዎ በ /deposit ይሞክሩ።",
             parse_mode="Markdown",
         )
         return True

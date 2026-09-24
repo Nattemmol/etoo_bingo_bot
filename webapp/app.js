@@ -243,6 +243,30 @@ function stopDepositPolling() {
   }
 }
 
+function onDepositSuccess(amount, newBalance) {
+  if (newBalance != null) {
+    updateBalanceDisplay(newBalance);
+    if (els.modalUserBalance) {
+      els.modalUserBalance.textContent = Number(newBalance).toFixed(2);
+    }
+  }
+  const amtNum = Number(amount || 0);
+  const msgText = amtNum > 0 ? `✅ ${amtNum.toFixed(2)} ETB ወደ ሂሳብዎ ተጨምሯል!` : "✅ ክፍያዎ ተረጋግጦ ወደ ሂሳብዎ ተጨምሯል!";
+  showBanner(msgText);
+  tg.HapticFeedback?.notificationOccurred("success");
+
+  // Auto-close wallet modal and return to homepage/card selection or ongoing game
+  setTimeout(() => {
+    if (els.modalWallet) els.modalWallet.classList.add("hidden");
+    if (state.phase === "playing") {
+      showScreen("screen-game");
+    } else {
+      showScreen("screen-lobby");
+      renderPool();
+    }
+  }, 1200);
+}
+
 function startDepositPolling(depositId, expectedAmt) {
   stopDepositPolling();
   let attempts = 0;
@@ -263,16 +287,12 @@ function startDepositPolling(depositId, expectedAmt) {
         sessionStorage.removeItem("peerpay_pending_deposit_id");
         sessionStorage.removeItem("peerpay_pending_deposit_amt");
         const creditedAmt = data.amount || expectedAmt || 0;
-        if (data.new_balance != null) {
-          updateBalanceDisplay(data.new_balance);
-          if (els.modalUserBalance) els.modalUserBalance.textContent = Number(data.new_balance).toFixed(2);
-        }
         if (els.depositStatusMsg) {
           els.depositStatusMsg.className = "wallet-status-msg success";
           els.depositStatusMsg.textContent = `✅ ${creditedAmt > 0 ? creditedAmt.toFixed(2) + " ETB" : ""} ክፍያዎ ተረጋግጦ ወደ አካውንትዎ ተጨምሯል!`;
           els.depositStatusMsg.classList.remove("hidden");
         }
-        tg.HapticFeedback?.notificationOccurred("success");
+        onDepositSuccess(creditedAmt, data.new_balance);
       }
     } catch (err) {
       console.warn("Error polling deposit status:", err);
@@ -412,16 +432,13 @@ if (els.btnSubmitDepositRef) {
       const data = await resp.json();
       if (data.ok) {
         if (data.status === "credited") {
-          updateBalanceDisplay(data.new_balance);
-          if (els.modalUserBalance) {
-            els.modalUserBalance.textContent = Number(data.new_balance).toFixed(2);
-          }
           if (els.depositStatusMsg) {
             els.depositStatusMsg.className = "wallet-status-msg success";
             els.depositStatusMsg.textContent = data.message || `✅ ${data.amount ? data.amount.toFixed(2) + " ETB" : ""} ወደ አካውንትዎ ተጨምሯል!`;
           }
           if (els.depositReferenceInput) els.depositReferenceInput.value = "";
           if (els.depositAmountOptionalInput) els.depositAmountOptionalInput.value = "";
+          onDepositSuccess(data.amount, data.new_balance);
         } else if (data.status === "amount_needed") {
           if (els.depositStatusMsg) {
             els.depositStatusMsg.className = "wallet-status-msg pending";
@@ -1142,9 +1159,14 @@ function handleMessage(socket, msg) {
   switch (msg.type) {
     case "balance": {
       if (msg.balance != null) {
-        updateBalanceDisplay(msg.balance);
+        const oldBal = state.balance;
+        const newBal = Number(msg.balance);
+        updateBalanceDisplay(newBal);
         if (els.modalUserBalance) {
-          els.modalUserBalance.textContent = Number(msg.balance).toFixed(2);
+          els.modalUserBalance.textContent = newBal.toFixed(2);
+        }
+        if (newBal > oldBal && els.modalWallet && !els.modalWallet.classList.contains("hidden")) {
+          onDepositSuccess(newBal - oldBal, newBal);
         }
       }
       break;

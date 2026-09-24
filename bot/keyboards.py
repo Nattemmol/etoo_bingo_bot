@@ -67,14 +67,14 @@ def deposit_amount_keyboard(method: str):
     return InlineKeyboardMarkup(
         [
             [
+                InlineKeyboardButton("10 ETB", callback_data=f"dep_amt_{method}_10"),
                 InlineKeyboardButton("25 ETB", callback_data=f"dep_amt_{method}_25"),
                 InlineKeyboardButton("50 ETB", callback_data=f"dep_amt_{method}_50"),
-                InlineKeyboardButton("100 ETB", callback_data=f"dep_amt_{method}_100"),
             ],
             [
+                InlineKeyboardButton("100 ETB", callback_data=f"dep_amt_{method}_100"),
                 InlineKeyboardButton("200 ETB", callback_data=f"dep_amt_{method}_200"),
                 InlineKeyboardButton("500 ETB", callback_data=f"dep_amt_{method}_500"),
-                InlineKeyboardButton("1,000 ETB", callback_data=f"dep_amt_{method}_1000"),
             ],
             [
                 InlineKeyboardButton("✏️ ሌላ መጠን (Custom)", callback_data=f"dep_amt_{method}_custom"),
