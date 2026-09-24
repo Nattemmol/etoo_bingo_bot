@@ -2093,23 +2093,37 @@ async def api_withdraw_create(request: Request):
         return JSONResponse(status_code=400, content={"error": "Insufficient balance"})
 
     destination = body.get("destination") or {}
-    bank = str(destination.get("bank", "telebirr")).lower()
-    if bank != "telebirr":
-        return JSONResponse(status_code=400, content={"error": "Currently withdrawals are supported via Telebirr only."})
-
+    bank_raw = str(destination.get("bank", "telebirr")).lower()
+    peerpay_bank_code = "telebirr" if bank_raw == "telebirr" else ("cbebirr" if bank_raw == "cbebirr" else "cbe")
     account_raw = str(destination.get("account_number", "")).strip()
-    digits = re.sub(r"\D", "", account_raw)
-    if digits.startswith("251") and len(digits) == 12:
-        digits = "0" + digits[3:]
-    elif digits.startswith("9") and len(digits) == 9:
-        digits = "0" + digits
-    elif digits.startswith("7") and len(digits) == 9:
-        digits = "0" + digits
 
-    if not (len(digits) == 10 and (digits.startswith("09") or digits.startswith("07"))):
-        return JSONResponse(status_code=400, content={"error": "Invalid Telebirr phone number. Please provide a 10-digit number (e.g. 0911223344)."})
+    clean_account = None
+    if peerpay_bank_code in ("telebirr", "cbebirr"):
+        digits = re.sub(r"\D", "", account_raw)
+        if digits.startswith("251") and len(digits) == 12:
+            digits = "0" + digits[3:]
+        elif digits.startswith("9") and len(digits) == 9:
+            digits = "0" + digits
+        elif digits.startswith("7") and len(digits) == 9:
+            digits = "0" + digits
 
-    clean_dest = {"bank": "telebirr", "account_number": digits}
+        if not (len(digits) == 10 and (digits.startswith("09") or digits.startswith("07"))):
+            method_name = "Telebirr" if peerpay_bank_code == "telebirr" else "CBE Birr"
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"Invalid {method_name} phone number. Please provide a 10-digit number (e.g. 0911223344)."},
+            )
+        clean_account = digits
+    else:  # cbe bank
+        digits = re.sub(r"\D", "", account_raw)
+        if not (10 <= len(digits) <= 16):
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Invalid CBE Bank account number. Please provide a valid 10-16 digit account number (e.g. 1000123456789)."},
+            )
+        clean_account = digits
+
+    clean_dest = {"bank": peerpay_bank_code, "account_number": clean_account}
     payment_id = f"wd_{uuid.uuid4().hex[:12]}"
     idempotency_key = f"etoobingo-withdrawal-{uuid.uuid4().hex}"
     checkout_url = ""
@@ -2129,8 +2143,8 @@ async def api_withdraw_create(request: Request):
             try:
                 await peerpay_client.confirm_withdrawal_destination(
                     checkout_token_or_url=checkout_url,
-                    bank="telebirr",
-                    account_number=digits,
+                    bank=peerpay_bank_code,
+                    account_number=clean_account,
                 )
                 logger.info("Auto-confirmed withdrawal %s destination on checkout API", payment_id)
             except Exception as conf_err:
@@ -2151,8 +2165,11 @@ async def api_withdraw_create(request: Request):
         tx_type="withdraw",
         amount=amount,
         status="pending",
-        description=f"PeerPay withdrawal hold — {payment_id} (Telebirr: {digits})",
+        description=f"PeerPay withdrawal hold — {payment_id} ({peerpay_bank_code}: {clean_account})",
     )
+
+    # Push updated balance to open WebSocket sessions immediately
+    await broadcast_user_balance(tg_id, new_balance)
 
     return JSONResponse({
         "ok": True,
@@ -2160,8 +2177,8 @@ async def api_withdraw_create(request: Request):
         "checkout_url": checkout_url,
         "amount": amount,
         "new_balance": new_balance,
-        "method": "telebirr",
-        "phone": digits,
+        "method": peerpay_bank_code,
+        "account_number": clean_account,
     })
 
 

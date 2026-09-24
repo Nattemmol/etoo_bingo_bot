@@ -43,7 +43,36 @@ def withdraw_method_keyboard(webapp_url: str = ""):
 
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("🔵 Telebirr (ቴሌብር)", callback_data="withdraw_telebirr")],
+            [
+                InlineKeyboardButton("🔵 Telebirr (ቴሌብር)", callback_data="withdraw_telebirr"),
+                InlineKeyboardButton("🟢 CBE Birr (ሲቢኢ ብር)", callback_data="withdraw_cbebirr"),
+            ],
+            [
+                InlineKeyboardButton("🏦 Mobile Banking (ንግድ ባንክ)", callback_data="withdraw_cbe_bank"),
+            ],
+        ]
+    )
+
+
+def withdraw_amount_keyboard(method: str):
+    """Inline keyboard for quick withdrawal amount selection."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("10 ETB", callback_data=f"wd_amt_{method}_10"),
+                InlineKeyboardButton("25 ETB", callback_data=f"wd_amt_{method}_25"),
+                InlineKeyboardButton("50 ETB", callback_data=f"wd_amt_{method}_50"),
+            ],
+            [
+                InlineKeyboardButton("100 ETB", callback_data=f"wd_amt_{method}_100"),
+                InlineKeyboardButton("200 ETB", callback_data=f"wd_amt_{method}_200"),
+                InlineKeyboardButton("500 ETB", callback_data=f"wd_amt_{method}_500"),
+            ],
+            [
+                InlineKeyboardButton("✏️ ሌላ መጠን (Custom)", callback_data=f"wd_amt_{method}_custom"),
+            ],
         ]
     )
 

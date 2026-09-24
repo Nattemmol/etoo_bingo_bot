@@ -24,10 +24,11 @@ from bot.handlers.menu import balance_command, history_command, instructions_cal
 from bot.handlers.play import action_button_callback, play_command, play_room_callback
 from bot.handlers.start import contact_handler, start_command
 from bot.handlers.withdraw import (
-    AWAITING_ACCOUNT as WD_AWAITING_ACCOUNT,
-    AWAITING_AMOUNT as WD_AWAITING_AMOUNT,
-    AWAITING_METHOD as WD_AWAITING_METHOD,
+    WD_AWAITING_ACCOUNT,
+    WD_AWAITING_AMOUNT,
+    WD_AWAITING_METHOD,
     withdraw_account_handler,
+    withdraw_amount_callback,
     withdraw_amount_handler,
     withdraw_cancel,
     withdraw_command,
@@ -72,22 +73,25 @@ def build_application() -> Application:
         entry_points=[
             CommandHandler("withdraw", withdraw_command),
             CallbackQueryHandler(withdraw_method_callback, pattern=r"^withdraw_"),
+            CallbackQueryHandler(withdraw_amount_callback, pattern=r"^wd_amt_"),
         ],
         states={
             WD_AWAITING_METHOD: [
-                CallbackQueryHandler(withdraw_method_callback, pattern=r"^withdraw_")
+                CallbackQueryHandler(withdraw_method_callback, pattern=r"^withdraw_"),
             ],
             WD_AWAITING_AMOUNT: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, withdraw_amount_handler)
+                CallbackQueryHandler(withdraw_amount_callback, pattern=r"^wd_amt_"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, withdraw_amount_handler),
             ],
             WD_AWAITING_ACCOUNT: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, withdraw_account_handler)
+                MessageHandler(filters.TEXT & ~filters.COMMAND, withdraw_account_handler),
             ],
         },
         fallbacks=[
             CommandHandler("cancel", withdraw_cancel),
             CommandHandler("start", start_command),
             CommandHandler("play", play_command),
+            CommandHandler("deposit", deposit_command),
         ],
         allow_reentry=True,
     )
