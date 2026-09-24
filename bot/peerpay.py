@@ -178,7 +178,7 @@ class PeerPayClient:
         resolved_return_url = (
             return_url
             or settings.peerpay_return_url
-            or f"{settings.webapp_url}/deposits/return"
+            or "https://etoobingobot.fly.dev/deposits/return"
         )
         payload: dict[str, Any] = {
             "merchant_customer_id": merchant_customer_id,
@@ -310,10 +310,12 @@ class PeerPayClient:
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         """Create a withdrawal request on PeerPay."""
-        resolved_return_url = (
-            return_url
-            or f"{settings.webapp_url}/withdrawals/return"
+        default_withdraw_return = (
+            settings.peerpay_return_url.replace("/deposits/return", "/withdrawals/return")
+            if settings.peerpay_return_url
+            else "https://etoobingobot.fly.dev/withdrawals/return"
         )
+        resolved_return_url = return_url or default_withdraw_return
         payload: dict[str, Any] = {
             "merchant_customer_id": merchant_customer_id,
             "amount": f"{float(amount):.2f}",

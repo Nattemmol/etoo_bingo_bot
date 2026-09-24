@@ -29,7 +29,7 @@ class Settings:
     peerpay_api_key: str = ""
     peerpay_base_url: str = "https://api.peerpayment.org"
     peerpay_webhook_secret: str = ""
-    peerpay_return_url: str = ""
+    peerpay_return_url: str = "https://etoobingobot.fly.dev/deposits/return"
     # Verify.et transaction verification (https://verify.et/docs/api)
     verify_et_api_key: str = ""
     verify_et_base_url: str = "https://verify.et"
@@ -65,7 +65,10 @@ class Settings:
             peerpay_api_key=os.getenv("PEERPAY_API_KEY", ""),
             peerpay_base_url=os.getenv("PEERPAY_BASE_URL", "https://api.peerpayment.org"),
             peerpay_webhook_secret=os.getenv("PEERPAY_WEBHOOK_SECRET", ""),
-            peerpay_return_url=os.getenv("PEERPAY_RETURN_URL", "").rstrip("/"),
+            peerpay_return_url=os.getenv(
+                "PEERPAY_RETURN_URL",
+                "https://etoobingobot.fly.dev/deposits/return",
+            ).rstrip("/") or "https://etoobingobot.fly.dev/deposits/return",
             verify_et_api_key=os.getenv("VERIFY_ET_API_KEY", ""),
             verify_et_base_url=os.getenv("VERIFY_BASE_URL", "https://verify.et"),
         )
