@@ -152,19 +152,25 @@ async def deposit_amount_callback(update: Update, context: ContextTypes.DEFAULT_
         return
     await query.answer()
 
-    data = query.data or ""  # e.g. "dep_amt_telebirr_50" or "dep_amt_telebirr_custom"
-    parts = data.split("_")
-    if len(parts) < 4:
+    data = query.data or ""  # e.g. "dep_amt_telebirr_50", "dep_amt_cbe_bank_custom", "dep_amt_cbe_bank_100"
+    if not data.startswith("dep_amt_"):
         return
 
-    method = parts[2]
-    amt_str = parts[3]
+    raw = data[len("dep_amt_"):]
+    if "_" not in raw:
+        return
+
+    # rsplit on the last underscore so "cbe_bank_custom" -> ("cbe_bank", "custom")
+    method, amt_str = raw.rsplit("_", 1)
 
     if amt_str == "custom":
         context.user_data["awaiting_custom_deposit_amount"] = True
         context.user_data["selected_deposit_method"] = method
+        method_label = METHOD_LABELS.get(method, method)
         await query.message.reply_text(
-            f"✏️ ማስገባት የሚፈልጉትን የብር መጠን በቁጥር ይጻፉ (ለምሳሌ: `150`):",
+            f"✏️ *{method_label}*\n\n"
+            f"ማስገባት የሚፈልጉትን የብር መጠን በቁጥር ይጻፉ (ለምሳሌ: `100` ወይም `150`):\n"
+            f"(ዝቅተኛ: {MIN_DEPOSIT_AMOUNT:.0f} ETB)",
             parse_mode="Markdown",
         )
         return
