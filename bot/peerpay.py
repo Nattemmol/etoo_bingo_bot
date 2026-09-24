@@ -312,7 +312,6 @@ class PeerPayClient:
         """Create a withdrawal request on PeerPay."""
         resolved_return_url = (
             return_url
-            or settings.peerpay_return_url
             or f"{settings.webapp_url}/withdrawals/return"
         )
         payload: dict[str, Any] = {
