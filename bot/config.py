@@ -45,7 +45,7 @@ class Settings:
         always_open = os.getenv("SUPER_BINGO_ALWAYS_OPEN", "false").lower() in ("1", "true", "yes")
         return cls(
             bot_token=token,
-            webapp_url=os.getenv("WEBAPP_URL", "https://etoo-bingo-game.onrender.com").rstrip("/"),
+            webapp_url=os.getenv("WEBAPP_URL", "https://etoo-bingo-game.vercel.app").rstrip("/"),
             database_path=db_path if db_path.is_absolute() else BASE_DIR / db_path,
             server_port=int(os.getenv("SERVER_PORT", "8080")),
             database_url=os.getenv("DATABASE_URL", ""),

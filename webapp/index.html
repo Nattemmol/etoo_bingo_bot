@@ -6,9 +6,13 @@
   <title>EtooBingo</title>
   <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
   <script>
-    // Empty means same-origin: connects directly to the server serving this WebApp.
-    // Can be overridden via ?api=https://... query param if frontend is on a separate domain.
-    window.BACKEND_URL = "";
+    // When hosted on Vercel, connect WebSocket to the Render backend.
+    // When hosted directly by FastAPI, use same origin ("").
+    if (window.location.hostname.includes("vercel.app") || window.location.hostname.includes("now.sh")) {
+      window.BACKEND_URL = "https://etoo-bingo-game.onrender.com";
+    } else {
+      window.BACKEND_URL = "";
+    }
   </script>
   <link rel="preconnect" href="https://etoobingobot.fly.dev" />
   <link rel="dns-prefetch" href="https://etoobingobot.fly.dev" />

@@ -145,7 +145,12 @@ function getBackendUrl() {
   if (window.BACKEND_URL && window.BACKEND_URL.trim() !== "") {
     return window.BACKEND_URL.replace(/\/$/, "");
   }
-  // Default to same origin (served directly by FastAPI game server)
+  // Vercel serverless static hosting does not support WebSockets.
+  // When running on Vercel, connect to the Render game server!
+  if (location.hostname.includes("vercel.app") || location.hostname.includes("now.sh")) {
+    return "https://etoo-bingo-game.onrender.com";
+  }
+  // Default to same origin (when served directly by FastAPI game server)
   return "";
 }
 
