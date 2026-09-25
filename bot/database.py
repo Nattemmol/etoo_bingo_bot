@@ -1,12 +1,59 @@
 import asyncio
 import json
 import logging
+import os
 
 import aiosqlite
 
 from bot.config import settings
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# PostgreSQL auto-switching: when DATABASE_URL is set, replace all public
+# functions with the asyncpg-backed implementations from db_postgres.
+# All callers (handlers, server/main.py, tests) continue importing from
+# bot.database transparently — no import changes needed anywhere.
+# ---------------------------------------------------------------------------
+if settings.database_url:
+    from bot.db_postgres import (  # noqa: F401
+        init_db,
+        close_db,
+        ping_db,
+        get_user,
+        create_user,
+        ensure_user,
+        get_balance,
+        update_balance,
+        add_transaction,
+        get_transactions,
+        deduct_balance,
+        credit_balance,
+        get_deposit_by_fingerprint,
+        auto_credit_deposit,
+        create_telebirr_order,
+        get_telebirr_order,
+        complete_telebirr_order,
+        record_webhook_event_once,
+        get_webhook_event,
+        upsert_peerpay_deposit,
+        get_peerpay_deposit,
+        credit_peerpay_deposit_once,
+        create_peerpay_withdrawal_hold,
+        get_peerpay_withdrawal,
+        update_peerpay_withdrawal_progress,
+        capture_peerpay_withdrawal_once,
+        release_peerpay_withdrawal_once,
+        record_house_revenue,
+        get_house_revenue_summary,
+        save_active_round,
+        get_active_round,
+        clear_active_round,
+        record_game_round,
+    )
+    logger.info("Database backend: PostgreSQL (asyncpg) — %s", settings.database_url.split("@")[-1] if "@" in settings.database_url else "configured")
+else:
+    logger.info("Database backend: SQLite (aiosqlite) — %s", settings.database_path)
 
 # ---------------------------------------------------------------------------
 # Schema DDL

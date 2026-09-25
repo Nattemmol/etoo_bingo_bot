@@ -8,6 +8,14 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+try:
+    import orjson
+    def _fast_dumps(obj: dict) -> str:
+        return orjson.dumps(obj).decode("utf-8")
+except ImportError:
+    def _fast_dumps(obj: dict) -> str:
+        return json.dumps(obj)
+
 import httpx
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -41,7 +49,9 @@ from server.game import (
     ROOM_CONFIG,
     MAX_CARDS_PER_PLAYER,
     check_bingo,
+    check_bingo_fast,
     check_bingo_marked,
+    check_bingo_marked_fast,
     generate_card,
     generate_card_by_id,
     get_seconds_until_super_bingo,
@@ -60,6 +70,8 @@ WINNER_RESET_WAIT_SECONDS = 10.0
 BINGO_CLAIM_WINDOW_SECONDS = 5.0
 SOCKET_SEND_TIMEOUT_SECONDS = 1.0
 ROUND_SNAPSHOT_DEBOUNCE_SECONDS = 0.25
+# Chunked fanout: send to N sockets per gather-batch to avoid event-loop starvation
+BROADCAST_CHUNK_SIZE = 150
 
 # FREE PLAY TESTING: bypass entry-fee balance checks and deductions so the
 # playing room can be tested without real money. Set to False to enforce
@@ -236,30 +248,43 @@ def get_room_state(room: GameRoom) -> dict:
 
 
 async def broadcast(room: GameRoom, message: dict, exclude: str | None = None) -> None:
-    """Broadcast to all connected clients. Serializes JSON once for performance."""
-    payload = json.dumps(message)  # serialize ONCE — not N times
-    targets = []
-    ws_map = {}
+    """Broadcast to all connected clients.
+
+    Performance optimizations for 1,500+ concurrent connections:
+    1. Serialize JSON once using orjson (3-5x faster than stdlib json).
+    2. Chunked fanout: send in batches of BROADCAST_CHUNK_SIZE to prevent
+       event-loop starvation under high connection counts.
+    3. Dead socket cleanup in a single pass after all chunks complete.
+    """
+    payload = _fast_dumps(message)  # serialize ONCE with orjson
+    targets: list[tuple[str, WebSocket]] = []
     for ws_id in list(room.connections):
         if ws_id == exclude:
             continue
         ws = connections.get(ws_id)
         if ws:
-            targets.append(ws_id)
-            ws_map[ws_id] = ws
+            targets.append((ws_id, ws))
 
     if not targets:
         return
 
-    async def _send(ws_id: str, ws: WebSocket):
+    async def _send(ws_id: str, ws: WebSocket) -> str | None:
         try:
             await asyncio.wait_for(ws.send_text(payload), timeout=SOCKET_SEND_TIMEOUT_SECONDS)
             return None
         except Exception:
             return ws_id
 
-    results = await asyncio.gather(*[_send(wid, ws_map[wid]) for wid in targets], return_exceptions=True)
-    dead = [r for r in results if isinstance(r, str)]
+    dead: list[str] = []
+    # Process in chunks to avoid flooding the event loop with 1,500 coroutines at once
+    for i in range(0, len(targets), BROADCAST_CHUNK_SIZE):
+        chunk = targets[i : i + BROADCAST_CHUNK_SIZE]
+        results = await asyncio.gather(
+            *[_send(wid, ws) for wid, ws in chunk],
+            return_exceptions=True,
+        )
+        dead.extend(r for r in results if isinstance(r, str))
+
     for ws_id in dead:
         room.connections.discard(ws_id)
         # Keep player state while a socket is slow or disconnected; the user can reconnect.
@@ -523,11 +548,12 @@ def find_winning_card(
     for cid, card in card_items:
         if cid in player.locked_cards:
             continue
-        pattern = check_bingo_marked(
+        # Use bitmask-accelerated win check (nanosecond per pattern)
+        pattern = check_bingo_marked_fast(
             card, player.marks.get(cid, set()), room.called_set, room.bingo_rule
         )
         if not pattern and allow_unmarked:
-            pattern = check_bingo(card, room.called_set, room.bingo_rule)
+            pattern = check_bingo_fast(card, room.called_set, room.bingo_rule)
         if pattern:
             return pattern, cid
     return None
@@ -797,6 +823,23 @@ async def finalize_bingo(room_id: str) -> None:
                 "wait_seconds": int(WINNER_RESET_WAIT_SECONDS),
             },
         )
+
+        # Persist completed game round for auditing & dispute resolution
+        if hasattr(db, "record_game_round"):
+            try:
+                await db.record_game_round(
+                    room_id=room.room_id,
+                    phase="finished",
+                    entry_fee=room.entry_fee,
+                    house_cut_rate=room.house_cut,
+                    total_cards_sold=len(room.taken_cards),
+                    pot=prize,
+                    house_income=room.house_income,
+                    called_numbers=room.called_numbers,
+                    winners=winners,
+                )
+            except Exception as e:
+                logger.warning("Could not record game round: %s", e)
 
         await db.clear_active_round(room_id)
         await asyncio.sleep(round_reset_delay(get_room(room_id)))

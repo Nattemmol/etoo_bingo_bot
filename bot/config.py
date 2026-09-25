@@ -15,6 +15,7 @@ class Settings:
     webapp_url: str
     database_path: Path
     server_port: int
+    database_url: str = ""  # PostgreSQL connection URL; empty = use SQLite
     super_bingo_always_open: bool = False
     # Telebirr merchant credentials
     telebirr_base_url: str = "https://196.188.120.3:38443/apiaccess/payment/gateway"
@@ -47,6 +48,7 @@ class Settings:
             webapp_url=os.getenv("WEBAPP_URL", "https://etoo-bingo-game.onrender.com").rstrip("/"),
             database_path=db_path if db_path.is_absolute() else BASE_DIR / db_path,
             server_port=int(os.getenv("SERVER_PORT", "8080")),
+            database_url=os.getenv("DATABASE_URL", ""),
             super_bingo_always_open=always_open,
             telebirr_base_url=os.getenv(
                 "TELEBIRR_BASE_URL",

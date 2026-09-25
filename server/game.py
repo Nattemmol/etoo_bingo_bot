@@ -46,6 +46,107 @@ MAX_CARDS_PER_PLAYER = 2
 
 CORNERS = (0, 4, 20, 24)  # row-major flat indexes of the four card corners
 
+# ---------------------------------------------------------------------------
+# Precomputed bitmask win patterns for O(1) win detection
+# ---------------------------------------------------------------------------
+# A 5x5 card has 25 cells (indices 0-24). Each mask is a 25-bit integer where
+# bit i is set if cell i must be marked for that pattern to win.
+# Checking: (player_mask & WIN_MASK) == WIN_MASK  (~1 nanosecond per check)
+
+_FREE_BIT = 1 << FREE_INDEX  # bit 12 is always set (free space)
+
+# Row masks (5 cells per row)
+_ROW_MASKS = tuple(sum(1 << (r * 5 + c) for c in range(5)) for r in range(5))
+# Column masks (5 cells per column)
+_COL_MASKS = tuple(sum(1 << (r * 5 + c) for r in range(5)) for c in range(5))
+# Diagonal masks
+_DIAG_MASKS = (
+    sum(1 << (i * 6) for i in range(5)),       # top-left to bottom-right
+    sum(1 << ((i + 1) * 4) for i in range(5)),  # top-right to bottom-left
+)
+# Corners mask
+_CORNER_MASK = sum(1 << i for i in CORNERS)
+# Full board mask (all 25 bits set)
+_FULL_MASK = (1 << 25) - 1
+
+# Combined pattern groups for each rule
+_LINE_MASKS: tuple[tuple[int, str], ...] = (
+    *((m, "row") for m in _ROW_MASKS),
+    *((m, "column") for m in _COL_MASKS),
+    *((m, "diagonal") for m in _DIAG_MASKS),
+)
+_LINE_CORNERS_MASKS: tuple[tuple[int, str], ...] = (
+    *_LINE_MASKS,
+    (_CORNER_MASK, "corners"),
+)
+
+
+def _card_number_map(card: list[list[int | None]]) -> dict[int, int]:
+    """Build a mapping from bingo number -> flat index for a card."""
+    m: dict[int, int] = {}
+    for r in range(5):
+        for c in range(5):
+            val = card[r][c]
+            if val is not None:
+                m[val] = r * 5 + c
+    return m
+
+
+def _build_called_mask(card: list[list[int | None]], called: set[int]) -> int:
+    """Build a bitmask of which card cells have been called (+ free space)."""
+    mask = _FREE_BIT
+    for r in range(5):
+        for c in range(5):
+            val = card[r][c]
+            if val is not None and val in called:
+                mask |= 1 << (r * 5 + c)
+    return mask
+
+
+def _build_marked_mask(marks: set[int], card: list[list[int | None]], called: set[int]) -> int:
+    """Build a bitmask from player's manual marks (only count if actually called)."""
+    grid = card_to_flat(card)
+    mask = _FREE_BIT
+    for idx in marks:
+        if 0 <= idx <= 24 and idx != FREE_INDEX:
+            val = grid[idx]
+            if val is not None and val in called:
+                mask |= 1 << idx
+    return mask
+
+
+def check_bingo_fast(card: list[list[int | None]], called: set[int], rule: str = "line") -> str | None:
+    """Bitmask-accelerated win check (drop-in replacement for check_bingo)."""
+    mask = _build_called_mask(card, called)
+    return _match_rule(mask, rule)
+
+
+def check_bingo_marked_fast(
+    card: list[list[int | None]],
+    marks: set[int],
+    called: set[int],
+    rule: str = "line",
+) -> str | None:
+    """Bitmask-accelerated win check for manually marked cards."""
+    mask = _build_marked_mask(marks, card, called)
+    return _match_rule(mask, rule)
+
+
+def _match_rule(mask: int, rule: str) -> str | None:
+    """Check a player's bitmask against the rule's winning patterns."""
+    if rule == "full":
+        return "full" if (mask & _FULL_MASK) == _FULL_MASK else None
+    if rule in ("line", "line_corners"):
+        patterns = _LINE_CORNERS_MASKS if rule == "line_corners" else _LINE_MASKS
+    elif rule == "corners":
+        patterns = ((_CORNER_MASK, "corners"),)
+    else:
+        patterns = _LINE_MASKS
+    for win_mask, pattern_name in patterns:
+        if (mask & win_mask) == win_mask:
+            return pattern_name
+    return None
+
 
 class GamePhase(str, Enum):
     LOBBY = "lobby"

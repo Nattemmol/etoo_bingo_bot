@@ -77,11 +77,13 @@ class TestAutoCreditDeposit(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.mkdtemp()
         self._orig_settings = db.settings
+        run(db.close_db())
         db.settings = SimpleNamespace(database_path=Path(self._tmp) / "test.db")
         run(db.init_db())
         run(db.create_user(777001, "0900000001", "tester1", "Tester One"))
 
     def tearDown(self):
+        run(db.close_db())
         db.settings = self._orig_settings
 
     def test_deposit_credited_once_per_receipt(self):
