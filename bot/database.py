@@ -15,7 +15,21 @@ logger = logging.getLogger(__name__)
 # All callers (handlers, server/main.py, tests) continue importing from
 # bot.database transparently — no import changes needed anywhere.
 # ---------------------------------------------------------------------------
-if settings.database_url:
+def _is_valid_postgres_url(url: str) -> bool:
+    if not url:
+        return False
+    u = url.strip().lower()
+    if "user:password@host" in u or "@host:" in u or "example.com" in u:
+        logger.warning(
+            "DATABASE_URL contains a placeholder host ('%s'). "
+            "Falling back to SQLite until a real PostgreSQL connection string is provided.",
+            url,
+        )
+        return False
+    return True
+
+
+if _is_valid_postgres_url(settings.database_url):
     from bot.db_postgres import (  # noqa: F401
         init_db,
         close_db,
