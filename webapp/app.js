@@ -142,11 +142,11 @@ buildCalledBoard(els.calledBoard);
 function getBackendUrl() {
   const urlParam = params.get("api");
   if (urlParam) return urlParam.replace(/\/$/, "");
-  if (window.BACKEND_URL) return window.BACKEND_URL.replace(/\/$/, "");
-  if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
-    return "";
+  if (window.BACKEND_URL && window.BACKEND_URL.trim() !== "") {
+    return window.BACKEND_URL.replace(/\/$/, "");
   }
-  return "https://etoo-bingo-bot.onrender.com";
+  // Default to same origin (served directly by FastAPI game server)
+  return "";
 }
 
 function apiUrl(path) {
@@ -642,9 +642,23 @@ function setupGameScreen() {
 function connect() {
   const url = wsUrl();
   console.log("Connecting to WebSocket:", url);
+
+  const loadingText = document.querySelector("#screen-loading p");
+  if (loadingText) loadingText.textContent = "Connecting to game...";
+
+  const slowTimer = setTimeout(() => {
+    if (document.getElementById("screen-loading")?.classList.contains("active")) {
+      const p = document.querySelector("#screen-loading p");
+      if (p) {
+        p.innerHTML = `Connecting to server...<br><span style="font-size:12px;opacity:0.75;display:block;margin-top:6px;">If this takes a moment, the game server is establishing your session.</span>`;
+      }
+    }
+  }, 4000);
+
   const socket = new WebSocket(url);
 
   socket.onopen = () => {
+    clearTimeout(slowTimer);
     console.log("WebSocket connected!");
     reconnectDelay = 1000;
     socket.send(JSON.stringify({ type: "join", initData: tg.initData || "" }));
@@ -664,6 +678,7 @@ function connect() {
   };
 
   socket.onclose = () => {
+    clearTimeout(slowTimer);
     console.log("WebSocket closed, attempting reconnect...");
     reconnectDelay = Math.min(reconnectDelay * 1.5, 15000);
     setTimeout(() => {
