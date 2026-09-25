@@ -216,3 +216,18 @@ CREATE INDEX IF NOT EXISTS idx_game_rounds_started_at
 
 CREATE INDEX IF NOT EXISTS idx_game_rounds_ended_at
     ON game_rounds (ended_at);
+
+-- ---------------------------------------------------------------------------
+-- Supabase Security Best Practice: Enable Row Level Security (RLS) on all tables
+-- Protects database from unauthorized external access via Supabase PostgREST API.
+-- The backend connects via postgres superuser/service role, which bypasses RLS.
+-- ---------------------------------------------------------------------------
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE telebirr_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE peerpay_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE peerpay_deposits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE peerpay_withdrawals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE house_revenue ENABLE ROW LEVEL SECURITY;
+ALTER TABLE active_rounds ENABLE ROW LEVEL SECURITY;
+ALTER TABLE game_rounds ENABLE ROW LEVEL SECURITY;

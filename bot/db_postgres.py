@@ -65,8 +65,16 @@ async def init_db() -> None:
             "Set DATABASE_URL in your environment."
         )
 
-    _pool = await asyncpg.create_pool(dsn=dsn, min_size=5, max_size=20)
-    logger.info("asyncpg pool created (min=5, max=20)")
+    # Supabase Connection Pooling best practice:
+    # Set statement_cache_size=0 so asyncpg works cleanly with Supavisor / PgBouncer poolers
+    # without "prepared statement does not exist" errors.
+    _pool = await asyncpg.create_pool(
+        dsn=dsn,
+        min_size=2,
+        max_size=10,
+        statement_cache_size=0,
+    )
+    logger.info("asyncpg pool created (min=2, max=10, statement_cache_size=0)")
 
     # Run the schema migration
     if _MIGRATIONS_FILE.exists():
