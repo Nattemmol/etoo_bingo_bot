@@ -19,6 +19,8 @@ def _is_valid_postgres_url(url: str) -> bool:
     if not url:
         return False
     u = url.strip().lower()
+    if not (u.startswith("postgresql://") or u.startswith("postgres://")):
+        return False
     if "user:password@host" in u or "@host:" in u or "example.com" in u:
         logger.warning(
             "DATABASE_URL contains a placeholder host ('%s'). "

@@ -13,9 +13,12 @@ primary_region = "fra"
 [env]
   SERVER_PORT = "8080"
   DATABASE_PATH = "/data/goodbingo.db"
-  WEBAPP_URL = "https://etoobingobot.fly.dev"
-  PEERPAY_RETURN_URL = "https://etoobingobot.fly.dev/deposits/return"
+  DATABASE_URL = ""
+  WEBAPP_URL = "https://etoo-bingo-game.vercel.app"
+  PEERPAY_RETURN_URL = "https://etoo-bingo-game.onrender.com/deposits/return"
   VERIFY_BASE_URL = "https://verify.et"
+  # Set DATABASE_URL as a secret for Supabase:
+  # fly secrets set DATABASE_URL="postgresql://postgres.[ref]:[pass]@[pooler-host]:5432/postgres"
   # VERIFY_ET_API_KEY is set as a fly secret: fly secrets set VERIFY_ET_API_KEY=VERIFY_BANK_ET_...
 
 [http_service]

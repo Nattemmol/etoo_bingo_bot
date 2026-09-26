@@ -7,6 +7,7 @@ internals use ``asyncpg`` instead of ``aiosqlite``.
 
 from __future__ import annotations
 
+from decimal import Decimal
 import json
 import logging
 from pathlib import Path
@@ -40,7 +41,30 @@ async def _get_pool() -> asyncpg.Pool:
 
 def _record_to_dict(record: asyncpg.Record | None) -> dict | None:
     """Convert an ``asyncpg.Record`` to a plain ``dict``, or ``None``."""
-    return dict(record) if record is not None else None
+    if record is None:
+        return None
+    d = dict(record)
+    for k, v in d.items():
+        if isinstance(v, Decimal):
+            d[k] = float(v)
+    return d
+
+
+def _normalize_dsn(dsn: str) -> str:
+    """Normalize DSN: ensure postgresql:// scheme and percent-encode @ in password if needed."""
+    if not dsn:
+        return dsn
+    s = dsn.strip()
+    if s.startswith("postgres://"):
+        s = s.replace("postgres://", "postgresql://", 1)
+    if s.count("@") > 1 and "://" in s:
+        scheme, rest = s.split("://", 1)
+        creds, host_part = rest.rsplit("@", 1)
+        if ":" in creds:
+            user, pwd = creds.split(":", 1)
+            pwd_clean = pwd.replace("@", "%40")
+            s = f"{scheme}://{user}:{pwd_clean}@{host_part}"
+    return s
 
 
 def _numeric(value: Any) -> float:
@@ -58,7 +82,7 @@ async def init_db() -> None:
     """Create the asyncpg pool and run the schema DDL migration."""
     global _pool
 
-    dsn = getattr(settings, "database_url", "")
+    dsn = _normalize_dsn(getattr(settings, "database_url", ""))
     if not dsn:
         raise ValueError(
             "settings.database_url is not configured. "

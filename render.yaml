@@ -1,4 +1,4 @@
-# render.yaml – Render.com service definition
+ï»¿# render.yaml - Render.com service definition
 services:
   - type: web
     name: etoobingo-backend
@@ -11,6 +11,8 @@ services:
         value: '8080'
       - key: DATABASE_PATH
         value: '/data/goodbingo.db'
+      - key: DATABASE_URL
+        sync: false
       - key: BOT_TOKEN
         sync: false
       - key: PEERPAY_API_KEY

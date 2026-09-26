@@ -5,7 +5,8 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     SERVER_PORT=8080 \
-    DATABASE_PATH=/data/goodbingo.db
+    DATABASE_PATH=/data/goodbingo.db \
+    DATABASE_URL=""
 # Set DATABASE_URL in your deployment environment to enable PostgreSQL:
 #   DATABASE_URL=postgresql://user:pass@host:5432/etoobingo
 
