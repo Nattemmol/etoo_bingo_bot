@@ -292,8 +292,11 @@ function setupScheduleTimer(seconds) {
 }
 
 // ---- Lobby "Starts in" countdown ----
-function formatCountdown(seconds) {
-  const total = Math.max(0, Math.floor(seconds || 0));
+function formatCountdown(seconds, isLobby = false) {
+  let total = Math.max(0, Math.floor(seconds || 0));
+  if (isLobby && roomId !== "room_super_50" && total > 30) {
+    total = 30;
+  }
   const d = Math.floor(total / 86400);
   const h = Math.floor((total % 86400) / 3600);
   const m = Math.floor((total % 3600) / 60);
@@ -311,7 +314,13 @@ function formatCountdown(seconds) {
 
 function syncLobbyCountdown(seconds) {
   if (seconds == null) return;
-  state.lobbyCountdownDeadline = Date.now() + Math.max(0, seconds) * 1000;
+  let secs = Number(seconds) || 0;
+  if (roomId !== "room_super_50") {
+    secs = Math.min(Math.max(0, secs), 30);
+  } else {
+    secs = Math.max(0, secs);
+  }
+  state.lobbyCountdownDeadline = Date.now() + secs * 1000;
   if (!state.lobbyCountdownTimer) {
     state.lobbyCountdownTimer = setInterval(renderLobbyCountdown, 250);
   }
@@ -320,10 +329,13 @@ function syncLobbyCountdown(seconds) {
 
 function renderLobbyCountdown() {
   if (!els.lobbyCountdown) return;
-  const left = state.lobbyCountdownDeadline
+  let left = state.lobbyCountdownDeadline
     ? Math.max(0, Math.ceil((state.lobbyCountdownDeadline - Date.now()) / 1000))
     : 0;
-  els.lobbyCountdown.textContent = formatCountdown(left);
+  if (roomId !== "room_super_50" && left > 30) {
+    left = 30;
+  }
+  els.lobbyCountdown.textContent = formatCountdown(left, true);
   if (left <= 0) stopLobbyCountdown();
 }
 
@@ -792,7 +804,10 @@ function handleMessage(socket, msg) {
         els.lobbyPot.textContent = Number(msg.pot).toFixed(0);
       }
       updateGameStats(msg.pot, msg.players, state.called.length);
-      if (msg.deadline != null) {
+      // Prioritize relative countdown (seconds) to eliminate client/server clock skew
+      if (msg.countdown != null) {
+        syncLobbyCountdown(msg.countdown);
+      } else if (msg.deadline != null) {
         let leftSecs = 0;
         if (msg.deadline > 1e11) {
           // Absolute timestamp in milliseconds
@@ -804,9 +819,10 @@ function handleMessage(socket, msg) {
           // Relative seconds remaining
           leftSecs = Math.max(0, msg.deadline);
         }
+        if (roomId !== "room_super_50") {
+          leftSecs = Math.min(leftSecs, 30);
+        }
         syncLobbyCountdown(leftSecs);
-      } else if (msg.countdown != null) {
-        syncLobbyCountdown(msg.countdown);
       }
       if (msg.taken_cards) {
         state.takenCards = msg.taken_cards;

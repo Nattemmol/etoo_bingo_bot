@@ -324,15 +324,13 @@ async def run_lobby_countdown(room: GameRoom) -> None:
         # Super Bingo: wait until 7:00 PM EAT
         secs = get_seconds_until_super_bingo()
         room.countdown = secs
-        deadline_ts = time.time() + secs  # Unix timestamp for client-side countdown
-        # Broadcast deadline once — clients count down locally
+        # Broadcast relative seconds countdown — clients count down locally
         await broadcast(
             room,
             {
                 "type": "lobby",
                 "players": len(room.taken_cards),
                 "countdown": room.countdown,
-                "deadline": deadline_ts,
                 "pot": room.pot,
             },
         )
@@ -385,43 +383,41 @@ async def run_lobby_countdown(room: GameRoom) -> None:
             },
         )
     else:
-        # 10 ETB room: 30-second countdown with deadline-based approach
-        room.countdown = room.lobby_seconds
-        deadline_ts = time.time() + room.lobby_seconds
-        # Send deadline once — clients count down locally
-        await broadcast(
-            room,
-            {
-                "type": "lobby",
-                "players": len(room.taken_cards),
-                "countdown": room.countdown,
-                "deadline": deadline_ts,
-                "pot": room.pot,
-            },
-        )
-        while room.countdown > 0 and room.phase == GamePhase.LOBBY:
-            await asyncio.sleep(1)
-            room.countdown -= 1
-            # Only broadcast at key moments: 10s, 5s, 3s, 2s, 1s
-            if room.countdown in (10, 5, 3, 2, 1, 0):
-                await broadcast(
-                    room,
-                    {
-                        "type": "lobby",
-                        "players": len(room.taken_cards),
-                        "countdown": room.countdown,
-                        "pot": room.pot,
-                    },
-                )
+        # 10 ETB room: 30-second repeating lobby loop until players pick cards
+        while room.phase == GamePhase.LOBBY:
+            room.countdown = room.lobby_seconds
+            await broadcast(
+                room,
+                {
+                    "type": "lobby",
+                    "players": len(room.taken_cards),
+                    "countdown": room.countdown,
+                    "pot": room.pot,
+                },
+            )
+            while room.countdown > 0 and room.phase == GamePhase.LOBBY:
+                await asyncio.sleep(1)
+                room.countdown -= 1
+                # Only broadcast at key moments: 10s, 5s, 3s, 2s, 1s
+                if room.countdown in (10, 5, 3, 2, 1, 0):
+                    await broadcast(
+                        room,
+                        {
+                            "type": "lobby",
+                            "players": len(room.taken_cards),
+                            "countdown": room.countdown,
+                            "pot": room.pot,
+                        },
+                    )
 
-        if room.phase != GamePhase.LOBBY:
-            return
+            if room.phase != GamePhase.LOBBY:
+                return
 
-        if len(room.taken_cards) == 0:
-            # Nobody picked a card during the countdown — restart the 30s countdown
-            room_tasks.pop(room.room_id, None)
-            await schedule_lobby(room.room_id)
-            return
+            if len(room.taken_cards) == 0:
+                # Nobody picked a card during the countdown — repeat the 30s countdown cleanly
+                continue
+
+            break
 
         unique_players = set(room.taken_cards.values())
         if len(unique_players) == 1:
