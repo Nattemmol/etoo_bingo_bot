@@ -457,6 +457,14 @@ function onPoolChipClick(cardId) {
   ws.send(JSON.stringify({ type: "select_card", card_id: cardId }));
 }
 
+function closeModals() {
+  els.modalConfirm?.classList.add("hidden");
+  els.modalUnselect?.classList.add("hidden");
+  els.modalTaken?.classList.add("hidden");
+  state.previewCardId = null;
+  state.unselectCardId = null;
+}
+
 if (els.btnUnselectYes) {
   els.btnUnselectYes.addEventListener("click", () => {
     const cardId = state.unselectCardId;
@@ -470,12 +478,9 @@ if (els.btnUnselectYes) {
   });
 }
 
-if (els.btnUnselectNo) {
-  els.btnUnselectNo.addEventListener("click", closeModals);
-}
-
-els.btnConfirmNo.addEventListener("click", closeModals);
-els.btnTakenOk.addEventListener("click", closeModals);
+els.btnUnselectNo?.addEventListener("click", closeModals);
+els.btnConfirmNo?.addEventListener("click", closeModals);
+els.btnTakenOk?.addEventListener("click", closeModals);
 
 // ---- Game board + cards (side by side) ----
 // The user marks called numbers on their cartela by tapping the cell.
@@ -1197,7 +1202,7 @@ async function syncUserBalance() {
 }
 
 // Sync balance on return or tab focus with rapid polling
-const isReturn = window.location.pathname.includes("/return") || params.get("action") === "deposit" || params.get("action") === "withdraw";
+const isReturn = Boolean(window.location.pathname?.includes("/return") || params.get("action") === "deposit" || params.get("action") === "withdraw");
 if (isReturn) {
   setTimeout(syncUserBalance, 200);
   setTimeout(syncUserBalance, 1000);
@@ -1206,13 +1211,13 @@ if (isReturn) {
 }
 
 // Listen for tab focus or returning from browser/Telegram
-document.addEventListener("visibilitychange", () => {
+document.addEventListener?.("visibilitychange", () => {
   if (document.visibilityState === "visible") {
     syncUserBalance();
   }
 });
 
-window.addEventListener("focus", () => {
+window.addEventListener?.("focus", () => {
   syncUserBalance();
 });
 
