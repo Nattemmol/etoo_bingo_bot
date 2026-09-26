@@ -15,6 +15,14 @@ async def require_registration(update: Update) -> dict | None:
     assert user is not None
 
     existing = await db.get_user(user.id)
+
+    # Retry once after a short delay — handles Render cold-start where
+    # the DB pool may still be initializing when the first request arrives
+    if not existing:
+        import asyncio
+        await asyncio.sleep(2)
+        existing = await db.get_user(user.id)
+
     if not existing:
         message = update.message or (update.callback_query.message if update.callback_query else None)
         if message:

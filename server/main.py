@@ -137,8 +137,45 @@ def queue_room_snapshot(room_id: str) -> None:
 def round_reset_delay(room: GameRoom) -> float:
     """The weekly room opens its next-round lobby immediately after settlement."""
     return 0.0 if room.room_id == "room_super_50" else WINNER_RESET_WAIT_SECONDS
+_keep_alive_task: asyncio.Task | None = None
+
+SELF_PING_INTERVAL_SECONDS = 600  # 10 minutes — well within Render's 15-min inactivity window
+
+
+async def _self_ping_loop() -> None:
+    """Ping our own /healthz endpoint every 10 minutes to prevent
+    Render free tier from sleeping the container after 15 min of inactivity.
+
+    This runs forever as a background task alongside the game server.
+    Each ping counts as an inbound HTTP request to Render, resetting
+    their inactivity timer. Cost: ~144 tiny requests/day to localhost.
+    """
+    port = settings.server_port
+    url = f"http://127.0.0.1:{port}/healthz"
+    # Wait for server to be fully ready before first ping
+    await asyncio.sleep(15)
+    logger.info("Keep-alive self-ping started (every %ds → %s)", SELF_PING_INTERVAL_SECONDS, url)
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(url)
+                body = resp.json()
+                logger.info(
+                    "Keep-alive ping: %s (db=%s)",
+                    body.get("status", "?"),
+                    body.get("database", "?"),
+                )
+        except asyncio.CancelledError:
+            logger.info("Keep-alive self-ping shutting down.")
+            return
+        except Exception as e:
+            logger.warning("Keep-alive ping failed: %s", e)
+        await asyncio.sleep(SELF_PING_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _keep_alive_task
     await db.init_db()
     logger.info("Game server database ready.")
     for room_id in ROOM_CONFIG:
@@ -177,11 +214,24 @@ async def lifespan(app: FastAPI):
             logger.warning("Could not restore active round for %s: %s", room_id, e)
 
         await schedule_lobby(room_id)
+
+    # Start the keep-alive self-ping to prevent Render from sleeping
+    _keep_alive_task = asyncio.create_task(_self_ping_loop())
+
     yield
+
+    # Shutdown: cancel keep-alive first, then flush snapshots
+    if _keep_alive_task and not _keep_alive_task.done():
+        _keep_alive_task.cancel()
+        try:
+            await _keep_alive_task
+        except asyncio.CancelledError:
+            pass
     pending_snapshots = [task for task in snapshot_tasks.values() if not task.done()]
     if pending_snapshots:
         await asyncio.gather(*pending_snapshots, return_exceptions=True)
     await db.close_db()
+
 
 
 app = FastAPI(title="EtooBingo Game Server", lifespan=lifespan)
