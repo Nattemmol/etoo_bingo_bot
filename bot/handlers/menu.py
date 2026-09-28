@@ -77,6 +77,14 @@ async def instructions_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if user:
+        try:
+            from bot.handlers.deposit import reconcile_user_pending_deposits
+            await reconcile_user_pending_deposits(user.id)
+        except Exception:
+            pass
+
     user_data = await require_registration(update)
     if not user_data:
         return

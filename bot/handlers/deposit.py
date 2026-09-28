@@ -307,7 +307,7 @@ async def _verify_and_credit_reference(
         status = verify_res.get("status")
         verified_amount = verify_res.get("amount") or amount
 
-        if status == "succeeded":
+        if status in ("succeeded", "manually_succeeded"):
             credited, new_balance, is_dup = await db.credit_peerpay_deposit_once(
                 payment_id=deposit_id,
                 telegram_id=telegram_id,
@@ -344,6 +344,57 @@ async def _verify_and_credit_reference(
         )
 
 
+async def reconcile_user_pending_deposits(telegram_id: int) -> tuple[int, float]:
+    """Check any uncredited PeerPay deposits for this user and credit if succeeded or manually_succeeded.
+
+    Returns (credited_count, latest_balance).
+    """
+    credited_count = 0
+    latest_balance = 0.0
+    try:
+        pending = await db.get_pending_peerpay_deposits(telegram_id)
+        if not pending:
+            return 0, 0.0
+        for dep in pending:
+            payment_id = dep.get("payment_id")
+            if not payment_id:
+                continue
+            try:
+                res = await peerpay_client.get_deposit(payment_id)
+                dep_data = res.get("data", {})
+                status = dep_data.get("status", "")
+                if status in ("succeeded", "manually_succeeded"):
+                    amt = float(dep_data.get("amount") or dep.get("amount") or 0.0)
+                    credited, new_bal, is_dup = await db.credit_peerpay_deposit_once(
+                        payment_id=payment_id,
+                        telegram_id=telegram_id,
+                        amount=amt,
+                        merchant_order_id=dep_data.get("merchant_order_id") or dep.get("merchant_order_id"),
+                    )
+                    if credited:
+                        credited_count += 1
+                        latest_balance = new_bal
+                        await _broadcast_balance(telegram_id, new_bal)
+                        logger.info(
+                            "Reconciliation credited deposit %s for user %s: %.2f ETB (balance: %.2f)",
+                            payment_id, telegram_id, amt, new_bal,
+                        )
+                    elif is_dup:
+                        latest_balance = new_bal
+                elif status in ("failed", "manually_failed", "expired", "cancelled"):
+                    await db.upsert_peerpay_deposit(
+                        payment_id=payment_id,
+                        telegram_id=telegram_id,
+                        amount=float(dep.get("amount") or 0.0),
+                        status=status,
+                    )
+            except Exception as e:
+                logger.warning("Reconciliation check failed for deposit %s: %s", payment_id, e)
+    except Exception as exc:
+        logger.warning("Error fetching pending deposits for user %s: %s", telegram_id, exc)
+    return credited_count, latest_balance
+
+
 async def deposit_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle status check button click on a deposit."""
     query = update.callback_query
@@ -365,7 +416,13 @@ async def deposit_status_callback(update: Update, context: ContextTypes.DEFAULT_
         status = dep_data.get("status", "unknown")
         amount = float(dep_data.get("amount") or 0.0)
 
-        if status == "succeeded":
+        # Fallback to local database deposit amount if PeerPay returned 0 or None
+        if amount <= 0.0:
+            rec = await db.get_peerpay_deposit(deposit_id)
+            if rec and rec.get("amount"):
+                amount = float(rec["amount"])
+
+        if status in ("succeeded", "manually_succeeded"):
             credited, new_balance, is_dup = await db.credit_peerpay_deposit_once(
                 payment_id=deposit_id,
                 telegram_id=user.id,
@@ -383,7 +440,7 @@ async def deposit_status_callback(update: Update, context: ContextTypes.DEFAULT_
                 ),
                 parse_mode="Markdown",
             )
-        elif status in ("verification_pending", "reference_submitted"):
+        elif status in ("verification_pending", "reference_submitted", "review_required"):
             await query.message.reply_text(
                 "⏳ *የክፍያ ማረጋገጫ በሂደት ላይ ነው*\n\n"
                 "Transaction ID ተቀብለን ከባንክ በማረጋገጥ ላይ ነን። እንደተጠናቀቀ በራስ-ሰር ይጨመርልዎታል።",

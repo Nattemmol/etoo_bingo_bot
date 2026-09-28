@@ -62,6 +62,8 @@ from server.game import FREE_INDEX
 
 logger = logging.getLogger(__name__)
 
+peerpay_client = PeerPayClient()
+
 WEBAPP_DIR = Path(__file__).resolve().parent.parent / "webapp"
 
 WINNER_RESET_WAIT_SECONDS = 10.0
@@ -173,9 +175,73 @@ async def _self_ping_loop() -> None:
         await asyncio.sleep(SELF_PING_INTERVAL_SECONDS)
 
 
+_peerpay_reconciliation_task: asyncio.Task | None = None
+PEERPAY_RECONCILIATION_INTERVAL_SECONDS = 30
+
+
+async def _peerpay_reconciliation_loop() -> None:
+    """Periodically check uncredited PeerPay deposits created in the last 48 hours.
+    Ensures that payments manually approved in the dashboard are credited automatically
+    even if the webhook was delayed, missed, or blocked.
+    """
+    await asyncio.sleep(20)  # Wait for startup
+    logger.info("PeerPay deposit auto-reconciliation loop started (every %ds)", PEERPAY_RECONCILIATION_INTERVAL_SECONDS)
+    while True:
+        try:
+            pending = await db.get_pending_peerpay_deposits()
+            if pending:
+                for dep in pending:
+                    payment_id = dep.get("payment_id")
+                    tg_id = dep.get("telegram_id")
+                    if not payment_id or not tg_id:
+                        continue
+                    try:
+                        res = await peerpay_client.get_deposit(payment_id)
+                        dep_data = res.get("data", {})
+                        status = dep_data.get("status", "")
+                        if status in ("succeeded", "manually_succeeded"):
+                            amt = float(dep_data.get("amount") or dep.get("amount") or 0.0)
+                            credited, new_bal, is_dup = await db.credit_peerpay_deposit_once(
+                                payment_id=payment_id,
+                                telegram_id=int(tg_id),
+                                amount=amt,
+                                merchant_order_id=dep_data.get("merchant_order_id") or dep.get("merchant_order_id"),
+                            )
+                            if credited:
+                                logger.info(
+                                    "Auto-reconciled PeerPay deposit %s for user %s: %.2f ETB (balance: %.2f)",
+                                    payment_id, tg_id, amt, new_bal,
+                                )
+                                await broadcast_user_balance(int(tg_id), new_bal)
+                                await _notify_telegram(
+                                    int(tg_id),
+                                    (
+                                        "✅ *ፔይመንት ተረጋግጧል (Payment Verified)!*\n\n"
+                                        f"💰 *{amt:.2f} ETB* ወደ ሂሳብዎ ተጨምሯል።\n"
+                                        f"💳 አዲስ ሂሳብ: *{new_bal:.2f} ETB*\n\n"
+                                        "እንኳን ደስ ያልዎ! መልካም እድል! 🎱"
+                                    ),
+                                )
+                        elif status in ("failed", "manually_failed", "expired", "cancelled"):
+                            await db.upsert_peerpay_deposit(
+                                payment_id=payment_id,
+                                telegram_id=int(tg_id),
+                                amount=float(dep.get("amount") or 0.0),
+                                status=status,
+                            )
+                    except Exception as err:
+                        logger.warning("Reconciliation check failed for %s: %s", payment_id, err)
+        except asyncio.CancelledError:
+            logger.info("PeerPay reconciliation loop stopping.")
+            return
+        except Exception as e:
+            logger.warning("Error in PeerPay reconciliation loop: %s", e)
+        await asyncio.sleep(PEERPAY_RECONCILIATION_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _keep_alive_task
+    global _keep_alive_task, _peerpay_reconciliation_task
     await db.init_db()
     logger.info("Game server database ready.")
     for room_id in ROOM_CONFIG:
@@ -218,15 +284,19 @@ async def lifespan(app: FastAPI):
     # Start the keep-alive self-ping to prevent Render from sleeping
     _keep_alive_task = asyncio.create_task(_self_ping_loop())
 
+    # Start the PeerPay background reconciliation loop
+    _peerpay_reconciliation_task = asyncio.create_task(_peerpay_reconciliation_loop())
+
     yield
 
-    # Shutdown: cancel keep-alive first, then flush snapshots
-    if _keep_alive_task and not _keep_alive_task.done():
-        _keep_alive_task.cancel()
-        try:
-            await _keep_alive_task
-        except asyncio.CancelledError:
-            pass
+    # Shutdown: cancel background tasks first, then flush snapshots
+    for task in (_keep_alive_task, _peerpay_reconciliation_task):
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
     pending_snapshots = [task for task in snapshot_tasks.values() if not task.done()]
     if pending_snapshots:
         await asyncio.gather(*pending_snapshots, return_exceptions=True)
@@ -939,6 +1009,12 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
         user_ws.setdefault(telegram_id, set()).add(ws_id)
         display_name = user.get("first_name") or user.get("username") or str(telegram_id)
 
+        try:
+            from bot.handlers.deposit import reconcile_user_pending_deposits
+            await reconcile_user_pending_deposits(telegram_id)
+        except Exception:
+            pass
+
         user_db = await db.get_user(telegram_id)
         balance = float(user_db["balance"]) if user_db else 0.0
 
@@ -1566,7 +1642,11 @@ async def _notify_telegram(telegram_id: int, message: str) -> bool:
 # is verified against the raw body BEFORE parsing, each event is deduplicated
 # by PeerPay-Event-Id, and wallet transitions are applied idempotently.
 
-_CREDIT_DEPOSIT_EVENTS = {"deposit.succeeded", "deposit.manually_succeeded"}
+_CREDIT_DEPOSIT_EVENTS = {
+    "deposit.succeeded",
+    "deposit.manually_succeeded",
+    "deposit.review_resolved",
+}
 _TERMINAL_DEPOSIT_EVENTS = {
     "deposit.failed",
     "deposit.manually_failed",
@@ -1643,6 +1723,9 @@ async def peerpay_webhook(request: Request) -> Response:
         payload = json.loads(raw) if raw else {}
     except Exception:
         payload = {}
+
+    if not event_id and isinstance(payload, dict):
+        event_id = payload.get("id") or ""
 
     if not event_type and isinstance(payload, dict):
         event_type = payload.get("event") or payload.get("type") or ""
@@ -1743,6 +1826,20 @@ async def _apply_peerpay_deposit(event_type: str, obj: dict) -> None:
     amount = _as_amount(obj.get("amount"))
     currency = obj.get("currency") or "ETB"
     merchant_order_id = obj.get("merchant_order_id")
+    status = obj.get("status", "")
+
+    # If review was resolved, re-read deposit from PeerPay to get authoritative status and amount
+    if event_type == "deposit.review_resolved" or not status:
+        try:
+            dep_res = await peerpay_client.get_deposit(payment_id)
+            if dep_res and dep_res.get("data"):
+                res_data = dep_res["data"]
+                status = res_data.get("status", status)
+                obj["status"] = status
+                if amount <= 0:
+                    amount = _as_amount(res_data.get("amount"))
+        except Exception as exc:
+            logger.warning("Could not re-read deposit %s on review_resolved: %s", payment_id, exc)
 
     if amount <= 0:
         try:
@@ -1752,7 +1849,12 @@ async def _apply_peerpay_deposit(event_type: str, obj: dict) -> None:
         except Exception as exc:
             logger.warning("Could not fetch deposit amount from PeerPay for %s: %s", payment_id, exc)
 
-    if event_type in _CREDIT_DEPOSIT_EVENTS:
+    is_succeeded = (
+        event_type in ("deposit.succeeded", "deposit.manually_succeeded")
+        or status in ("succeeded", "manually_succeeded")
+    )
+
+    if is_succeeded:
         telegram_id = await _resolve_deposit_telegram_id(
             payment_id, obj.get("merchant_customer_id")
         )
@@ -1878,9 +1980,6 @@ async def _apply_peerpay_withdrawal(event_type: str, obj: dict) -> None:
     )
 
 
-peerpay_client = PeerPayClient()
-
-
 @app.get("/api/user/me")
 async def api_user_me(request: Request):
     """Fetch user balance and info for Mini App."""
@@ -1890,6 +1989,11 @@ async def api_user_me(request: Request):
     try:
         user_info = validate_init_data(init_data)
         tg_id = int(user_info["id"])
+        try:
+            from bot.handlers.deposit import reconcile_user_pending_deposits
+            await reconcile_user_pending_deposits(tg_id)
+        except Exception:
+            pass
         user = await db.get_user(tg_id)
         balance = float(user["balance"]) if user else 0.0
         return JSONResponse({"ok": True, "telegram_id": tg_id, "balance": balance, "registered": user is not None})
@@ -1976,7 +2080,13 @@ async def api_deposit_status(deposit_id: str, request: Request):
         status = dep_data.get("status", "unknown")
         amount = float(dep_data.get("amount") or 0.0)
 
-        if status == "succeeded":
+        # Fallback to local database deposit amount if PeerPay returned 0 or None
+        if amount <= 0.0:
+            rec = await db.get_peerpay_deposit(deposit_id)
+            if rec and rec.get("amount"):
+                amount = float(rec["amount"])
+
+        if status in ("succeeded", "manually_succeeded"):
             credited, new_balance, is_dup = await db.credit_peerpay_deposit_once(
                 payment_id=deposit_id,
                 telegram_id=tg_id,
@@ -2112,7 +2222,7 @@ async def api_deposit_submit_reference(request: Request):
         status = verify_res.get("status")
         amount = verify_res.get("amount") or 0.0
 
-        if status == "succeeded":
+        if status in ("succeeded", "manually_succeeded"):
             credited, new_balance, is_dup = await db.credit_peerpay_deposit_once(
                 payment_id=deposit_id,
                 telegram_id=tg_id,

@@ -375,6 +375,46 @@ class TestPeerPayWebhookEndpoint(unittest.TestCase):
         self.assertEqual(rec["released"], 0)
         self.assertEqual(rec["decision_code"], "amount_mismatch")
 
+    def test_deposit_manually_succeeded_credits(self):
+        payload = deposit_object("evt_dep_manual", "dep_pay_manual", amount="150.00", status="manually_succeeded")
+        payload["type"] = "deposit.manually_succeeded"
+        resp = self._post(payload, event_type="deposit.manually_succeeded")
+        self.assertEqual(resp.status_code, 204)
+        self.assertAlmostEqual(run(db.get_balance(777111)), 150.0)
+        rec = run(db.get_peerpay_deposit("dep_pay_manual"))
+        self.assertEqual(rec["credited"], 1)
+        self.assertEqual(rec["status"], "succeeded")
+        self._notify_mock.assert_awaited_once()
+
+    def test_deposit_review_resolved_credits(self):
+        with patch.object(
+            peerpay.PeerPayClient,
+            "get_deposit",
+            new_callable=AsyncMock,
+            return_value={"data": {"id": "dep_pay_rev", "status": "manually_succeeded", "amount": "175.00", "merchant_customer_id": "tg_777111"}},
+        ):
+            payload = deposit_object("evt_dep_rev", "dep_pay_rev", amount="175.00", status="review_resolved")
+            payload["type"] = "deposit.review_resolved"
+            resp = self._post(payload, event_type="deposit.review_resolved")
+            self.assertEqual(resp.status_code, 204)
+            self.assertAlmostEqual(run(db.get_balance(777111)), 175.0)
+            rec = run(db.get_peerpay_deposit("dep_pay_rev"))
+            self.assertEqual(rec["credited"], 1)
+
+    def test_reconcile_user_pending_deposits_credits(self):
+        from bot.handlers.deposit import reconcile_user_pending_deposits
+        run(db.upsert_peerpay_deposit("dep_pending_1", 777111, 250.0, "ETB", None, "awaiting_transfer"))
+        with patch.object(
+            peerpay.PeerPayClient,
+            "get_deposit",
+            new_callable=AsyncMock,
+            return_value={"data": {"id": "dep_pending_1", "status": "manually_succeeded", "amount": "250.00", "merchant_customer_id": "tg_777111"}},
+        ):
+            credited_count, new_bal = run(reconcile_user_pending_deposits(777111))
+            self.assertEqual(credited_count, 1)
+            self.assertAlmostEqual(new_bal, 250.0)
+            self.assertAlmostEqual(run(db.get_balance(777111)), 250.0)
+
 
 if __name__ == "__main__":
     unittest.main()

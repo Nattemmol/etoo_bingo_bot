@@ -54,6 +54,7 @@ if _is_valid_postgres_url(settings.database_url):
         get_webhook_event,
         upsert_peerpay_deposit,
         get_peerpay_deposit,
+        get_pending_peerpay_deposits,
         credit_peerpay_deposit_once,
         create_peerpay_withdrawal_hold,
         get_peerpay_withdrawal,
@@ -643,13 +644,21 @@ async def upsert_peerpay_deposit(
     payment_id: str,
     telegram_id: int,
     amount: float,
-    currency: str,
-    merchant_order_id: str | None,
-    status: str,
+    currency: str = "ETB",
+    merchant_order_id: str | None = None,
+    status: str = "created",
 ) -> None:
     """Record/refresh a PeerPay deposit row from a status event."""
     db = await get_db()
     async with _write_lock:
+        # Ensure user exists in users table
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO users (telegram_id, phone_number, username, first_name, balance)
+            VALUES (?, '', '', '', 0.0)
+            """,
+            (telegram_id,),
+        )
         await db.execute(
             """
             INSERT INTO peerpay_deposits
@@ -657,6 +666,8 @@ async def upsert_peerpay_deposit(
             VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(payment_id) DO UPDATE SET
                 status = excluded.status,
+                amount = CASE WHEN excluded.amount > 0 THEN excluded.amount ELSE peerpay_deposits.amount END,
+                merchant_order_id = COALESCE(excluded.merchant_order_id, peerpay_deposits.merchant_order_id),
                 updated_at = datetime('now')
             """,
             (payment_id, telegram_id, merchant_order_id, status, amount, currency),
@@ -674,6 +685,39 @@ async def get_peerpay_deposit(payment_id_or_ref: str) -> dict | None:
         return dict(row) if row else None
 
 
+async def get_pending_peerpay_deposits(telegram_id: int | None = None) -> list[dict]:
+    """Retrieve uncredited PeerPay deposits created in the last 48 hours."""
+    db = await get_db()
+    if telegram_id is not None:
+        async with db.execute(
+            """
+            SELECT * FROM peerpay_deposits
+            WHERE credited = 0
+              AND status NOT IN ('failed', 'manually_failed', 'expired', 'cancelled')
+              AND created_at > datetime('now', '-48 hours')
+              AND telegram_id = ?
+            ORDER BY created_at DESC
+            LIMIT 50
+            """,
+            (telegram_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows if r]
+    else:
+        async with db.execute(
+            """
+            SELECT * FROM peerpay_deposits
+            WHERE credited = 0
+              AND status NOT IN ('failed', 'manually_failed', 'expired', 'cancelled')
+              AND created_at > datetime('now', '-48 hours')
+            ORDER BY created_at DESC
+            LIMIT 50
+            """
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows if r]
+
+
 async def credit_peerpay_deposit_once(
     payment_id: str,
     telegram_id: int,
@@ -683,6 +727,14 @@ async def credit_peerpay_deposit_once(
     """Idempotently credit a confirmed PeerPay deposit."""
     db = await get_db()
     async with _write_lock:
+        # Ensure user exists in users table
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO users (telegram_id, phone_number, username, first_name, balance)
+            VALUES (?, '', '', '', 0.0)
+            """,
+            (telegram_id,),
+        )
         await db.execute(
             """
             INSERT OR IGNORE INTO peerpay_deposits
@@ -693,7 +745,7 @@ async def credit_peerpay_deposit_once(
         )
 
         async with db.execute(
-            "SELECT telegram_id, credited FROM peerpay_deposits WHERE payment_id = ?",
+            "SELECT telegram_id, credited, amount FROM peerpay_deposits WHERE payment_id = ?",
             (payment_id,),
         ) as cursor:
             rec = await cursor.fetchone()
@@ -713,7 +765,11 @@ async def credit_peerpay_deposit_once(
         if rec["credited"]:
             return False, current_balance, True
 
-        new_balance = round(current_balance + amount, 2)
+        effective_amount = amount if amount > 0 else float(rec["amount"] or 0.0)
+        if effective_amount <= 0:
+            effective_amount = 0.0
+
+        new_balance = round(current_balance + effective_amount, 2)
         fingerprint = f"peerpay_dep:{payment_id}"
 
         await db.execute(
@@ -725,15 +781,15 @@ async def credit_peerpay_deposit_once(
             INSERT INTO transactions (telegram_id, type, amount, status, description, fingerprint)
             VALUES (?, 'deposit', ?, 'completed', ?, ?)
             """,
-            (target_id, amount, f"PeerPay deposit — {payment_id}", fingerprint),
+            (target_id, effective_amount, f"PeerPay deposit — {payment_id}", fingerprint),
         )
         await db.execute(
             """
             UPDATE peerpay_deposits
-            SET credited = 1, status = 'succeeded', updated_at = datetime('now')
+            SET credited = 1, status = 'succeeded', amount = ?, updated_at = datetime('now')
             WHERE payment_id = ?
             """,
-            (payment_id,),
+            (effective_amount, payment_id),
         )
         await db.commit()
         return True, new_balance, False

@@ -26,6 +26,14 @@ async def play_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not await require_registration(update):
         return
 
+    user = update.effective_user
+    if user:
+        try:
+            from bot.handlers.deposit import reconcile_user_pending_deposits
+            await reconcile_user_pending_deposits(user.id)
+        except Exception:
+            pass
+
     message = update.message or (update.callback_query.message if update.callback_query else None)
     if message:
         await message.reply_text(
@@ -40,6 +48,14 @@ async def play_room_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not query:
         return
     await query.answer()
+
+    user = update.effective_user
+    if user:
+        try:
+            from bot.handlers.deposit import reconcile_user_pending_deposits
+            await reconcile_user_pending_deposits(user.id)
+        except Exception:
+            pass
 
     user_data = await require_registration(update)
     if not user_data:
