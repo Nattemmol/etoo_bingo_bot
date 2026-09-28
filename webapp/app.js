@@ -717,9 +717,7 @@ let reconnectDelay = 1000;
 let ws;
 
 function updateCalledCell(number) {
-  document.querySelectorAll(`.card-cell[data-value="${number}"]`).forEach((cell) => {
-    cell.classList.add("called");
-  });
+  // Completely manual marking: called numbers are shown on the game board; card cells are not auto-colored
 }
 
 function handleMessage(socket, msg) {
@@ -990,7 +988,11 @@ function handleMessage(socket, msg) {
       break;
 
     case "game_over":
-      showError("All numbers were called. No winner this round.");
+      if (msg.refunded) {
+        showBanner(`ℹ️ ጨዋታው ያለ BINGO ተጠናቋል። የመጫወቻ ብርዎ ${msg.refund_amount ? Number(msg.refund_amount).toFixed(0) : ""} ETB ተመላሽ ተደርጓል!`);
+      } else {
+        showError("All numbers were called. No winner this round.");
+      }
       state.phase = "done";
       stopWindowTimer();
       stopLobbyCountdown();

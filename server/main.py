@@ -570,11 +570,106 @@ async def run_playing_round(room: GameRoom) -> None:
         if room.phase != GamePhase.PLAYING or room.bingo_window_until is not None:
             break  # a valid BINGO has been claimed; freeze the board for the 5s window
 
+        # If single-player game and player has disconnected/left during round
+        unique_players = set(room.taken_cards.values())
+        if len(unique_players) == 1 and not room.bingo_claimants:
+            single_tid = next(iter(unique_players))
+            has_active_conn = any(
+                p.telegram_id == single_tid and ws_id in room.connections
+                for ws_id, p in room.players.items()
+            )
+            if not has_active_conn:
+                room.empty_seconds = getattr(room, "empty_seconds", 0.0) + room.call_interval
+                if room.empty_seconds >= 15.0:
+                    logger.info("Single player %s left room %s — auto-refunding and resetting round", single_tid, room.room_id)
+                    cards_count = sum(1 for owner in room.taken_cards.values() if owner == single_tid)
+                    refund_amount = round(cards_count * room.entry_fee, 2)
+                    if refund_amount > 0:
+                        try:
+                            new_balance = await db.credit_balance(single_tid, refund_amount)
+                            await db.add_transaction(
+                                single_tid,
+                                "refund",
+                                refund_amount,
+                                "completed",
+                                f"Refund: Single player left {room.name}",
+                                f"refund:single_left:{room.room_id}:{time.time():.0f}",
+                            )
+                            await broadcast_user_balance(single_tid, new_balance)
+                            await _notify_telegram(
+                                single_tid,
+                                (
+                                    f"ℹ️ *{room.name}*\n\n"
+                                    "ጨዋታውን ለቀው ስለወጡ የመጫወቻ ብርዎ *{refund_amount:.0f} ETB* ወደ ሂሳብዎ ተመልሷል!\n"
+                                    f"💳 ወቅታዊ ሂሳብ: *{new_balance:.2f} ETB*"
+                                ),
+                            )
+                        except Exception as e:
+                            logger.warning("Failed to refund single player on leave: %s", e)
+                    room.phase = GamePhase.FINISHED
+                    await db.clear_active_round(room.room_id)
+                    await asyncio.sleep(round_reset_delay(room))
+                    reset_room(room.room_id)
+                    await schedule_lobby(room.room_id)
+                    new_room = get_room(room.room_id)
+                    await broadcast(
+                        new_room,
+                        {
+                            "type": "round_reset",
+                            "room": get_room_state(new_room),
+                        },
+                    )
+                    break
+            else:
+                room.empty_seconds = 0.0
+
         num = room.next_number()
         if num is None:
             room.phase = GamePhase.FINISHED
             await db.clear_active_round(room.room_id)
-            await broadcast(room, {"type": "game_over", "reason": "all_numbers_called"})
+
+            # Single-player refund if no BINGO was claimed
+            refunded = False
+            refund_amount = 0.0
+            if len(unique_players) == 1 and not room.bingo_claimants:
+                single_tid = next(iter(unique_players))
+                cards_count = sum(1 for owner in room.taken_cards.values() if owner == single_tid)
+                refund_amount = round(cards_count * room.entry_fee, 2)
+                if refund_amount > 0:
+                    try:
+                        new_balance = await db.credit_balance(single_tid, refund_amount)
+                        await db.add_transaction(
+                            single_tid,
+                            "refund",
+                            refund_amount,
+                            "completed",
+                            f"Refund: Single player no bingo in {room.name}",
+                            f"refund:single_no_bingo:{room.room_id}:{time.time():.0f}",
+                        )
+                        refunded = True
+                        await broadcast_user_balance(single_tid, new_balance)
+                        await _notify_telegram(
+                            single_tid,
+                            (
+                                f"ℹ️ *{room.name}*\n\n"
+                                "ብቻዎትን ሲጫወቱ ቆይተው ጨዋታው ያለ BINGO ስለተጠናቀቀ "
+                                f"የመጫወቻ ብርዎ *{refund_amount:.0f} ETB* ወደ ሂሳብዎ ተመልሷል!\n"
+                                f"💳 ወቅታዊ ሂሳብ: *{new_balance:.2f} ETB*"
+                            ),
+                        )
+                        logger.info("Single player %s refunded %.2f ETB on 75 numbers called", single_tid, refund_amount)
+                    except Exception as e:
+                        logger.warning("Failed to refund single player on 75 numbers: %s", e)
+
+            await broadcast(
+                room,
+                {
+                    "type": "game_over",
+                    "reason": "all_numbers_called",
+                    "refunded": refunded,
+                    "refund_amount": refund_amount,
+                },
+            )
             await asyncio.sleep(round_reset_delay(room))
             reset_room(room.room_id)
             await schedule_lobby(room.room_id)
@@ -1392,6 +1487,12 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                 if flat == FREE_INDEX:
                     continue  # the FREE center is always marked
 
+                card = player.cards[card_id]
+                val = card[row][col]
+                if desired and (val is None or val not in room.called_set):
+                    await send(websocket, {"type": "mark_error", "message": "ቁጥሩ ገና አልተጠራም (Number not called yet)."})
+                    continue
+
                 marks = player.marks.setdefault(card_id, set())
                 if desired:
                     marks.add(flat)
@@ -1455,7 +1556,7 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                         )
                         continue
 
-                    win = find_winning_card(room, player, allow_unmarked=True, target_card_id=target_cid)
+                    win = find_winning_card(room, player, allow_unmarked=False, target_card_id=target_cid)
                     if not win:
                         # False BINGO: Lock this specific card!
                         player.locked_cards.add(target_cid)
@@ -1485,7 +1586,7 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                     continue
                 else:
                     # General BINGO claim across all non-locked cards
-                    win = find_winning_card(room, player, allow_unmarked=True)
+                    win = find_winning_card(room, player, allow_unmarked=False)
                     if not win:
                         # Lock all unlocked cards
                         for cid in list(player.cards.keys()):

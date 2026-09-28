@@ -374,19 +374,19 @@ body {
 .called-board {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   width: 100%;
-  margin-bottom: 4px;
-  padding: 6px;
+  margin-bottom: 3px;
+  padding: 4px 5px;
   background: var(--board-bg);
   border: 1px solid var(--border-light);
-  border-radius: 10px;
+  border-radius: 8px;
 }
 
 .called-board-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   width: 100%;
 }
 
@@ -395,8 +395,8 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-width: 32px;
-  padding: 2px 1px;
+  min-width: 26px;
+  padding: 1px 0;
   border-radius: 4px;
   font-weight: 800;
   text-align: center;
@@ -406,13 +406,13 @@ body {
 }
 
 .called-row-label .c-letter {
-  font-size: 0.76rem;
+  font-size: 0.68rem;
   font-weight: 900;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.2px;
 }
 
 .called-row-label .c-range {
-  font-size: 0.48rem;
+  font-size: 0.40rem;
   font-weight: 700;
   opacity: 0.85;
   white-space: nowrap;
@@ -427,7 +427,7 @@ body {
 .called-row-chips {
   display: grid;
   grid-template-columns: repeat(15, 1fr);
-  gap: 2px;
+  gap: 1.5px;
   flex: 1;
 }
 
@@ -436,7 +436,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.58rem;
+  font-size: 0.52rem;
   font-weight: 700;
   border-radius: 3px;
   background: var(--called-chip-bg);
@@ -543,18 +543,23 @@ body {
   cursor: default;
 }
 
+/* Card cell called but not yet manually marked: keep normal cell appearance (no auto green coloring) */
 .card-cell.called:not(.marked) {
-  border-color: #00e676;
-  background: linear-gradient(135deg, rgba(0, 230, 118, 0.15), rgba(0, 184, 148, 0.2));
+  border-color: var(--cell-border);
+  background: var(--cell-bg);
   color: var(--text);
-  font-weight: 800;
-  box-shadow: 0 0 8px rgba(0, 230, 118, 0.4);
-  animation: pulse-called 2s infinite alternate;
 }
 
-@keyframes pulse-called {
-  from { border-color: rgba(0, 230, 118, 0.5); }
-  to { border-color: rgba(0, 230, 118, 1); box-shadow: 0 0 12px rgba(0, 230, 118, 0.7); }
+/* Shake feedback when tapping an uncalled number */
+.card-cell.shake-error {
+  animation: cell-shake 0.35s ease-in-out;
+  border-color: #ff4757 !important;
+}
+
+@keyframes cell-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
 }
 
 /* Marked cell: identical to Card Pool Selection green styling */
@@ -942,32 +947,46 @@ body {
 .card-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-bottom: 4px;
+  gap: 5px;
+  margin-bottom: 3px;
   width: 100%;
 }
 
-/* Two cards side-by-side */
+/* Single card: centered, clean proportions */
+.card-list:not(.two-cards) .mini-card {
+  max-width: 320px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Two cards side-by-side: 85% scale, minmax(0, 1fr) prevents overlap */
 .card-list.two-cards {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 4px;
   width: 100%;
 }
 
 .mini-card {
   background: var(--card-bg);
   border: 1.5px solid var(--cell-border);
-  border-radius: 10px;
-  padding: 6px;
+  border-radius: 8px;
+  padding: 5px 5px;
   transition: all 0.25s ease;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+}
+
+.card-list.two-cards .mini-card {
+  padding: 3px 3px;
+  border-radius: 7px;
+  border-width: 1px;
 }
 
 .mini-card.has-bingo {
   border-color: #00e676;
-  box-shadow: 0 0 14px rgba(0, 230, 118, 0.45);
+  box-shadow: 0 0 12px rgba(0, 230, 118, 0.45);
 }
 
 .mini-card.card-locked {
@@ -979,22 +998,27 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 3px;
+  margin-bottom: 2px;
 }
 
 .mini-card-title {
-  font-size: 0.80rem;
+  font-size: 0.76rem;
   font-weight: 800;
   color: var(--text);
+  white-space: nowrap;
+}
+
+.card-list.two-cards .mini-card-title {
+  font-size: 0.68rem;
 }
 
 .card-locked-badge {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 2px 5px;
-  border-radius: 8px;
-  font-size: 0.62rem;
+  padding: 1px 4px;
+  border-radius: 6px;
+  font-size: 0.58rem;
   font-weight: 800;
   background: rgba(255, 71, 87, 0.2);
   color: #ff4757;
@@ -1008,15 +1032,19 @@ body {
   width: 100%;
 }
 
+.card-list.two-cards .mini-bingo-card {
+  gap: 1.5px;
+}
+
 .mini-bingo-card .card-header-cell {
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 800;
-  padding: 2px 0;
+  padding: 1.5px 0;
   border-radius: 4px;
 }
 
 .mini-bingo-card .card-cell {
-  font-size: 0.82rem;
+  font-size: 0.72rem;
   font-weight: 800;
   aspect-ratio: 1;
   min-height: unset;
@@ -1028,16 +1056,23 @@ body {
 }
 
 .card-list.two-cards .mini-bingo-card .card-cell {
-  font-size: 0.72rem;
+  font-size: 0.60rem;
   font-weight: 800;
+  border-radius: 3px;
+  border-width: 1px;
+}
+
+.card-list.two-cards .mini-bingo-card .card-header-cell {
+  border-radius: 3px;
+  padding: 1px 0;
 }
 
 .card-list.two-cards .mini-bingo-card .card-header-cell .hdr-letter {
-  font-size: 0.70rem;
+  font-size: 0.58rem;
 }
 
 .card-list.two-cards .mini-bingo-card .card-header-cell .hdr-range {
-  font-size: 0.42rem;
+  font-size: 0.33rem;
 }
 
 .mini-card.card-locked .mini-bingo-card .card-cell {
@@ -1047,23 +1082,25 @@ body {
 
 .btn-card-bingo {
   width: 100%;
-  margin-top: 5px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  font-size: 0.95rem;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  font-size: 0.84rem;
   font-weight: 900;
-  letter-spacing: 1px;
+  letter-spacing: 0.8px;
   background: linear-gradient(135deg, #ff4757 0%, #ff6b81 100%);
   color: #ffffff;
   border: none;
   cursor: pointer;
-  box-shadow: 0 3px 10px rgba(255, 71, 87, 0.4);
+  box-shadow: 0 2px 8px rgba(255, 71, 87, 0.4);
   transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
 .card-list.two-cards .btn-card-bingo {
-  padding: 6px 8px;
-  font-size: 0.82rem;
+  margin-top: 3px;
+  padding: 4px 6px;
+  font-size: 0.70rem;
+  border-radius: 6px;
 }
 
 .btn-card-bingo:hover:not(:disabled) {

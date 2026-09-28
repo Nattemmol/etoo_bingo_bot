@@ -135,9 +135,8 @@ export function getWinningIndexes(card, marked, calledSet, rule = "line_corners"
 
   function isHit(idx) {
     if (idx === FREE_INDEX) return true;
-    if (marked && marked.has(idx)) return true;
     const val = flat[idx];
-    return val != null && calledSet && calledSet.has(val);
+    return Boolean(marked && marked.has(idx) && calledSet && calledSet.has(val));
   }
 
   if (rule === "full") {
@@ -202,17 +201,22 @@ export function renderCard(container, card, marked, calledSet, onMark, interacti
         cell.textContent = "FREE";
       } else {
         cell.textContent = value;
-        if (calledSet && calledSet.has(value)) cell.classList.add("called");
+        // Do not add automatic called color — marking must be completely manual
         if (marked && marked.has(idx)) cell.classList.add("marked");
 
         if (interactive && onMark) {
-          cell.addEventListener("click", () => {
+          const handleTap = (e) => {
+            e.preventDefault();
             if (!calledSet || !calledSet.has(value)) {
+              cell.classList.remove("shake-error");
+              void cell.offsetWidth;
+              cell.classList.add("shake-error");
               window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred("error");
               return;
             }
             onMark(row, col);
-          });
+          };
+          cell.addEventListener("pointerdown", handleTap);
         }
       }
       if (winningIndexes.has(idx)) {
