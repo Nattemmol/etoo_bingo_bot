@@ -42,7 +42,9 @@ async def _broadcast_balance(telegram_id: int, new_balance: float) -> None:
         pass
 
 METHOD_LABELS = {
-    "telebirr": "🔵 Telebirr (ቴሌብር)",
+    "telebirr": "🔵 Telebirr 1 (Habtamu)",
+    "telebirr_1": "🔵 Telebirr 1 (Habtamu)",
+    "telebirr_2": "🔵 Telebirr 2 (Natnael)",
     "cbebirr": "🟢 CBE Birr (ሲቢኢ ብር)",
     "cbe_bank": "🏦 Mobile Banking (ንግድ ባንክ)",
 }
@@ -105,9 +107,10 @@ async def deposit_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     text = (
         "💳 *ገንዘብ ማስገቢያ (Deposit via PeerPay)*\n\n"
         "ክፍያ የሚፈጽሙበትን መንገድ ይምረጡ:\n"
-        "1️⃣ 🔵 Telebirr (ቴሌብር)\n"
-        "2️⃣ 🟢 CBE Birr (ሲቢኢ ብር)\n"
-        "3️⃣ 🏦 Mobile Banking (የንግድ ባንክ)\n\n"
+        "1️⃣ 🔵 Telebirr 1 (Habtamu - 0963572327)\n"
+        "2️⃣ 🔵 Telebirr 2 (Natnael - 0934921104)\n"
+        "3️⃣ 🟢 CBE Birr (ሲቢኢ ብር)\n"
+        "4️⃣ 🏦 Mobile Banking (የንግድ ባንክ)\n\n"
         "ከታች ካሉት አማራጮች አንዱን ይጫኑ:"
     )
     message = update.message or (update.callback_query.message if update.callback_query else None)
@@ -127,8 +130,12 @@ async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await query.answer()
 
     data = query.data or ""
-    method = "telebirr"
-    if data == "deposit_cbebirr":
+    method = "telebirr_1"
+    if data == "deposit_telebirr_2":
+        method = "telebirr_2"
+    elif data in ("deposit_telebirr_1", "deposit_telebirr"):
+        method = "telebirr_1"
+    elif data == "deposit_cbebirr":
         method = "cbebirr"
     elif data == "deposit_cbe_bank":
         method = "cbe_bank"
@@ -188,7 +195,7 @@ async def _create_and_send_peerpay_checkout(
 ) -> None:
     """Create a PeerPay deposit checkout and send interactive checkout buttons."""
     method_label = METHOD_LABELS.get(method, method)
-    peerpay_method_code = "telebirr" if method == "telebirr" else ("cbebirr" if method == "cbebirr" else "cbe")
+    peerpay_method_code = "telebirr" if method in ("telebirr", "telebirr_1", "telebirr_2") else ("cbebirr" if method == "cbebirr" else "cbe")
     idempotency_key = f"etoobingo-deposit-{uuid.uuid4().hex}"
 
     try:
@@ -228,8 +235,10 @@ async def _create_and_send_peerpay_checkout(
             err_code = err.get("code", "")
             if err_code == "order_routing_unavailable" or "receiving account" in str(err.get("message", "")).lower():
                 # Provide seamless direct manual transfer fallback
-                if method == "telebirr":
-                    fallback_text = msg.TELEBIRR_DEPOSIT_INSTRUCTIONS
+                if method == "telebirr_2":
+                    fallback_text = msg.TELEBIRR_2_DEPOSIT_INSTRUCTIONS
+                elif method in ("telebirr", "telebirr_1"):
+                    fallback_text = msg.TELEBIRR_1_DEPOSIT_INSTRUCTIONS
                 elif method == "cbebirr":
                     fallback_text = msg.CBE_DEPOSIT_INSTRUCTIONS
                 else:
@@ -288,7 +297,7 @@ async def _verify_and_credit_reference(
     message, telegram_id: int, ref: str, amount: float, method: str
 ) -> None:
     """Create a PeerPay deposit with the exact specified amount and verify the submitted reference."""
-    peerpay_method = "telebirr" if ref.startswith("DI") else ("cbebirr" if method == "cbebirr" else "cbe")
+    peerpay_method = "telebirr" if (ref.startswith("DI") or method in ("telebirr", "telebirr_1", "telebirr_2")) else ("cbebirr" if method == "cbebirr" else "cbe")
     idempotency_key = f"etoobingo-deposit-{uuid.uuid4().hex}"
     deposit_id = None
     checkout_url = None
@@ -331,7 +340,8 @@ async def _verify_and_credit_reference(
         logger.info("PeerPay deposit create unavailable for reference %s; falling back to direct verification", ref)
         try:
             from bot.sms_parser import verify_deposit_submission
-            local_res = await verify_deposit_submission(ref, expected_method=method, explicit_amount=amount)
+            exp_method = "telebirr" if method in ("telebirr", "telebirr_1", "telebirr_2") else method
+            local_res = await verify_deposit_submission(ref, expected_method=exp_method, explicit_amount=amount)
             if local_res.get("valid"):
                 verified_amt = float(local_res.get("amount") or amount)
                 credited, new_bal, is_dup = await db.auto_credit_deposit(

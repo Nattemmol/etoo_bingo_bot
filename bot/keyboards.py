@@ -28,10 +28,11 @@ def deposit_method_keyboard(webapp_url: str = ""):
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("🔵 Telebirr (ቴሌብር)", callback_data="deposit_telebirr"),
-                InlineKeyboardButton("🟢 CBE Birr (ሲቢኢ ብር)", callback_data="deposit_cbebirr"),
+                InlineKeyboardButton("🔵 Telebirr 1 (Habtamu)", callback_data="deposit_telebirr_1"),
+                InlineKeyboardButton("🔵 Telebirr 2 (Natnael)", callback_data="deposit_telebirr_2"),
             ],
             [
+                InlineKeyboardButton("🟢 CBE Birr (ሲቢኢ ብር)", callback_data="deposit_cbebirr"),
                 InlineKeyboardButton("🏦 Mobile Banking (ንግድ ባንክ)", callback_data="deposit_cbe_bank"),
             ],
         ]
