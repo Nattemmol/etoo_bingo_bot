@@ -214,3 +214,46 @@ WITHDRAW_SUCCESS = (
     "💳 አዲስ ቀሪ ሂሳብ: *{balance:.2f} ETB*\n\n"
     "ገንዘቡ በደቂቃዎች ውስጥ ወደ አካውንትዎ ይተላለፋል።"
 )
+
+# ---------------------------------------------------------------------------
+# Super Bingo Reminders & Announcements
+# ---------------------------------------------------------------------------
+
+SUPER_BINGO_REMINDER_6H = (
+    "🗓ዘወትር ከእሁድ እስከ እሁድ\n"
+    "🕙 ከምሽቱ 1 ሰዐት\n"
+    "🎫 ካርቴላ ሳያልቅ ⏳ ቀድመው ይያዙ 🏃♂️\n\n"
+    "❓ ማንኛውም ጥያቄ ካለ\n"
+    "📞     0963572327"
+)
+
+SUPER_BINGO_REMINDER_10M = (
+    "⏳ የ ETOO ሱፐር ቢንጎ ጨዋታ ከ ደቂቃዎች በኋላ ይጀምራል! 🚀\n"
+    "🔒 የጨዋታ አይነት: 🎯 ሙሉ ዝግ 🏆"
+)
+
+
+def format_amharic_prize(amount: float) -> str:
+    amt = round(amount, 2)
+    if amt >= 1000 and amt % 1000 == 0:
+        return f"{int(amt // 1000)} ሺ ብር"
+    elif amt.is_integer():
+        return f"{int(amt):,} ብር"
+    else:
+        return f"{amt:,.2f} ብር"
+
+
+def format_super_bingo_winner_announcement(winners: list[dict], pot: float) -> str:
+    """Format the winner announcement post-game with Amharic prize format and split if multiple winners."""
+    lines = ["🏆 የዛሬ ሱፐር ቢንጎ አሸናፊ 🏆", ""]
+    count = len(winners)
+    if count == 0:
+        return "🏆 የዛሬ ሱፐር ቢንጎ አሸናፊ 🏆\n\nበዚህ ዙር ምንም አሸናፊ አልተገኘም።"
+    share = round(pot / count, 2) if count > 0 else 0.0
+    for idx, w in enumerate(winners, start=1):
+        name = w.get("name") or "ተጫዋች"
+        prize_val = w.get("prize") if w.get("prize") is not None else share
+        prize_str = format_amharic_prize(float(prize_val))
+        lines.append(f"{idx}. {name} ፡ {prize_str}")
+    return "\n".join(lines)
+

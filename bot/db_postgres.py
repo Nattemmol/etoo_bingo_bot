@@ -148,6 +148,13 @@ async def get_user(telegram_id: int) -> dict | None:
     return _record_to_dict(row)
 
 
+async def get_all_user_ids() -> list[int]:
+    """Return a list of all registered telegram_ids for broadcasting."""
+    pool = await _get_pool()
+    rows = await pool.fetch("SELECT telegram_id FROM users")
+    return [int(r["telegram_id"]) for r in rows]
+
+
 async def create_user(
     telegram_id: int,
     phone_number: str,

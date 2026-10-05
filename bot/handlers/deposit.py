@@ -203,7 +203,46 @@ async def _create_and_send_peerpay_checkout(
         checkout_url = dep_data.get("checkout_url")
 
         if not deposit_id or not checkout_url:
-            err = res.get("error", {})
+            err = res.get("error", {}) if isinstance(res, dict) else {}
+            err_code = err.get("code", "")
+            # If method routing failed (503 / order_routing_unavailable), try once without restricting payment_method
+            if (err_code == "order_routing_unavailable" or res.get("status_code") == 503) and peerpay_method_code:
+                try:
+                    retry_res = await peerpay_client.create_deposit(
+                        merchant_customer_id=f"tg_{telegram_id}",
+                        amount=amount,
+                        payment_method=None,
+                        idempotency_key=f"{idempotency_key}-any",
+                    )
+                    r_data = retry_res.get("data", {})
+                    if r_data.get("id") and r_data.get("checkout_url"):
+                        res = retry_res
+                        dep_data = r_data
+                        deposit_id = dep_data.get("id")
+                        checkout_url = dep_data.get("checkout_url")
+                except Exception:
+                    pass
+
+        if not deposit_id or not checkout_url:
+            err = res.get("error", {}) if isinstance(res, dict) else {}
+            err_code = err.get("code", "")
+            if err_code == "order_routing_unavailable" or "receiving account" in str(err.get("message", "")).lower():
+                # Provide seamless direct manual transfer fallback
+                if method == "telebirr":
+                    fallback_text = msg.TELEBIRR_DEPOSIT_INSTRUCTIONS
+                elif method == "cbebirr":
+                    fallback_text = msg.CBE_DEPOSIT_INSTRUCTIONS
+                else:
+                    fallback_text = msg.MOBILE_BANKING_DEPOSIT_INSTRUCTIONS
+
+                await message.reply_text(
+                    "⚠️ *የ PeerPay የመስመር ላይ ክፍያ ለጊዜው አልተገኘም።*\n\n"
+                    "በቀጥታ ከታች ባለው መረጃ በመክፈል SMS ወይም Transaction ID እዚሁ ይላኩልን (በራስ-ሰር ይጨመርልዎታል)፦\n\n"
+                    + fallback_text,
+                    parse_mode="Markdown",
+                )
+                return
+
             err_msg = err.get("message", "የክፍያ ማስፈንጠሪያ ማዘጋጀት አልተቻለም።")
             await message.reply_text(f"❌ *ስህተት:* {err_msg}", parse_mode="Markdown")
             return
@@ -264,6 +303,18 @@ async def _verify_and_credit_reference(
         dep_data = create_res.get("data", {})
         deposit_id = dep_data.get("id")
         checkout_url = dep_data.get("checkout_url")
+        if not deposit_id:
+            # Retry without payment method
+            create_res = await peerpay_client.create_deposit(
+                merchant_customer_id=f"tg_{telegram_id}",
+                amount=amount,
+                payment_method=None,
+                idempotency_key=f"{idempotency_key}-any",
+            )
+            dep_data = create_res.get("data", {})
+            deposit_id = dep_data.get("id")
+            checkout_url = dep_data.get("checkout_url")
+
         if deposit_id:
             await db.upsert_peerpay_deposit(
                 payment_id=deposit_id,
@@ -277,8 +328,36 @@ async def _verify_and_credit_reference(
         logger.warning("Error creating deposit for reference: %s", exc)
 
     if not deposit_id or not checkout_url:
+        logger.info("PeerPay deposit create unavailable for reference %s; falling back to direct verification", ref)
+        try:
+            from bot.sms_parser import verify_deposit_submission
+            local_res = await verify_deposit_submission(ref, expected_method=method, explicit_amount=amount)
+            if local_res.get("valid"):
+                verified_amt = float(local_res.get("amount") or amount)
+                new_bal = await db.credit_balance(
+                    telegram_id,
+                    verified_amt,
+                    f"Direct deposit verified: {ref} ({method})",
+                )
+                await db.add_transaction(
+                    telegram_id,
+                    "deposit",
+                    verified_amt,
+                    "completed",
+                    f"Direct deposit: {ref}",
+                    f"ref:{ref}",
+                )
+                await _broadcast_balance(telegram_id, new_bal)
+                await message.reply_text(
+                    msg.DEPOSIT_AUTO_APPROVED.format(amount=verified_amt, balance=new_bal),
+                    parse_mode="Markdown",
+                )
+                return
+        except Exception as local_exc:
+            logger.warning("Local verification fallback error: %s", local_exc)
+
         await message.reply_text(
-            "⚠️ የክፍያ ማስፈንጠሪያ ማዘጋጀት አልተቻለም። እባክዎ በ /deposit ይሞክሩ።",
+            "⚠️ የክፍያ ማስፈንጠሪያ ማዘጋጀት አልተቻለም። እባክዎ በ /deposit ይሞክሩ ወይም ሙሉ የ SMS መልዕክት ይላኩልን።",
             parse_mode="Markdown",
         )
         return

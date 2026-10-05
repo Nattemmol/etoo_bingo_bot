@@ -37,6 +37,7 @@ if _is_valid_postgres_url(settings.database_url):
         close_db,
         ping_db,
         get_user,
+        get_all_user_ids,
         create_user,
         ensure_user,
         get_balance,
@@ -283,6 +284,14 @@ async def get_user(telegram_id: int) -> dict | None:
     ) as cursor:
         row = await cursor.fetchone()
         return dict(row) if row else None
+
+
+async def get_all_user_ids() -> list[int]:
+    """Return a list of all registered telegram_ids for broadcasting."""
+    db = await get_db()
+    async with db.execute("SELECT telegram_id FROM users") as cursor:
+        rows = await cursor.fetchall()
+        return [int(row[0]) for row in rows]
 
 
 async def create_user(

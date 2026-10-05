@@ -34,6 +34,10 @@ class Settings:
     # Verify.et transaction verification (https://verify.et/docs/api)
     verify_et_api_key: str = ""
     verify_et_base_url: str = "https://verify.et"
+    # Announcement and Super Bingo reminders
+    announcement_channel_id: str = ""
+    announcement_broadcast_users: bool = True
+    super_bingo_image_path: Path = field(default_factory=lambda: BASE_DIR / "pic" / "Etoo_bingo.jpg")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -43,6 +47,13 @@ class Settings:
 
         db_path = Path(os.getenv("DATABASE_PATH", "goodbingo.db"))
         always_open = os.getenv("SUPER_BINGO_ALWAYS_OPEN", "false").lower() in ("1", "true", "yes")
+        announcement_channel = os.getenv("ANNOUNCEMENT_CHANNEL_ID") or os.getenv("CHANNEL_ID", "")
+        broadcast_users = os.getenv("ANNOUNCEMENT_BROADCAST_USERS", "true").lower() in ("1", "true", "yes")
+        custom_img = os.getenv("SUPER_BINGO_IMAGE_PATH", "")
+        img_path = Path(custom_img) if custom_img else BASE_DIR / "pic" / "Etoo_bingo.jpg"
+        if not img_path.is_absolute():
+            img_path = BASE_DIR / img_path
+
         return cls(
             bot_token=token,
             webapp_url=os.getenv("WEBAPP_URL", "https://etoo-bingo-game.vercel.app").rstrip("/"),
@@ -50,6 +61,9 @@ class Settings:
             server_port=int(os.getenv("SERVER_PORT", "8080")),
             database_url=os.getenv("DATABASE_URL", ""),
             super_bingo_always_open=always_open,
+            announcement_channel_id=announcement_channel,
+            announcement_broadcast_users=broadcast_users,
+            super_bingo_image_path=img_path,
             telebirr_base_url=os.getenv(
                 "TELEBIRR_BASE_URL",
                 "https://196.188.120.3:38443/apiaccess/payment/gateway",

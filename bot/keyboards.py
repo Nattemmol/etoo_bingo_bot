@@ -243,3 +243,30 @@ def verify_bank_keyboard():
             [InlineKeyboardButton("🔵 TELE BIRR", callback_data="verify_telebirr")],
         ]
     )
+
+
+def super_bingo_reminder_keyboard(webapp_url: str = ""):
+    """Inline keyboard for super bingo reminders linking directly to room_super_50 WebApp."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+    from bot.config import settings
+
+    base_url = (webapp_url or settings.webapp_url or "https://etoo-bingo-game.vercel.app").rstrip("/")
+    sep = "&" if "?" in base_url else "?"
+    backend_api = "https://etoo-bingo-game.onrender.com"
+    room = "room_super_50"
+    if "api=" not in base_url:
+        full_url = f"{base_url}{sep}room={room}&api={backend_api}"
+    else:
+        full_url = f"{base_url}{sep}room={room}"
+
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "🎮 ካርቴላ ይቁረጡ (Play superBingo)",
+                    web_app=WebAppInfo(url=full_url),
+                )
+            ]
+        ]
+    )
+
