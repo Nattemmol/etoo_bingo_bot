@@ -31,12 +31,37 @@ logger = logging.getLogger(__name__)
 OFFICIAL_ACCOUNTS = {
     "telebirr": {
         "display_name": "Telebirr (ቴሌብር)",
-        "name": "Habtamu Melese",
+        "name": "Habtamu Melese / Natnael Temesegen",
         "phone": "0963572327",
+        "secondary_phone": "0934921104",
         "intl_phone": "251963572327",
         "short_phone": "963572327",
-        "valid_numbers": ["0963572327", "251963572327", "+251963572327", "963572327", "63572327"],
-        "valid_names": ["habtamu", "melese", "habtamumelese", "ሀብታሙ", "መለሰ"],
+        "valid_numbers": [
+            "0963572327",
+            "251963572327",
+            "+251963572327",
+            "963572327",
+            "63572327",
+            "0934921104",
+            "251934921104",
+            "+251934921104",
+            "934921104",
+            "34921104",
+        ],
+        "valid_names": [
+            "habtamu",
+            "melese",
+            "habtamumelese",
+            "ሀብታሙ",
+            "መለሰ",
+            "natnael",
+            "temesegen",
+            "natnaeltemesegen",
+            "ናትናኤል",
+            "ተመስገን",
+            "nati",
+            "ናቲ",
+        ],
     },
     "cbebirr": {
         "display_name": "CBE Birr (ሲቢኢ ብር)",
@@ -1001,7 +1026,8 @@ async def verify_deposit_submission(
                 "error_message": (
                     f"❌ *{reject_reason}*\n\n"
                     "ይፋዊ የ EtooBingo አካውንቶች:\n"
-                    "• 🔵 *Telebirr:* `0963572327` (Habtamu Melese)\n"
+                    "• 🔵 *Telebirr 1:* `0963572327` (Habtamu Melese)\n"
+                    "• 🔵 *Telebirr 2:* `0934921104` (Natnael Temesegen)\n"
                     "• 🟢 *CBE Birr:* `0934920411` (Natnael Temesegen)\n"
                     "• 🏦 *CBE Bank:* `1000413343538` (Natnael Temesegen)"
                 ),

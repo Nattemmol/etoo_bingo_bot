@@ -145,10 +145,10 @@ DEPOSIT_METHOD_PROMPT = (
 
 TELEBIRR_DEPOSIT_INSTRUCTIONS = (
     "🔵 *የ Telebirr ክፍያ መረጃ*\n\n"
-    "📱 ስልክ ቁጥር: `0963572327`\n"
-    "👤 ስም: *Habtamu Melese*\n\n"
+    "📱 *አካውንት 1:* `0963572327` (Habtamu Melese)\n"
+    "📱 *አካውንት 2:* `0934921104` (Natnael Temesegen)\n\n"
     "*መመሪያ:*\n"
-    "1. ወደ Telebirr በመግባት ወደ `0963572327` (Habtamu Melese) ያስተላልፉ።\n"
+    "1. ወደ Telebirr በመግባት ከላይ ወዳሉት ወደ አንዱ ቁጥር ያስተላልፉ።\n"
     "2. ክፍያው ሲጠናቀቅ ከታች ካሉት *አንዱን* እዚሁ ይላኩ (paste ያድርጉ):\n"
     "   • 🔗 *ደረሰኝ ሊንክ* (receipt link) ፦ `https://transactioninfo.ethiotelecom.et/receipt/...`\n"
     "   • 🔢 *Transaction ID* (ለምሳሌ: `DIK7W7R5VZ`)\n"
