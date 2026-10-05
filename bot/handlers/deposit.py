@@ -334,25 +334,30 @@ async def _verify_and_credit_reference(
             local_res = await verify_deposit_submission(ref, expected_method=method, explicit_amount=amount)
             if local_res.get("valid"):
                 verified_amt = float(local_res.get("amount") or amount)
-                new_bal = await db.credit_balance(
-                    telegram_id,
-                    verified_amt,
-                    f"Direct deposit verified: {ref} ({method})",
+                credited, new_bal, is_dup = await db.auto_credit_deposit(
+                    telegram_id=telegram_id,
+                    amount=verified_amt,
+                    fingerprint=f"ref:{ref}",
+                    description=f"Direct deposit verified: {ref} ({method})",
                 )
-                await db.add_transaction(
-                    telegram_id,
-                    "deposit",
-                    verified_amt,
-                    "completed",
-                    f"Direct deposit: {ref}",
-                    f"ref:{ref}",
-                )
-                await _broadcast_balance(telegram_id, new_bal)
-                await message.reply_text(
-                    msg.DEPOSIT_AUTO_APPROVED.format(amount=verified_amt, balance=new_bal),
-                    parse_mode="Markdown",
-                )
-                return
+                if credited:
+                    await _broadcast_balance(telegram_id, new_bal)
+                    await message.reply_text(
+                        msg.DEPOSIT_AUTO_APPROVED.format(amount=verified_amt, balance=new_bal),
+                        parse_mode="Markdown",
+                    )
+                    return
+                elif is_dup:
+                    await message.reply_text(
+                        msg.DEPOSIT_REUSED.format(amount=verified_amt),
+                        parse_mode="Markdown",
+                    )
+                    return
+            else:
+                err_msg = local_res.get("error_message")
+                if err_msg:
+                    await message.reply_text(err_msg, parse_mode="Markdown")
+                    return
         except Exception as local_exc:
             logger.warning("Local verification fallback error: %s", local_exc)
 
