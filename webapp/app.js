@@ -498,8 +498,6 @@ els.btnTakenOk?.addEventListener("click", closeModals);
 // The user marks called numbers on their cartela by tapping the cell.
 // The FREE center is always marked.
 
-let markSendTimeout;
-
 function toggleMark(cardId, row, col) {
   if (state.phase !== "playing") return;
   const marks = state.marked[cardId] || new Set();
@@ -519,16 +517,17 @@ function toggleMark(cardId, row, col) {
 
 function sendMark(cardId, row, col, marked) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  clearTimeout(markSendTimeout);
-  markSendTimeout = setTimeout(() => {
-    ws.send(JSON.stringify({ type: "mark", card_id: cardId, row, col, marked }));
-  }, 50);
+  ws.send(JSON.stringify({ type: "mark", card_id: cardId, row, col, marked }));
 }
 
 if (els.btnBingo) {
   els.btnBingo.addEventListener("click", () => {
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "bingo" }));
+      const allMarks = {};
+      state.cardIds.forEach((cid) => {
+        allMarks[cid] = Array.from(state.marked[cid] || []);
+      });
+      ws.send(JSON.stringify({ type: "bingo", all_marks: allMarks }));
       tg.HapticFeedback?.notificationOccurred("success");
     }
   });
@@ -595,7 +594,8 @@ function renderGameCards() {
       bingoBtn.textContent = "🎉 BINGO!";
       bingoBtn.addEventListener("click", () => {
         if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "bingo", card_id: id }));
+          const marksList = Array.from(state.marked[id] || []);
+          ws.send(JSON.stringify({ type: "bingo", card_id: id, marks: marksList }));
           tg.HapticFeedback?.impactOccurred("medium");
         }
       });

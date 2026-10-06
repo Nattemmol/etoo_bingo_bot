@@ -207,13 +207,6 @@ export function renderCard(container, card, marked, calledSet, onMark, interacti
         if (interactive && onMark) {
           const handleTap = (e) => {
             e.preventDefault();
-            if (!calledSet || !calledSet.has(value)) {
-              cell.classList.remove("shake-error");
-              void cell.offsetWidth;
-              cell.classList.add("shake-error");
-              window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred("error");
-              return;
-            }
             onMark(row, col);
           };
           cell.addEventListener("pointerdown", handleTap);

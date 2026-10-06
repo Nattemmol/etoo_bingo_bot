@@ -87,6 +87,20 @@ class TestCheckBingoMarked(unittest.TestCase):
         marks = set(_card_row_indexes(0))
         self.assertIsNone(check_bingo_marked(self.card, marks, called, "full"))
 
+    def test_extra_uncalled_marks_do_not_prevent_valid_line_win(self):
+        row_cells = [self.flat[i] for i in _card_row_indexes(0)]
+        called = set(row_cells)
+        # Marks include valid row 0 PLUS extra cells that were never called
+        marks = set(_card_row_indexes(0)) | {10, 11, 23}
+        self.assertEqual(check_bingo_marked(self.card, marks, called, "line"), "row")
+
+    def test_diagonal_wins(self):
+        # Diagonal from top-left (0) to bottom-right (24): 0, 6, 12(FREE), 18, 24
+        diag_idxs = [0, 6, 18, 24]
+        diag_cells = {self.flat[i] for i in diag_idxs}
+        marks = set(diag_idxs)
+        self.assertEqual(check_bingo_marked(self.card, marks, diag_cells, "line"), "diagonal")
+
 
 class TestAutoDeclareWins(unittest.TestCase):
     def setUp(self):

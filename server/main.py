@@ -1497,24 +1497,19 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                 if flat == FREE_INDEX:
                     continue  # the FREE center is always marked
 
-                card = player.cards[card_id]
-                val = card[row][col]
-                if desired and (val is None or val not in room.called_set):
-                    await send(websocket, {"type": "mark_error", "message": "ቁጥሩ ገና አልተጠራም (Number not called yet)."})
-                    continue
+                if 0 <= flat <= 24:
+                    marks = player.marks.setdefault(card_id, set())
+                    if desired:
+                        marks.add(flat)
+                    else:
+                        marks.discard(flat)
+                    player.marks[card_id] = marks
+                    queue_room_snapshot(room_id)
 
-                marks = player.marks.setdefault(card_id, set())
-                if desired:
-                    marks.add(flat)
-                else:
-                    marks.discard(flat)
-                player.marks[card_id] = marks
-                queue_room_snapshot(room_id)
-
-                await send(
-                    websocket,
-                    {"type": "mark_ack", "card_id": card_id, "flat": flat, "marked": desired},
-                )
+                    await send(
+                        websocket,
+                        {"type": "mark_ack", "card_id": card_id, "flat": flat, "marked": desired},
+                    )
                 continue
 
             if msg_type == "bingo":
@@ -1544,6 +1539,11 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                 target_cid = msg.get("card_id")
                 # If specific card_id is claimed
                 if target_cid is not None:
+                    try:
+                        target_cid = int(target_cid)
+                    except (ValueError, TypeError):
+                        pass
+
                     if target_cid not in player.cards:
                         await send(
                             websocket,
@@ -1565,6 +1565,17 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                             },
                         )
                         continue
+
+                    # Sync marks from client if attached to claim
+                    client_marks = msg.get("marks")
+                    if isinstance(client_marks, list):
+                        try:
+                            player.marks[target_cid] = {
+                                int(idx) for idx in client_marks
+                                if isinstance(idx, (int, str)) and str(idx).isdigit() and 0 <= int(idx) <= 24 and int(idx) != FREE_INDEX
+                            }
+                        except Exception:
+                            pass
 
                     win = find_winning_card(room, player, allow_unmarked=False, target_card_id=target_cid)
                     if not win:
@@ -1596,6 +1607,20 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                     continue
                 else:
                     # General BINGO claim across all non-locked cards
+                    client_all_marks = msg.get("all_marks")
+                    if isinstance(client_all_marks, dict):
+                        for cid_str, m_list in client_all_marks.items():
+                            if str(cid_str).isdigit():
+                                cid_int = int(cid_str)
+                                if cid_int in player.cards and isinstance(m_list, list):
+                                    try:
+                                        player.marks[cid_int] = {
+                                            int(idx) for idx in m_list
+                                            if isinstance(idx, (int, str)) and str(idx).isdigit() and 0 <= int(idx) <= 24 and int(idx) != FREE_INDEX
+                                        }
+                                    except Exception:
+                                        pass
+
                     win = find_winning_card(room, player, allow_unmarked=False)
                     if not win:
                         # Lock all unlocked cards
