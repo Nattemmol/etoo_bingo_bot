@@ -244,16 +244,23 @@ async def _create_and_send_peerpay_checkout(
                 else:
                     fallback_text = msg.MOBILE_BANKING_DEPOSIT_INSTRUCTIONS
 
-                await message.reply_text(
+                fallback_msg = (
                     "⚠️ *የ PeerPay የመስመር ላይ ክፍያ ለጊዜው አልተገኘም።*\n\n"
                     "በቀጥታ ከታች ባለው መረጃ በመክፈል SMS ወይም Transaction ID እዚሁ ይላኩልን (በራስ-ሰር ይጨመርልዎታል)፦\n\n"
-                    + fallback_text,
-                    parse_mode="Markdown",
+                    + fallback_text
                 )
+                try:
+                    await message.reply_text(fallback_msg, parse_mode="Markdown")
+                except Exception as send_err:
+                    logger.warning("Failed to send markdown fallback message, sending plain: %s", send_err)
+                    await message.reply_text(fallback_msg)
                 return
 
             err_msg = err.get("message", "የክፍያ ማስፈንጠሪያ ማዘጋጀት አልተቻለም።")
-            await message.reply_text(f"❌ *ስህተት:* {err_msg}", parse_mode="Markdown")
+            try:
+                await message.reply_text(f"❌ *ስህተት:* {err_msg}", parse_mode="Markdown")
+            except Exception:
+                await message.reply_text(f"❌ ስህተት: {err_msg}")
             return
 
         # Store in database and context
@@ -275,22 +282,33 @@ async def _create_and_send_peerpay_checkout(
             f"💰 መጠን: *{amount:.2f} ETB*\n"
             f"🏦 መንገድ: *{method_label}*\n\n"
             "📌 *ቀጣይ እርምጃ:*\n"
-            "1. ከታች ያለውን **'💳 በ PeerPay ክፈሉ'** የሚለውን ይጫኑ።\n"
+            "1. ከታች ያለውን *'💳 በ PeerPay ክፈሉ'* የሚለውን ይጫኑ።\n"
             "2. በሚከፈተው ገጽ ላይ የተሰጠውን አካውንት ኮፒ አድርገው ይክፈሉ።\n"
-            "3. ክፍያው ሲጠናቀቅ የደረሰዎትን **Transaction ID** በገጹ ላይ ያስገቡ።\n"
+            "3. ክፍያው ሲጠናቀቅ የደረሰዎትን *Transaction ID* በገጹ ላይ ያስገቡ።\n"
             "4. PeerPay ክፍያውን ወዲያውኑ ከባንክ አረጋግጦ ወደ አካውንትዎ ይጨምራል! 🎱"
         )
-        await message.reply_text(
-            text,
-            reply_markup=peerpay_pay_keyboard(checkout_url=checkout_url, deposit_id=deposit_id),
-            parse_mode="Markdown",
-        )
+        try:
+            await message.reply_text(
+                text,
+                reply_markup=peerpay_pay_keyboard(checkout_url=checkout_url, deposit_id=deposit_id),
+                parse_mode="Markdown",
+            )
+        except Exception:
+            await message.reply_text(
+                text,
+                reply_markup=peerpay_pay_keyboard(checkout_url=checkout_url, deposit_id=deposit_id),
+            )
     except Exception as exc:
         logger.exception("Error creating PeerPay deposit: %s", exc)
-        await message.reply_text(
-            "❌ የክፍያ ማስፈንጠሪያ ማዘጋጀት አልተቻለም። እባክዎ ከጥቂት ደቂቃዎች በኋላ እንደገና ይሞክሩ።",
-            parse_mode="Markdown",
-        )
+        try:
+            await message.reply_text(
+                "❌ የክፍያ ማስፈንጠሪያ ማዘጋጀት አልተቻለም። እባክዎ ከጥቂት ደቂቃዎች በኋላ እንደገና ይሞክሩ።",
+                parse_mode="Markdown",
+            )
+        except Exception:
+            await message.reply_text(
+                "❌ የክፍያ ማስፈንጠሪያ ማዘጋጀት አልተቻለም። እባክዎ ከጥቂት ደቂቃዎች በኋላ እንደገና ይሞክሩ。"
+            )
 
 
 async def _verify_and_credit_reference(

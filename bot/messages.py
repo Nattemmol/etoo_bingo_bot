@@ -190,7 +190,7 @@ MOBILE_BANKING_DEPOSIT_INSTRUCTIONS = (
     "👤 ስም: *Natnael Temesegen*\n\n"
     "🏦 ባንክ: *የኢትዮጵያ ንግድ ባንክ (Commercial Bank of Ethiopia)*\n\n"
     "*መመሪያ:*\n"
-    "1. በ CBE Mobile App ወይም በ *889# ወደ `1000413343538` ያስተላልፉ።\n"
+    "1. በ CBE Mobile App ወይም በ `*889#` ወደ `1000413343538` ያስተላልፉ።\n"
     "2. ክፍያው ሲጠናቀቅ ከታች ካሉት *አንዱን* እዚሁ ይላኩ (paste ያድርጉ):\n"
     "   • 🔗 *ደረሰኝ ሊንክ* ፦ `https://mbreciept.cbe.com.et/...`\n"
     "   • 🔢 *Transaction ID / FT ቁጥር* (ለምሳሌ: `FT262641DG9X`)\n"

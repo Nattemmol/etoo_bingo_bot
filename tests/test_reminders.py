@@ -125,22 +125,30 @@ class TestSuperBingoReminders(unittest.IsolatedAsyncioTestCase):
             "status_code": 503,
         }
 
-        with patch("bot.handlers.deposit.peerpay_client.create_deposit", new_callable=AsyncMock) as mock_create:
-            mock_create.return_value = err_503_response
+        for m in ("telebirr", "telebirr_1", "telebirr_2", "cbebirr", "cbe_bank"):
+            mock_message.reset_mock()
+            with patch("bot.handlers.deposit.peerpay_client.create_deposit", new_callable=AsyncMock) as mock_create:
+                mock_create.return_value = err_503_response
 
-            await _create_and_send_peerpay_checkout(
-                message=mock_message,
-                telegram_id=99999,
-                amount=50.0,
-                method="telebirr",
-                context=mock_context,
-            )
+                await _create_and_send_peerpay_checkout(
+                    message=mock_message,
+                    telegram_id=99999,
+                    amount=50.0,
+                    method=m,
+                    context=mock_context,
+                )
 
-            # Check that message.reply_text was called with Amharic fallback text rather than crashing
-            self.assertTrue(mock_message.reply_text.called)
-            sent_text = mock_message.reply_text.call_args[0][0]
-            self.assertIn("የ PeerPay የመስመር ላይ ክፍያ ለጊዜው አልተገኘም", sent_text)
-            self.assertIn("0963572327", sent_text)  # Habtamu Melese official number
+                self.assertTrue(mock_message.reply_text.called)
+                sent_text = mock_message.reply_text.call_args[0][0]
+                self.assertIn("የ PeerPay የመስመር ላይ ክፍያ ለጊዜው አልተገኘም", sent_text)
+                # Verify that parse_mode="Markdown" does not cause entity errors
+                parse_mode = mock_message.reply_text.call_args[1].get("parse_mode")
+                if parse_mode == "Markdown":
+                    # Check that markdown delimiters are balanced
+                    parts = sent_text.split("`")
+                    ast_count = sum(p.count("*") for i, p in enumerate(parts) if i % 2 == 0)
+                    self.assertEqual(ast_count % 2, 0, f"Odd asterisks for method {m}")
+
 
 
 if __name__ == "__main__":
