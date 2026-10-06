@@ -567,16 +567,26 @@ function renderGameCards() {
 
     const marked = state.marked[id] || new Set();
     const rule = state.room?.bingo_rule || "line_corners";
+
+    // In celebration / finished mode, if this card won, highlight ONLY the winning line!
+    let displayMarks = marked;
+    if (state.phase === "done" && Array.isArray(state.winners) && state.winners.length > 0) {
+      const myWin = state.winners.find((w) => w.telegram_id === state.myId && w.card_id === id);
+      if (myWin && Array.isArray(myWin.winning_indexes) && myWin.winning_indexes.length > 0) {
+        displayMarks = new Set(myWin.winning_indexes);
+      }
+    }
+
     renderCard(
       grid,
       card,
-      marked,
+      displayMarks,
       state.calledSet,
       (row, col) => {
-        if (isLocked) return;
+        if (isLocked || state.phase === "done") return;
         toggleMark(id, row, col);
       },
-      !isLocked,
+      !isLocked && state.phase === "playing",
       rule
     );
 
@@ -982,20 +992,28 @@ function handleMessage(socket, msg) {
 
     case "winner":
       state.phase = "done";
+      state.winners = Array.isArray(msg.winners) ? msg.winners : [];
       stopWindowTimer();
       stopLobbyCountdown();
+      renderGameCards();
       openWinnerModal(msg);
       break;
 
     case "game_over":
-      if (msg.refunded) {
-        showBanner(`ℹ️ ጨዋታው ያለ BINGO ተጠናቋል። የመጫወቻ ብርዎ ${msg.refund_amount ? Number(msg.refund_amount).toFixed(0) : ""} ETB ተመላሽ ተደርጓል!`);
-      } else {
-        showError("All numbers were called. No winner this round.");
-      }
       state.phase = "done";
+      state.winners = [];
       stopWindowTimer();
       stopLobbyCountdown();
+      renderGameCards();
+      openWinnerModal({
+        all_locked: false,
+        winners: [],
+        reason: "all_numbers_called",
+        wait_seconds: 10,
+        message: msg.refunded
+          ? (msg.message || `ሁሉም 75 ቁጥሮች ተጠርተዋል — በዚህ ዙር ምንም አሸናፊ ስላልተገኘ የመጫወቻ ብርዎ ተመልሷል!`)
+          : (msg.message || "ሁሉም ቁጥሮች ተጠርተዋል — በዚህ ዙር ምንም አሸናፊ አልተገኘም።"),
+      });
       break;
 
     case "round_reset": {
@@ -1006,6 +1024,7 @@ function handleMessage(socket, msg) {
       state.isPlayer = false;
       state.called = [];
       state.calledSet = new Set();
+      state.winners = [];
       state.phase = "lobby";
       state.claimed = false;
 
@@ -1140,7 +1159,7 @@ function openWinnerModal(msg) {
 
       const gridEl = cardItem.querySelector(".winner-mini-grid");
       const rule = state.room?.bingo_rule || "line_corners";
-      renderWinnerCard(gridEl, cardGrid, calledSet, rule);
+      renderWinnerCard(gridEl, cardGrid, calledSet, rule, w.winning_indexes, w.pattern);
       els.winnerCardsScroll.appendChild(cardItem);
     });
   }

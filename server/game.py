@@ -128,14 +128,37 @@ def check_bingo_marked_fast(
     rule: str = "line",
 ) -> str | None:
     """Bitmask-accelerated win check for manually marked cards."""
+    pattern, _ = check_bingo_marked_fast_with_indexes(card, marks, called, rule)
+    return pattern
+
+
+def check_bingo_marked_fast_with_indexes(
+    card: list[list[int | None]],
+    marks: set[int],
+    called: set[int],
+    rule: str = "line",
+) -> tuple[str | None, list[int]]:
+    """Bitmask-accelerated win check returning (pattern, winning_indexes)."""
     mask = _build_marked_mask(marks, card, called)
-    return _match_rule(mask, rule)
+    return _match_rule_with_indexes(mask, rule)
 
 
-def _match_rule(mask: int, rule: str) -> str | None:
-    """Check a player's bitmask against the rule's winning patterns."""
+def check_bingo_fast_with_indexes(
+    card: list[list[int | None]],
+    called: set[int],
+    rule: str = "line",
+) -> tuple[str | None, list[int]]:
+    """Bitmask-accelerated win check directly on called set returning (pattern, winning_indexes)."""
+    mask = _build_called_mask(card, called)
+    return _match_rule_with_indexes(mask, rule)
+
+
+def _match_rule_with_indexes(mask: int, rule: str) -> tuple[str | None, list[int]]:
+    """Check a player's bitmask against the rule's winning patterns, returning pattern and flat indexes."""
     if rule == "full":
-        return "full" if (mask & _FULL_MASK) == _FULL_MASK else None
+        if (mask & _FULL_MASK) == _FULL_MASK:
+            return "full", list(range(25))
+        return None, []
     if rule in ("line", "line_corners"):
         patterns = _LINE_CORNERS_MASKS if rule == "line_corners" else _LINE_MASKS
     elif rule == "corners":
@@ -144,8 +167,15 @@ def _match_rule(mask: int, rule: str) -> str | None:
         patterns = _LINE_MASKS
     for win_mask, pattern_name in patterns:
         if (mask & win_mask) == win_mask:
-            return pattern_name
-    return None
+            indexes = [i for i in range(25) if (win_mask & (1 << i))]
+            return pattern_name, indexes
+    return None, []
+
+
+def _match_rule(mask: int, rule: str) -> str | None:
+    """Check a player's bitmask against the rule's winning patterns."""
+    pattern, _ = _match_rule_with_indexes(mask, rule)
+    return pattern
 
 
 class GamePhase(str, Enum):
@@ -318,7 +348,7 @@ class GameRoom:
     entry_fee: float
     house_cut: float = 0.0
     max_cards: int = 450
-    call_interval: float = 4.0
+    call_interval: float = 6.0
     lobby_seconds: int = 30  # 30-second intermission between rounds
     bingo_rule: str = "line"  # passed to check_bingo: line / line_corners / corners / full
     phase: GamePhase = GamePhase.LOBBY
@@ -362,7 +392,7 @@ ROOM_CONFIG = {
         "entry_fee": 10.0,
         "house_cut": 2.0,
         "max_cards": 450,
-        "call_interval": 4.0,
+        "call_interval": 6.0,
         "lobby_seconds": 30,
         "bingo_rule": "line_corners",  # one line OR all four corners
         "schedule": "24/7 (All the time)",
@@ -372,7 +402,7 @@ ROOM_CONFIG = {
         "entry_fee": 50.0,
         "house_cut": 10.0,
         "max_cards": 1500,
-        "call_interval": 3.0,
+        "call_interval": 5.0,
         "lobby_seconds": 30,
         "bingo_rule": "full",
         "schedule": "Daily at 1:00 LT night (7:00 PM EAT)",

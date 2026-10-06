@@ -203,6 +203,27 @@ class TestAutoDeclareWins(unittest.TestCase):
 
         self.assertEqual(self.room.bingo_claimants, [])
 
+    def test_check_bingo_marked_fast_with_indexes(self):
+        from server.game import check_bingo_marked_fast_with_indexes
+        card = generate_card_by_id(3)
+        marks, called = self._row_marks_and_called(card, 0)
+        pattern, indexes = check_bingo_marked_fast_with_indexes(card, marks, called, "line")
+        self.assertEqual(pattern, "row")
+        self.assertEqual(indexes, [0, 1, 2, 3, 4])
+
+    def test_call_interval_increased_by_two_seconds(self):
+        from server.game import ROOM_CONFIG
+        self.assertEqual(ROOM_CONFIG["room_play_10"]["call_interval"], 6.0)
+        self.assertEqual(ROOM_CONFIG["room_super_50"]["call_interval"], 5.0)
+
+    def test_claim_includes_winning_indexes(self):
+        card = generate_card_by_id(3)
+        marks, called = self._row_marks_and_called(card, 0)
+        self._add_player(101, "Alice", 3, marks, called)
+        self._run(server_main.check_all_wins(self.room))
+        self.assertEqual(len(self.room.bingo_claimants), 1)
+        self.assertEqual(self.room.bingo_claimants[0]["winning_indexes"], [0, 1, 2, 3, 4])
+
 
 if __name__ == "__main__":
     unittest.main()

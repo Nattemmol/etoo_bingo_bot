@@ -136,7 +136,10 @@ export function getWinningIndexes(card, marked, calledSet, rule = "line_corners"
   function isHit(idx) {
     if (idx === FREE_INDEX) return true;
     const val = flat[idx];
-    return Boolean(marked && marked.has(idx) && calledSet && calledSet.has(val));
+    if (marked) {
+      return Boolean(marked.has(idx) && calledSet && calledSet.has(val));
+    }
+    return Boolean(calledSet && calledSet.has(val));
   }
 
   if (rule === "full") {
@@ -220,10 +223,34 @@ export function renderCard(container, card, marked, calledSet, onMark, interacti
   }
 }
 
-export function renderWinnerCard(container, card, calledSet, rule = "line_corners") {
+export function renderWinnerCard(container, card, calledSet, rule = "line_corners", winningIndexesList = null, pattern = null) {
   container.innerHTML = "";
-  const winningIndexes = getWinningIndexes(card, null, calledSet, rule);
-  winningIndexes.add(FREE_INDEX);
+  let winningIndexes;
+  if (Array.isArray(winningIndexesList) && winningIndexesList.length > 0) {
+    winningIndexes = new Set(winningIndexesList);
+  } else {
+    winningIndexes = getWinningIndexes(card, null, calledSet, rule);
+  }
+
+  // Include FREE in winning indexes if center row, col, diagonals, or full card is part of the win
+  if (winningIndexes.size > 0) {
+    const centerPatterns = [
+      [10, 11, 12, 13, 14],
+      [2, 7, 12, 17, 22],
+      [0, 6, 12, 18, 24],
+      [4, 8, 12, 16, 20],
+    ];
+    let usesFree = rule === "full";
+    for (const pat of centerPatterns) {
+      if (pat.every((idx) => idx === FREE_INDEX || winningIndexes.has(idx))) {
+        usesFree = true;
+        break;
+      }
+    }
+    if (usesFree) {
+      winningIndexes.add(FREE_INDEX);
+    }
+  }
 
   LETTERS.forEach((letter) => {
     const head = document.createElement("div");
@@ -241,7 +268,11 @@ export function renderWinnerCard(container, card, calledSet, rule = "line_corner
 
       cell.className = "card-cell winner-grid-cell";
       if (isFree) {
-        cell.classList.add("free", "winning-cell");
+        if (winningIndexes.has(FREE_INDEX)) {
+          cell.classList.add("free", "winning-cell");
+        } else {
+          cell.classList.add("free", "dimmed-cell");
+        }
         cell.textContent = "FREE";
       } else {
         cell.textContent = value;
