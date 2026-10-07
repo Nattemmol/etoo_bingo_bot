@@ -588,9 +588,13 @@ async def run_playing_round(room: GameRoom) -> None:
                     cards_count = sum(1 for owner in room.taken_cards.values() if owner == tid)
                     user_refund = round(cards_count * room.entry_fee, 2)
                     if user_refund > 0:
-                        total_refunded += user_refund
                         try:
-                            new_balance = await db.credit_balance(tid, user_refund)
+                            new_balance = await db.credit_balance(
+                                tid,
+                                user_refund,
+                                f"Refund: All 75 numbers called without bingo in {room.name}",
+                            )
+                            total_refunded += user_refund
                             await db.add_transaction(
                                 tid,
                                 "refund",
@@ -838,13 +842,35 @@ async def handle_cards_locked(
         refund_amount = round(len(player.card_ids) * room.entry_fee, 2)
         new_balance = 0.0
         if not FREE_PLAY:
-            await db.credit_balance(
+            new_balance = await db.credit_balance(
                 player.telegram_id,
                 refund_amount,
                 f"Refund: Single player all cards locked in {room.name}",
             )
-        user_data = await db.get_user(player.telegram_id)
-        new_balance = float(user_data["balance"]) if user_data else 0.0
+            try:
+                await db.add_transaction(
+                    player.telegram_id,
+                    "refund",
+                    refund_amount,
+                    "completed",
+                    f"Refund: Single player all cards locked in {room.name}",
+                    f"refund:solo_locked:{room.room_id}:{time.time():.0f}:{player.telegram_id}",
+                )
+                await broadcast_user_balance(player.telegram_id, new_balance)
+                await _notify_telegram(
+                    player.telegram_id,
+                    (
+                        f"ℹ️ *{room.name}*\n\n"
+                        "ሁሉም መጫወቻዎችዎ ስለተቆለፉና ለብቻዎ ስለነበሩ "
+                        f"የመጫወቻ ብርዎ *{refund_amount:.0f} ETB* ወደ ሂሳብዎ ተመልሷል!\n"
+                        f"💳 ወቅታዊ ሂሳብ: *{new_balance:.2f} ETB*"
+                    ),
+                )
+            except Exception as e:
+                logger.warning("Could not send solo locked refund notification to %s: %s", player.telegram_id, e)
+        else:
+            user_data = await db.get_user(player.telegram_id)
+            new_balance = float(user_data["balance"]) if user_data else 0.0
 
         # 2. Finish round immediately
         room.phase = GamePhase.FINISHED
@@ -929,7 +955,11 @@ async def handle_cards_locked(
                 if user_refund > 0:
                     total_refunded += user_refund
                     try:
-                        new_balance = await db.credit_balance(tid, user_refund)
+                        new_balance = await db.credit_balance(
+                            tid,
+                            user_refund,
+                            f"Refund: All players locked in {room.name}",
+                        )
                         await db.add_transaction(
                             tid,
                             "refund",
@@ -1449,6 +1479,14 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                     continue
 
                 player = room.players.get(ws_id)
+                if not player and telegram_id:
+                    for p in room.players.values():
+                        if p.telegram_id == telegram_id:
+                            player = p
+                            player.ws_id = ws_id
+                            room.players[ws_id] = player
+                            break
+
                 card_id = msg.get("card_id")
                 row = msg.get("row")
                 col = msg.get("col")
@@ -1491,6 +1529,30 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                     )
                 continue
 
+            if msg_type == "sync_marks":
+                player = room.players.get(ws_id)
+                if not player and telegram_id:
+                    for p in room.players.values():
+                        if p.telegram_id == telegram_id:
+                            player = p
+                            player.ws_id = ws_id
+                            room.players[ws_id] = player
+                            break
+                if player and isinstance(msg.get("marks"), dict):
+                    for cid_str, m_list in msg["marks"].items():
+                        try:
+                            cid = int(cid_str)
+                            if cid in player.cards and isinstance(m_list, list):
+                                valid_marks = {
+                                    int(idx) for idx in m_list
+                                    if isinstance(idx, (int, str)) and str(idx).isdigit() and 0 <= int(idx) <= 24 and int(idx) != FREE_INDEX
+                                }
+                                player.marks.setdefault(cid, set()).update(valid_marks)
+                        except Exception:
+                            pass
+                    queue_room_snapshot(room_id)
+                continue
+
             if msg_type == "bingo":
                 if room.phase != GamePhase.PLAYING:
                     await send(
@@ -1504,6 +1566,13 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                     continue
 
                 player = room.players.get(ws_id)
+                if not player and telegram_id:
+                    for p in room.players.values():
+                        if p.telegram_id == telegram_id:
+                            player = p
+                            player.ws_id = ws_id
+                            room.players[ws_id] = player
+                            break
                 if not player or not player.cards:
                     await send(
                         websocket,

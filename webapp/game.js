@@ -208,11 +208,16 @@ export function renderCard(container, card, marked, calledSet, onMark, interacti
         if (marked && marked.has(idx)) cell.classList.add("marked");
 
         if (interactive && onMark) {
+          let lastTapTime = 0;
           const handleTap = (e) => {
-            e.preventDefault();
-            onMark(row, col);
+            if (e.cancelable) e.preventDefault();
+            const now = Date.now();
+            if (now - lastTapTime < 250) return;
+            lastTapTime = now;
+            onMark(row, col, cell);
           };
-          cell.addEventListener("pointerdown", handleTap);
+          cell.addEventListener("pointerup", handleTap);
+          cell.addEventListener("click", handleTap);
         }
       }
       if (winningIndexes.has(idx)) {

@@ -291,7 +291,7 @@ async def deduct_balance(
 
 
 async def credit_balance(
-    telegram_id: int, amount: float, description: str,
+    telegram_id: int, amount: float, description: str = "Balance credit",
 ) -> float:
     """Credit winnings to user balance atomically.
 

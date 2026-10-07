@@ -224,6 +224,100 @@ class TestAutoDeclareWins(unittest.TestCase):
         self.assertEqual(len(self.room.bingo_claimants), 1)
         self.assertEqual(self.room.bingo_claimants[0]["winning_indexes"], [0, 1, 2, 3, 4])
 
+    def test_credit_balance_accepts_default_description(self):
+        import inspect
+        from bot.database import credit_balance as cb_sqlite
+        from bot.db_postgres import credit_balance as cb_pg
+        sig_sqlite = inspect.signature(cb_sqlite)
+        sig_pg = inspect.signature(cb_pg)
+        self.assertIn("description", sig_sqlite.parameters)
+        self.assertNotEqual(sig_sqlite.parameters["description"].default, inspect.Parameter.empty)
+        self.assertIn("description", sig_pg.parameters)
+        self.assertNotEqual(sig_pg.parameters["description"].default, inspect.Parameter.empty)
+
+    def test_solo_player_all_locked_refund(self):
+        player = Player(
+            telegram_id=999,
+            name="SoloUser",
+            ws_id="ws-999",
+            card_ids=[1, 2],
+            cards={1: generate_card_by_id(1), 2: generate_card_by_id(2)},
+            marks={},
+            locked_cards={1, 2},
+        )
+        self.room.players["ws-999"] = player
+        self.room.taken_cards = {1: 999, 2: 999}
+        self.room.entry_fee = 10.0
+
+        mock_credit = AsyncMock(return_value=120.0)
+        mock_notify = AsyncMock()
+        mock_send = AsyncMock()
+        mock_broadcast = AsyncMock()
+
+        with patch("server.main.db.credit_balance", new=mock_credit):
+            with patch("server.main._notify_telegram", new=mock_notify):
+                with patch("server.main.send", new=mock_send):
+                    with patch("server.main.broadcast", new=mock_broadcast):
+                        with patch("server.main.db.add_transaction", new=AsyncMock()):
+                            with patch("server.main.db.get_user", new=AsyncMock(return_value={"balance": 120.0})):
+                                with patch("server.main._delayed_locked_reset", new=AsyncMock()):
+                                    with patch("server.main.FREE_PLAY", False):
+                                        self._run(server_main.handle_cards_locked(
+                                            self.room, player, AsyncMock(), "ws-999", 2, True
+                                        ))
+
+        # 2 cards * 10 ETB = 20.0 ETB refunded (100%)
+        mock_credit.assert_called_once()
+        args = mock_credit.call_args[0]
+        self.assertEqual(args[0], 999)
+        self.assertEqual(args[1], 20.0)
+        mock_notify.assert_called_once()
+        self.assertEqual(mock_notify.call_args[0][0], 999)
+
+    def test_multiplayer_all_locked_refund(self):
+        p1 = Player(
+            telegram_id=101,
+            name="P1",
+            ws_id="ws-101",
+            card_ids=[1],
+            cards={1: generate_card_by_id(1)},
+            marks={},
+            locked_cards={1},
+            forfeited=True,
+        )
+        p2 = Player(
+            telegram_id=102,
+            name="P2",
+            ws_id="ws-102",
+            card_ids=[2],
+            cards={2: generate_card_by_id(2)},
+            marks={},
+            locked_cards={2},
+            forfeited=True,
+        )
+        self.room.players = {"ws-101": p1, "ws-102": p2}
+        self.room.taken_cards = {1: 101, 2: 102}
+        self.room.entry_fee = 10.0
+
+        mock_credit = AsyncMock(return_value=110.0)
+        mock_notify = AsyncMock()
+
+        with patch("server.main.db.credit_balance", new=mock_credit):
+            with patch("server.main._notify_telegram", new=mock_notify):
+                with patch("server.main.send", new=AsyncMock()):
+                    with patch("server.main.broadcast", new=AsyncMock()):
+                        with patch("server.main._delayed_locked_reset", new=AsyncMock()):
+                            with patch("server.main.db.add_transaction", new=AsyncMock()):
+                                self._run(server_main.handle_cards_locked(
+                                    self.room, p2, AsyncMock(), "ws-102", 2, True
+                                ))
+
+        # Both players should be refunded 10.0 ETB
+        self.assertEqual(mock_credit.call_count, 2)
+        refunded_tids = {call[0][0] for call in mock_credit.call_args_list}
+        self.assertEqual(refunded_tids, {101, 102})
+        self.assertEqual(mock_notify.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

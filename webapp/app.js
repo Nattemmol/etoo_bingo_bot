@@ -498,7 +498,66 @@ els.btnTakenOk?.addEventListener("click", closeModals);
 // The user marks called numbers on their cartela by tapping the cell.
 // The FREE center is always marked.
 
-function toggleMark(cardId, row, col) {
+let pendingMarks = [];
+
+function flushPendingMarks() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (pendingMarks.length > 0) {
+    const toSend = [...pendingMarks];
+    pendingMarks = [];
+    toSend.forEach(({ cardId, row, col, marked }) => {
+      ws.send(JSON.stringify({ type: "mark", card_id: Number(cardId), row: Number(row), col: Number(col), marked: Boolean(marked) }));
+    });
+  }
+  // Sync all current local marks to server
+  if (state.cardIds && state.cardIds.length > 0) {
+    const allMarks = {};
+    state.cardIds.forEach((cid) => {
+      allMarks[cid] = Array.from(state.marked[cid] || []);
+    });
+    ws.send(JSON.stringify({ type: "sync_marks", marks: allMarks }));
+  }
+}
+
+function sendMark(cardId, row, col, marked) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    pendingMarks.push({ cardId, row, col, marked });
+    ensureConnected();
+    return;
+  }
+  ws.send(JSON.stringify({ type: "mark", card_id: Number(cardId), row: Number(row), col: Number(col), marked: Boolean(marked) }));
+}
+
+function claimBingo(targetCardId = null) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    showBanner("🔄 እየተገናኘ ነው... እባክዎ ትንሽ ይጠብቁ (Connecting...)", false);
+    ensureConnected();
+    setTimeout(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        claimBingo(targetCardId);
+      }
+    }, 600);
+    return;
+  }
+  const allMarks = {};
+  state.cardIds.forEach((cid) => {
+    allMarks[cid] = Array.from(state.marked[cid] || []);
+  });
+  if (targetCardId != null) {
+    const marksList = Array.from(state.marked[targetCardId] || []);
+    ws.send(JSON.stringify({
+      type: "bingo",
+      card_id: Number(targetCardId),
+      marks: marksList,
+      all_marks: allMarks
+    }));
+  } else {
+    ws.send(JSON.stringify({ type: "bingo", all_marks: allMarks }));
+  }
+  tg.HapticFeedback?.notificationOccurred("success");
+}
+
+function toggleMark(cardId, row, col, cellEl = null) {
   if (state.phase !== "playing") return;
   const marks = state.marked[cardId] || new Set();
   const idx = flatIndex(row, col);
@@ -511,25 +570,30 @@ function toggleMark(cardId, row, col) {
   }
   state.marked[cardId] = marks;
   sendMark(cardId, row, col, marked);
-  renderGameCards();
-  tg.HapticFeedback?.selectionChanged();
-}
 
-function sendMark(cardId, row, col, marked) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({ type: "mark", card_id: cardId, row, col, marked }));
+  // Directly update cell class on the existing DOM element for smooth, glitch-free tap response
+  if (cellEl) {
+    cellEl.classList.toggle("marked", marked);
+    const cardEl = cellEl.closest(".mini-card");
+    if (cardEl) {
+      const card = state.cards[cardId];
+      const rule = state.room?.bingo_rule || "line_corners";
+      const isLocked = state.lockedCards && state.lockedCards.has(cardId);
+      if (!isLocked && card && hasAnyWin(card, marks, state.calledSet, rule)) {
+        cardEl.classList.add("has-bingo");
+      } else {
+        cardEl.classList.remove("has-bingo");
+      }
+    }
+  } else {
+    renderGameCards();
+  }
+  tg.HapticFeedback?.selectionChanged();
 }
 
 if (els.btnBingo) {
   els.btnBingo.addEventListener("click", () => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      const allMarks = {};
-      state.cardIds.forEach((cid) => {
-        allMarks[cid] = Array.from(state.marked[cid] || []);
-      });
-      ws.send(JSON.stringify({ type: "bingo", all_marks: allMarks }));
-      tg.HapticFeedback?.notificationOccurred("success");
-    }
+    claimBingo(null);
   });
 }
 
@@ -582,9 +646,9 @@ function renderGameCards() {
       card,
       displayMarks,
       state.calledSet,
-      (row, col) => {
+      (row, col, cellEl) => {
         if (isLocked || state.phase === "done") return;
-        toggleMark(id, row, col);
+        toggleMark(id, row, col, cellEl);
       },
       !isLocked && state.phase === "playing",
       rule
@@ -603,11 +667,7 @@ function renderGameCards() {
     } else {
       bingoBtn.textContent = "🎉 BINGO!";
       bingoBtn.addEventListener("click", () => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          const marksList = Array.from(state.marked[id] || []);
-          ws.send(JSON.stringify({ type: "bingo", card_id: id, marks: marksList }));
-          tg.HapticFeedback?.impactOccurred("medium");
-        }
+        claimBingo(id);
       });
     }
     block.appendChild(bingoBtn);
@@ -671,6 +731,17 @@ function setupGameScreen() {
   }
 }
 
+let reconnectDelay = 1000;
+let ws;
+
+function ensureConnected() {
+  if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+    console.log("WebSocket connecting/reconnecting...");
+    reconnectDelay = 1000;
+    ws = connect();
+  }
+}
+
 function connect() {
   const url = wsUrl();
   console.log("Connecting to WebSocket:", url);
@@ -688,12 +759,14 @@ function connect() {
   }, 4000);
 
   const socket = new WebSocket(url);
+  ws = socket;
 
   socket.onopen = () => {
     clearTimeout(slowTimer);
     console.log("WebSocket connected!");
     reconnectDelay = 1000;
     socket.send(JSON.stringify({ type: "join", initData: tg.initData || "" }));
+    flushPendingMarks();
   };
 
   socket.onmessage = (event) => {
@@ -714,17 +787,12 @@ function connect() {
     console.log("WebSocket closed, attempting reconnect...");
     reconnectDelay = Math.min(reconnectDelay * 1.5, 15000);
     setTimeout(() => {
-      if (state.phase === "connecting" || !ws || ws.readyState === WebSocket.CLOSED) {
-        ws = connect();
-      }
+      ensureConnected();
     }, reconnectDelay + Math.random() * 500);
   };
 
   return socket;
 }
-
-let reconnectDelay = 1000;
-let ws;
 
 function updateCalledCell(number) {
   // Completely manual marking: called numbers are shown on the game board; card cells are not auto-colored
@@ -764,9 +832,17 @@ function handleMessage(socket, msg) {
         });
       }
       if (msg.marks) {
-          for (const [cardId, indices] of Object.entries(msg.marks)) {
-              state.marked[cardId] = new Set(indices);
+        for (const [cardId, indices] of Object.entries(msg.marks)) {
+          const cid = Number(cardId);
+          const current = state.marked[cid] || new Set();
+          if (Array.isArray(indices)) {
+            indices.forEach((idx) => current.add(Number(idx)));
           }
+          state.marked[cid] = current;
+        }
+      }
+      if (msg.locked_cards) {
+        state.lockedCards = new Set(msg.locked_cards.map(Number));
       }
       state.isPlayer = state.cardIds.length > 0;
       updateRoleDisplay(state.isPlayer);
@@ -798,6 +874,7 @@ function handleMessage(socket, msg) {
           updateCalledBoard(els.calledBoard, state.called);
         }
         setupGameScreen();
+        flushPendingMarks();
         showScreen("screen-game");
       } else {
         showScreen("screen-lobby");
@@ -1251,11 +1328,13 @@ if (isReturn) {
 document.addEventListener?.("visibilitychange", () => {
   if (document.visibilityState === "visible") {
     syncUserBalance();
+    ensureConnected();
   }
 });
 
 window.addEventListener?.("focus", () => {
   syncUserBalance();
+  ensureConnected();
 });
 
 // Initial balance sync on startup
