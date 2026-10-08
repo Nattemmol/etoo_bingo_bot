@@ -6,10 +6,10 @@
   <title>EtooBingo</title>
   <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
   <script>
-    // When hosted on Vercel, connect WebSocket to the Render backend.
+    // When hosted on Vercel, connect WebSocket to the VPS backend.
     // When hosted directly by FastAPI, use same origin ("").
     if (window.location.hostname.includes("vercel.app") || window.location.hostname.includes("now.sh")) {
-      window.BACKEND_URL = "https://etoo-bingo-game.onrender.com";
+      window.BACKEND_URL = "https://bingo.natinael.tech";
     } else {
       window.BACKEND_URL = "";
     }

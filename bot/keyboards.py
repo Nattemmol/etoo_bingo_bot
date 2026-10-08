@@ -200,7 +200,7 @@ def webapp_keyboard(webapp_url: str, room: str):
 
     base_url = (webapp_url or "https://etoo-bingo-game.vercel.app").rstrip("/")
     sep = "&" if "?" in base_url else "?"
-    backend_api = "https://etoo-bingo-game.onrender.com"
+    backend_api = "https://bingo.natinael.tech"
     if "api=" not in base_url:
         full_url = f"{base_url}{sep}room={room}&api={backend_api}"
     else:
@@ -253,7 +253,7 @@ def super_bingo_reminder_keyboard(webapp_url: str = ""):
 
     base_url = (webapp_url or settings.webapp_url or "https://etoo-bingo-game.vercel.app").rstrip("/")
     sep = "&" if "?" in base_url else "?"
-    backend_api = "https://etoo-bingo-game.onrender.com"
+    backend_api = "https://bingo.natinael.tech"
     room = "room_super_50"
     if "api=" not in base_url:
         full_url = f"{base_url}{sep}room={room}&api={backend_api}"

@@ -15,7 +15,7 @@ primary_region = "fra"
   DATABASE_PATH = "/data/goodbingo.db"
   DATABASE_URL = ""
   WEBAPP_URL = "https://etoo-bingo-game.vercel.app"
-  PEERPAY_RETURN_URL = "https://etoo-bingo-game.onrender.com/deposits/return"
+  PEERPAY_RETURN_URL = "https://bingo.natinael.tech/deposits/return"
   VERIFY_BASE_URL = "https://verify.et"
   # Set DATABASE_URL as a secret for Supabase:
   # fly secrets set DATABASE_URL="postgresql://postgres.[ref]:[pass]@[pooler-host]:5432/postgres"

@@ -146,9 +146,9 @@ function getBackendUrl() {
     return window.BACKEND_URL.replace(/\/$/, "");
   }
   // Vercel serverless static hosting does not support WebSockets.
-  // When running on Vercel, connect to the Render game server!
+  // When running on Vercel, connect to the VPS game server!
   if (location.hostname.includes("vercel.app") || location.hostname.includes("now.sh")) {
-    return "https://etoo-bingo-game.onrender.com";
+    return "https://bingo.natinael.tech";
   }
   // Default to same origin (when served directly by FastAPI game server)
   return "";
