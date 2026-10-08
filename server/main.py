@@ -11,7 +11,10 @@ from pathlib import Path
 try:
     import orjson
     def _fast_dumps(obj: dict) -> str:
-        return orjson.dumps(obj).decode("utf-8")
+        try:
+            return orjson.dumps(obj).decode("utf-8")
+        except TypeError:
+            return json.dumps(obj)
 except ImportError:
     def _fast_dumps(obj: dict) -> str:
         return json.dumps(obj)
@@ -365,7 +368,7 @@ def get_room_state(room: GameRoom) -> dict:
         "is_open": True,  # card selection allowed anytime; only the game itself is scheduled
         "schedule": schedule_text,
         "seconds_until_open": seconds_until,
-        "taken_cards": room.taken_cards,
+        "taken_cards": {str(k): v for k, v in room.taken_cards.items()},
     }
 
 
@@ -1012,11 +1015,12 @@ async def finalize_bingo(room_id: str) -> None:
         prize = room.pot
         share = round(prize / len(winners), 2)
         for w in winners:
-            await db.credit_balance(
+            new_bal = await db.credit_balance(
                 w["telegram_id"],
                 share,
                 f"Won {room.name} with Card #{w['card_id']} — {w['pattern']}",
             )
+            await broadcast_user_balance(w["telegram_id"], new_bal)
             w["prize"] = share
             w["card"] = generate_card_by_id(w["card_id"])
 
@@ -1204,7 +1208,7 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                 "spectators": max(0, len(room.connections) - len(room.players)),
                 "pot": room.pot,
                 "countdown": room.countdown or room.lobby_seconds,
-                "taken_cards": room.taken_cards,
+                "taken_cards": {str(k): v for k, v in room.taken_cards.items()},
             },
         )
 

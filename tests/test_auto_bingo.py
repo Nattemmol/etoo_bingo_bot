@@ -318,6 +318,19 @@ class TestAutoDeclareWins(unittest.TestCase):
         self.assertEqual(refunded_tids, {101, 102})
         self.assertEqual(mock_notify.call_count, 2)
 
+    def test_fast_dumps_handles_int_keys(self):
+        from server.main import _fast_dumps
+        payload = {
+            "type": "room_stats",
+            "taken_cards": {1: 12345, 2: 67890},
+            "nested": {42: "answer"}
+        }
+        res = _fast_dumps(payload)
+        self.assertIsInstance(res, str)
+        import json
+        data = json.loads(res)
+        self.assertEqual(data["taken_cards"]["1"], 12345)
+
 
 if __name__ == "__main__":
     unittest.main()

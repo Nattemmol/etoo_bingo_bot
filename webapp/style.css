@@ -336,9 +336,9 @@ body {
   margin-bottom: 16px;
 }
 
-/* Called ball */
+/* Called ball - luminous yellow for current picked number */
 .called-ball {
-  background: linear-gradient(135deg, #00b894 0%, #00e676 100%);
+  background: linear-gradient(135deg, #fff200 0%, #ffd700 100%);
   border-radius: 50%;
   width: 68px;
   height: 68px;
@@ -347,8 +347,9 @@ body {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 0 18px rgba(0, 230, 118, 0.65);
-  animation: float-ball 3s ease-in-out infinite alternate;
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.85), inset 0 2px 4px rgba(255, 255, 255, 0.7);
+  border: 2px solid #ffffff;
+  animation: float-ball 2.4s ease-in-out infinite alternate;
 }
 
 @keyframes float-ball {
@@ -357,17 +358,17 @@ body {
 }
 
 .ball-letter {
-  font-size: 0.7rem;
-  font-weight: 800;
-  color: #022b18;
-  opacity: 0.9;
+  font-size: 0.75rem;
+  font-weight: 900;
+  color: #1a1200;
+  opacity: 0.95;
 }
 
 .ball-number {
-  font-size: 1.45rem;
-  font-weight: 900;
+  font-size: 1.55rem;
+  font-weight: 950;
   line-height: 1;
-  color: #022b18;
+  color: #1a1200;
 }
 
 /* Called numbers board (5 Rows with B, I, N, G, O Range Badges) */
@@ -445,29 +446,37 @@ body {
   transition: background-color 0.15s ease, transform 0.15s ease;
 }
 
-/* Green luminous active chips on Game Board */
+/* Green luminous active chips on Game Board (previously called numbers) */
 .called-chip.active {
-  background: var(--called-active-bg);
-  color: var(--called-active-text);
+  background: var(--called-active-bg, linear-gradient(135deg, #00b894 0%, #00e676 100%));
+  color: var(--called-active-text, #ffffff);
   border-color: #00e676;
   font-weight: 900;
   box-shadow: 0 0 8px rgba(0, 230, 118, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.4);
   transform: scale(1.06);
 }
 
-/* Latest called: radiant animated green light */
+/* Latest currently picked number: vibrant radiant YELLOW */
 .called-chip.latest {
-  background: linear-gradient(135deg, #00ff88 0%, #00e676 100%);
-  color: #022415;
-  border-color: #00ff88;
-  font-weight: 900;
+  background: linear-gradient(135deg, #fff200 0%, #ffd700 100%) !important;
+  color: #1a1200 !important;
+  border: 1.5px solid #ffffff !important;
+  font-weight: 950 !important;
   z-index: 5;
-  animation: pulse-latest-green 1.4s infinite alternate ease-in-out;
+  box-shadow: 0 0 14px rgba(255, 215, 0, 0.95), 0 0 4px rgba(255, 255, 255, 0.9), inset 0 1px 2px rgba(255, 255, 255, 0.8) !important;
+  animation: pulse-latest-yellow 1.1s infinite alternate ease-in-out;
+  transform: scale(1.18) !important;
 }
 
-@keyframes pulse-latest-green {
-    0%, 100% { opacity: 0.85; transform: scale(1); }
-    50% { opacity: 1; transform: scale(1.08); }
+@keyframes pulse-latest-yellow {
+  0% {
+    transform: scale(1.12);
+    box-shadow: 0 0 8px rgba(255, 215, 0, 0.75);
+  }
+  100% {
+    transform: scale(1.22);
+    box-shadow: 0 0 16px rgba(255, 235, 59, 1), 0 0 6px rgba(255, 255, 255, 1);
+  }
 }
 
 /* Bingo card */

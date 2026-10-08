@@ -1074,6 +1074,9 @@ function handleMessage(socket, msg) {
       stopLobbyCountdown();
       renderGameCards();
       openWinnerModal(msg);
+      syncUserBalance();
+      setTimeout(syncUserBalance, 300);
+      setTimeout(syncUserBalance, 1000);
       break;
 
     case "game_over":
@@ -1091,6 +1094,9 @@ function handleMessage(socket, msg) {
           ? (msg.message || `ሁሉም 75 ቁጥሮች ተጠርተዋል — በዚህ ዙር ምንም አሸናፊ ስላልተገኘ የመጫወቻ ብርዎ ተመልሷል!`)
           : (msg.message || "ሁሉም ቁጥሮች ተጠርተዋል — በዚህ ዙር ምንም አሸናፊ አልተገኘም።"),
       });
+      syncUserBalance();
+      setTimeout(syncUserBalance, 300);
+      setTimeout(syncUserBalance, 1000);
       break;
 
     case "round_reset": {
@@ -1113,6 +1119,8 @@ function handleMessage(socket, msg) {
       updateRoleDisplay(false);
       hideCardError();
       hideBanner();
+      syncUserBalance();
+      setTimeout(syncUserBalance, 500);
       stopWindowTimer();
       stopLobbyCountdown();
       buildCalledBoard(els.calledBoard);
@@ -1183,6 +1191,9 @@ function openWinnerModal(msg) {
     if (els.winnerTitle) els.winnerTitle.textContent = "🏆 እንኳን ደስ አሎት!";
     if (els.winnerMessage) {
       els.winnerMessage.textContent = `በ Card #${mine.card_id} (${mine.pattern}) ${Number(mine.prize).toFixed(2)} ETB አሸንፈዋል!`;
+    }
+    if (state.balance != null && Number(mine.prize) > 0) {
+      updateBalanceDisplay(state.balance + Number(mine.prize));
     }
   } else if (winners.length > 0) {
     if (badgeIcon) badgeIcon.textContent = "🏆";

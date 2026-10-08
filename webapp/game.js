@@ -89,10 +89,13 @@ export function generateCardById(cardId) {
 
 export function updateCalledBoard(container, calledNumbers, latest = null) {
   const calledSet = new Set(calledNumbers);
+  if (latest == null && Array.isArray(calledNumbers) && calledNumbers.length > 0) {
+    latest = calledNumbers[calledNumbers.length - 1];
+  }
   container.querySelectorAll(".called-chip").forEach((chip) => {
     const n = Number(chip.dataset.number);
     chip.classList.toggle("active", calledSet.has(n));
-    chip.classList.toggle("latest", n === latest);
+    chip.classList.toggle("latest", latest != null && n === Number(latest));
   });
 }
 
