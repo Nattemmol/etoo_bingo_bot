@@ -147,10 +147,9 @@ class TestSuperBingoReminders(unittest.IsolatedAsyncioTestCase):
                     method=m,
                     context=mock_context,
                 )
-
                 self.assertTrue(mock_message.reply_text.called)
                 sent_text = mock_message.reply_text.call_args[0][0]
-                self.assertIn("የ PeerPay የመስመር ላይ ክፍያ ለጊዜው አልተገኘም", sent_text)
+                self.assertIn("የክፍያ ማስፈንጠሪያ ማዘጋጀት አልተቻለም", sent_text)
                 # Verify that parse_mode="Markdown" does not cause entity errors
                 parse_mode = mock_message.reply_text.call_args[1].get("parse_mode")
                 if parse_mode == "Markdown":

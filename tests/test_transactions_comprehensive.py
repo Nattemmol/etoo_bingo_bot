@@ -51,7 +51,6 @@ from bot import messages as msg
 from bot import peerpay
 from bot.handlers.deposit import (
     _create_and_send_peerpay_checkout,
-    _verify_and_credit_reference,
     handle_sms_or_reference_text,
     reconcile_user_pending_deposits,
 )
@@ -147,8 +146,11 @@ class TestOfficialAccountsConfig(unittest.TestCase):
 class TestUninitializedTransactions(BaseTransactionTestCase):
     """Transactions submitted before / without pre-initializing /deposit."""
 
-    def test_spontaneous_full_sms_with_amount_and_reference(self):
-        """User pastes full incoming SMS directly without touching any button."""
+    def test_spontaneous_full_sms_guides_user_to_peerpay_checkout(self):
+        """User pastes full incoming SMS directly without touching any button.
+
+        In-bot scraping is removed: the bot directs the user to /deposit PeerPay checkout.
+        """
         sms_text = (
             "ውድ Habtamu Melese: በ 0963572327 የ 150.00 ብር ክፍያ ከ 0911223344 ተቀብለዋል። "
             "የግብይት ቁጥር: DIK99887766 Date: 2026-10-09. ቀሪ ሂሳብ: 1,500.00 ብር"
@@ -162,32 +164,23 @@ class TestUninitializedTransactions(BaseTransactionTestCase):
         context = MagicMock()
         context.user_data = {}
 
-        with patch("bot.handlers.deposit.peerpay_client.create_deposit") as mock_create, \
-             patch("bot.handlers.deposit.peerpay_client.submit_and_verify_reference") as mock_verify:
-            mock_create.return_value = {
-                "ok": True,
-                "data": {"id": "dep_spont_1", "checkout_url": "https://peerpayment.org/co/dep_spont_1"},
-            }
-            mock_verify.return_value = {
-                "ok": True,
-                "status": "succeeded",
-                "amount": 150.0,
-            }
+        handled = run(handle_sms_or_reference_text(update, context))
+        self.assertTrue(handled)
 
-            handled = run(handle_sms_or_reference_text(update, context))
-            self.assertTrue(handled)
+        # Balance remains 0.0 until verified on PeerPay hosted checkout
+        u = run(db.get_user(self.user_id))
+        self.assertEqual(u["balance"], 0.0)
 
-            # User balance should be credited 150.0
-            u = run(db.get_user(self.user_id))
-            self.assertEqual(u["balance"], 150.0)
+        # Bot instructs the user to use PeerPay checkout
+        msg_mock.reply_text.assert_called()
+        last_call_text = msg_mock.reply_text.call_args[0][0]
+        self.assertIn("PeerPay", last_call_text)
 
-            # Message sent to user confirms auto approval
-            msg_mock.reply_text.assert_called()
-            last_call_text = msg_mock.reply_text.call_args[0][0]
-            self.assertIn("150.00", last_call_text)
+    def test_spontaneous_reference_only_guides_user_to_peerpay_checkout(self):
+        """User pastes just a reference token (e.g. DIK11223344).
 
-    def test_spontaneous_reference_only_prompts_for_amount_then_credits(self):
-        """User pastes just a reference token (e.g. DIK11223344) without amount."""
+        In-bot scraping is removed: the bot instructs user to initiate via PeerPay.
+        """
         ref_text = "DIK11223344"
         msg_mock = AsyncMock()
         msg_mock.text = ref_text
@@ -200,34 +193,52 @@ class TestUninitializedTransactions(BaseTransactionTestCase):
 
         handled = run(handle_sms_or_reference_text(update, context))
         self.assertTrue(handled)
-        # Should set awaiting_reference_amount in user_data
-        self.assertIn("awaiting_reference_amount", context.user_data)
-        self.assertEqual(context.user_data["awaiting_reference_amount"]["ref"], "DIK11223344")
 
-        # Now user sends the amount "100"
+        # Balance remains 0.0
+        u = run(db.get_user(self.user_id))
+        self.assertEqual(u["balance"], 0.0)
+
+        msg_mock.reply_text.assert_called()
+        last_call_text = msg_mock.reply_text.call_args[0][0]
+        self.assertIn("PeerPay", last_call_text)
+
+    def test_custom_deposit_amount_entry_creates_peerpay_checkout(self):
+        """When user selected custom amount and enters a number, checkout is created."""
         msg_amount = AsyncMock()
-        msg_amount.text = "100"
+        msg_amount.text = "150"
         update_amt = MagicMock()
         update_amt.message = msg_amount
         update_amt.effective_user.id = self.user_id
 
-        with patch("bot.handlers.deposit.peerpay_client.create_deposit") as mock_create, \
-             patch("bot.handlers.deposit.peerpay_client.submit_and_verify_reference") as mock_verify:
+        context = MagicMock()
+        context.user_data = {
+            "awaiting_custom_deposit_amount": True,
+            "selected_deposit_method": "telebirr",
+        }
+
+        with patch("bot.handlers.deposit.peerpay_client.create_deposit") as mock_create:
             mock_create.return_value = {
                 "ok": True,
-                "data": {"id": "dep_spont_2", "checkout_url": "https://peerpayment.org/co/dep_spont_2"},
-            }
-            mock_verify.return_value = {
-                "ok": True,
-                "status": "succeeded",
-                "amount": 100.0,
+                "data": {
+                    "id": "dep_custom_1",
+                    "checkout_url": "https://checkout.peerpayment.org/c/ptk_custom_1",
+                    "status": "awaiting_transfer",
+                },
             }
 
-            handled_amt = run(handle_sms_or_reference_text(update_amt, context))
-            self.assertTrue(handled_amt)
+            handled = run(handle_sms_or_reference_text(update_amt, context))
+            self.assertTrue(handled)
 
-            u = run(db.get_user(self.user_id))
-            self.assertEqual(u["balance"], 100.0)
+            # Check that checkout was stored in DB
+            dep = run(db.get_peerpay_deposit("dep_custom_1"))
+            self.assertIsNotNone(dep)
+            self.assertEqual(dep["amount"], 150.0)
+            self.assertEqual(dep["status"], "awaiting_transfer")
+
+            # Check reply includes checkout button
+            msg_amount.reply_text.assert_called()
+            reply_kwargs = msg_amount.reply_text.call_args[1]
+            self.assertIsNotNone(reply_kwargs.get("reply_markup"))
 
 
 class TestExpiredTransactions(BaseTransactionTestCase):
@@ -454,7 +465,7 @@ class TestEdgeCasesAndAttacks(BaseTransactionTestCase):
         update.message = msg_mock
         update.effective_user.id = self.user_id
         context = MagicMock()
-        context.user_data = {"awaiting_reference_amount": {"ref": "DIK_LOW_001", "method": "telebirr"}}
+        context.user_data = {"awaiting_custom_deposit_amount": True, "selected_deposit_method": "telebirr"}
 
         run(handle_sms_or_reference_text(update, context))
         msg_mock.reply_text.assert_called()

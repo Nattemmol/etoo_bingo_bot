@@ -151,7 +151,7 @@ DEPOSIT_METHOD_PROMPT = (
     "1️⃣ 🔵 *Telebirr (ቴሌብር)*\n"
     "2️⃣ 🟢 *CBE Birr (ሲቢኢ ብር)*\n"
     "3️⃣ 🏦 *Mobile Banking (የንግድ ባንክ አካውንት)*\n\n"
-    "ክፍያ ከፈጸሙ በኋላ ከባንክ ወይም ከቴሌብር የደረሰዎትን ሙሉ የ SMS መልዕክት ወይም Transaction ID እዚሁ ይላኩልን!"
+    "የክፍያ ዘዴ ከመረጡ በኋላ የሚሰጠዎትን የ PeerPay ማስፈንጠሪያ በመጠቀም ክፍያዎን በቀላሉና በደህንነት ይፈጽሙ!"
 )
 
 TELEBIRR_DEPOSIT_INSTRUCTIONS = (
@@ -159,12 +159,9 @@ TELEBIRR_DEPOSIT_INSTRUCTIONS = (
     "📱 ስልክ ቁጥር: `0963572327`\n"
     "👤 ስም: *Habtamu Melese*\n\n"
     "*መመሪያ:*\n"
-    "1. ወደ Telebirr በመግባት ወደ `0963572327` (Habtamu Melese) ያስተላልፉ።\n"
-    "2. ክፍያው ሲጠናቀቅ ከታች ካሉት *አንዱን* እዚሁ ይላኩ (paste ያድርጉ):\n"
-    "   • 🔗 *ደረሰኝ ሊንክ* (receipt link) ፦ `https://transactioninfo.ethiotelecom.et/receipt/...`\n"
-    "   • 🔢 *Transaction ID* (ለምሳሌ: `DIK7W7R5VZ`)\n"
-    "   • 📩 *ሙሉ SMS መልዕክት* (ከ Telebirr የደረሰዎ)\n"
-    "3. ስርዓታችን ወዲያውኑ አረጋግጦ ሂሳብዎ ላይ ይጨምራል! 🎱"
+    "1. በ PeerPay የሚሰጠዎትን የክፍያ ማስፈንጠሪያ በመክፈት ወደ ተሰጠው አካውንት ያስተላልፉ።\n"
+    "2. ክፍያው ሲጠናቀቅ የደረሰዎትን *Transaction ID* በ PeerPay ገጽ ላይ ያስገቡ።\n"
+    "3. PeerPay ወዲያውኑ አረጋግጦ ሂሳብዎ ላይ ይጨምራል! 🎱"
 )
 
 TELEBIRR_1_DEPOSIT_INSTRUCTIONS = TELEBIRR_DEPOSIT_INSTRUCTIONS
@@ -175,12 +172,9 @@ CBE_DEPOSIT_INSTRUCTIONS = (
     "📱 ስልክ ቁጥር: `0934920411`\n"
     "👤 ስም: *Natnael Temesegen*\n\n"
     "*መመሪያ:*\n"
-    "1. ወደ CBE Birr በመግባት ወደ `0934920411` (Natnael Temesegen) ያስተላልፉ።\n"
-    "2. ክፍያው ሲጠናቀቅ ከታች ካሉት *አንዱን* እዚሁ ይላኩ (paste ያድርጉ):\n"
-    "   • 🔗 *ደረሰኝ ሊንክ* ፦ `https://apps.cbe.com.et:100/BranchReceipt/...`\n"
-    "   • 🔢 *Transaction ID / FT ቁጥር*\n"
-    "   • 📩 *ሙሉ SMS መልዕክት*\n"
-    "3. ስርዓታችን ወዲያውኑ አረጋግጦ ሂሳብዎ ላይ ይጨምራል! 🎱"
+    "1. በ PeerPay የሚሰጠዎትን የክፍያ ማስፈንጠሪያ በመክፈት ወደ ተሰጠው አካውንት ያስተላልፉ።\n"
+    "2. ክፍያው ሲጠናቀቅ የደረሰዎትን *Transaction ID / FT ቁጥር* በ PeerPay ገጽ ላይ ያስገቡ።\n"
+    "3. PeerPay ወዲያውኑ አረጋግጦ ሂሳብዎ ላይ ይጨምራል! 🎱"
 )
 
 MOBILE_BANKING_DEPOSIT_INSTRUCTIONS = (
@@ -189,15 +183,12 @@ MOBILE_BANKING_DEPOSIT_INSTRUCTIONS = (
     "👤 ስም: *Natnael Temesegen*\n\n"
     "🏦 ባንክ: *የኢትዮጵያ ንግድ ባንክ (Commercial Bank of Ethiopia)*\n\n"
     "*መመሪያ:*\n"
-    "1. በ CBE Mobile App ወይም በ `*889#` ወደ `1000413343538` ያስተላልፉ።\n"
-    "2. ክፍያው ሲጠናቀቅ ከታች ካሉት *አንዱን* እዚሁ ይላኩ (paste ያድርጉ):\n"
-    "   • 🔗 *ደረሰኝ ሊንክ* ፦ `https://mbreciept.cbe.com.et/...`\n"
-    "   • 🔢 *Transaction ID / FT ቁጥር* (ለምሳሌ: `FT262641DG9X`)\n"
-    "   • 📩 *ሙሉ SMS መልዕክት*\n"
-    "3. ስርዓታችን ወዲያውኑ አረጋግጦ ሂሳብዎ ላይ ይጨምራል! 🎱"
+    "1. በ PeerPay የሚሰጠዎትን የክፍያ ማስፈንጠሪያ በመክፈት ወደ ተሰጠው አካውንት ያስተላልፉ።\n"
+    "2. ክፍያው ሲጠናቀቅ የደረሰዎትን *Transaction ID / FT ቁጥር* በ PeerPay ገጽ ላይ ያስገቡ።\n"
+    "3. PeerPay ወዲያውኑ አረጋግጦ ሂሳብዎ ላይ ይጨምራል! 🎱"
 )
 
-DEPOSIT_SMS_PROMPT = "📩 *የከፈሉበትን የ SMS መልዕክት ወይም Transaction ID እዚህ ይላኩልን:*"
+DEPOSIT_SMS_PROMPT = "💳 *ክፍያዎን በ PeerPay ማስፈንጠሪያ ይፈጽሙና Transaction ID በ PeerPay ገጽ ላይ ያስገቡ።*"
 
 DEPOSIT_AUTO_APPROVED = (
     "✅ *ክፍያዎ በተሳካ ሁኔታ ተረጋግጧል!*\n\n"

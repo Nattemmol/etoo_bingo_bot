@@ -228,31 +228,12 @@ async def _create_and_send_peerpay_checkout(
 
         if not deposit_id or not checkout_url:
             err = res.get("error", {}) if isinstance(res, dict) else {}
-            err_code = err.get("code", "")
-            if err_code == "order_routing_unavailable" or "receiving account" in str(err.get("message", "")).lower():
-                # Provide seamless direct manual transfer fallback
-                if method in ("telebirr", "telebirr_1", "telebirr_2"):
-                    fallback_text = msg.TELEBIRR_DEPOSIT_INSTRUCTIONS
-                elif method == "cbebirr":
-                    fallback_text = msg.CBE_DEPOSIT_INSTRUCTIONS
-                else:
-                    fallback_text = msg.MOBILE_BANKING_DEPOSIT_INSTRUCTIONS
-
-                fallback_msg = (
-                    "⚠️ *የ PeerPay የመስመር ላይ ክፍያ ለጊዜው አልተገኘም።*\n\n"
-                    "በቀጥታ ከታች ባለው መረጃ በመክፈል SMS ወይም Transaction ID እዚሁ ይላኩልን (በራስ-ሰር ይጨመርልዎታል)፦\n\n"
-                    + fallback_text
-                )
-                try:
-                    await message.reply_text(fallback_msg, parse_mode="Markdown")
-                except Exception as send_err:
-                    logger.warning("Failed to send markdown fallback message, sending plain: %s", send_err)
-                    await message.reply_text(fallback_msg)
-                return
-
             err_msg = err.get("message", "የክፍያ ማስፈንጠሪያ ማዘጋጀት አልተቻለም።")
             try:
-                await message.reply_text(f"❌ *ስህተት:* {err_msg}", parse_mode="Markdown")
+                await message.reply_text(
+                    f"❌ *የክፍያ ማስፈንጠሪያ ማዘጋጀት አልተቻለም:*\n\n{err_msg}\n\nእባክዎ ከጥቂት ደቂቃዎች በኋላ እንደገና ይሞክሩ ወይም ድጋፍ ሰጪ [@SEtoo_9](https://t.me/SEtoo_9) ን ያነጋግሩ።",
+                    parse_mode="Markdown",
+                )
             except Exception:
                 await message.reply_text(f"❌ ስህተት: {err_msg}")
             return
@@ -304,150 +285,6 @@ async def _create_and_send_peerpay_checkout(
                 "❌ የክፍያ ማስፈንጠሪያ ማዘጋጀት አልተቻለም። እባክዎ ከጥቂት ደቂቃዎች በኋላ እንደገና ይሞክሩ。"
             )
 
-
-async def _verify_and_credit_reference(
-    message, telegram_id: int, ref: str, amount: float, method: str
-) -> None:
-    """Create a PeerPay deposit with the exact specified amount and verify the submitted reference."""
-    peerpay_method = "telebirr" if (ref.startswith("DI") or method in ("telebirr", "telebirr_1", "telebirr_2")) else ("cbebirr" if method == "cbebirr" else "cbe")
-    idempotency_key = f"etoobingo-deposit-{uuid.uuid4().hex}"
-    deposit_id = None
-    checkout_url = None
-
-    try:
-        create_res = await peerpay_client.create_deposit(
-            merchant_customer_id=f"tg_{telegram_id}",
-            amount=amount,
-            payment_method=peerpay_method,
-            idempotency_key=idempotency_key,
-        )
-        dep_data = create_res.get("data", {})
-        deposit_id = dep_data.get("id")
-        checkout_url = dep_data.get("checkout_url")
-        if not deposit_id:
-            # Retry without payment method
-            create_res = await peerpay_client.create_deposit(
-                merchant_customer_id=f"tg_{telegram_id}",
-                amount=amount,
-                payment_method=None,
-                idempotency_key=f"{idempotency_key}-any",
-            )
-            dep_data = create_res.get("data", {})
-            deposit_id = dep_data.get("id")
-            checkout_url = dep_data.get("checkout_url")
-
-        if deposit_id:
-            await db.upsert_peerpay_deposit(
-                payment_id=deposit_id,
-                telegram_id=telegram_id,
-                amount=amount,
-                currency="ETB",
-                merchant_order_id=dep_data.get("merchant_order_id") or ref,
-                status=dep_data.get("status", "created"),
-            )
-    except Exception as exc:
-        logger.warning("Error creating deposit for reference: %s", exc)
-
-    if not deposit_id or not checkout_url:
-        logger.info("PeerPay deposit create unavailable for reference %s; falling back to direct verification", ref)
-        try:
-            from bot.sms_parser import verify_deposit_submission
-            exp_method = "telebirr" if method in ("telebirr", "telebirr_1", "telebirr_2") else method
-            local_res = await verify_deposit_submission(ref, expected_method=exp_method, explicit_amount=amount)
-            if local_res.get("valid"):
-                verified_amt = float(local_res.get("amount") or amount)
-                credited, new_bal, is_dup = await db.auto_credit_deposit(
-                    telegram_id=telegram_id,
-                    amount=verified_amt,
-                    fingerprint=f"ref:{ref}",
-                    description=f"Direct deposit verified: {ref} ({method})",
-                )
-                if credited:
-                    await _broadcast_balance(telegram_id, new_bal)
-                    await message.reply_text(
-                        msg.DEPOSIT_AUTO_APPROVED.format(amount=verified_amt, balance=new_bal),
-                        parse_mode="Markdown",
-                    )
-                    return
-                elif is_dup:
-                    await message.reply_text(
-                        msg.DEPOSIT_REUSED.format(amount=verified_amt),
-                        parse_mode="Markdown",
-                    )
-                    return
-            else:
-                err_msg = local_res.get("error_message")
-                if err_msg:
-                    await message.reply_text(err_msg, parse_mode="Markdown")
-                    return
-        except Exception as local_exc:
-            logger.warning("Local verification fallback error: %s", local_exc)
-
-        await message.reply_text(
-            "⚠️ የክፍያ ማስፈንጠሪያ ማዘጋጀት አልተቻለም። እባክዎ በ /deposit ይሞክሩ ወይም ሙሉ የ SMS መልዕክት ይላኩልን።",
-            parse_mode="Markdown",
-        )
-        return
-
-    await message.reply_text(
-        f"⏳ *የ {amount:.2f} ETB ክፍያዎን በ PeerPayment በኩል በማረጋገጥ ላይ ነን...*",
-        parse_mode="Markdown",
-    )
-
-    try:
-        verify_res = await peerpay_client.submit_and_verify_reference(
-            deposit_id=deposit_id,
-            checkout_url=checkout_url,
-            reference=ref,
-            payment_method=method,
-        )
-
-        if not verify_res.get("ok"):
-            err_msg = verify_res.get("error", "የተሳሳተ ወይም ያልተዛመደ የግብይት ቁጥር ነው!")
-            await message.reply_text(
-                f"❌ *ክፍያው አልተረጋገጠም!*\n\n{err_msg}\n\nእባክዎ የተላለፈው የብር መጠንና Transaction ID ትክክል መሆናቸውን ያረጋግጡ።",
-                parse_mode="Markdown",
-            )
-            return
-
-        status = verify_res.get("status")
-        verified_amount = verify_res.get("amount") or amount
-
-        if status in ("succeeded", "manually_succeeded"):
-            credited, new_balance, is_dup = await db.credit_peerpay_deposit_once(
-                payment_id=deposit_id,
-                telegram_id=telegram_id,
-                amount=verified_amount,
-                merchant_order_id=ref,
-            )
-            # Push balance to mini app WebSocket immediately
-            await _broadcast_balance(telegram_id, new_balance)
-            if credited:
-                await message.reply_text(
-                    msg.DEPOSIT_AUTO_APPROVED.format(amount=verified_amount, balance=new_balance),
-                    parse_mode="Markdown",
-                )
-            elif is_dup:
-                await message.reply_text(
-                    msg.DEPOSIT_REUSED.format(amount=verified_amount),
-                    parse_mode="Markdown",
-                )
-        else:
-            await message.reply_text(
-                (
-                    "⏳ *የግብይት ቁጥርዎ ተቀብለናል!*\n\n"
-                    f"📋 የማስረጃ ቁጥር: `{ref}`\n"
-                    f"💰 መጠን: *{amount:.2f} ETB*\n\n"
-                    "PeerPay ከባንክ በማረጋገጥ ላይ ነው። ማረጋገጫው እንደተጠናቀቀ ወዲያውኑ ሂሳብዎ ላይ ይጨመራል! 🎱"
-                ),
-                parse_mode="Markdown",
-            )
-    except Exception as exc:
-        logger.exception("Error verifying reference with PeerPay: %s", exc)
-        await message.reply_text(
-            "❌ ማረጋገጫውን ማጠናቀቅ አልተቻለም። እባክዎ ከጥቂት ደቂቃዎች በኋላ እንደገና ይሞክሩ።",
-            parse_mode="Markdown",
-        )
 
 
 async def reconcile_user_pending_deposits(telegram_id: int) -> tuple[int, float]:
@@ -590,25 +427,7 @@ async def handle_sms_or_reference_text(update: Update, context: ContextTypes.DEF
     if user_data is None:
         user_data = {}
 
-    # 1. Check for pending reference amount reply
-    if user_data.get("awaiting_reference_amount"):
-        try:
-            amt = float(raw_text.replace(",", ".").strip())
-            if amt < MIN_DEPOSIT_AMOUNT:
-                await update.message.reply_text(
-                    f"❌ ዝቅተኛው የማስገቢያ መጠን *{MIN_DEPOSIT_AMOUNT:.0f} ETB* ነው።",
-                    parse_mode="Markdown",
-                )
-                return True
-            ref_info = user_data.pop("awaiting_reference_amount")
-            ref = ref_info["ref"]
-            method = ref_info.get("method", "telebirr")
-            await _verify_and_credit_reference(update.message, user.id, ref, amt, method)
-            return True
-        except ValueError:
-            pass
-
-    # 2. Check for custom deposit amount reply
+    # 1. Check for custom deposit amount reply
     if user_data.get("awaiting_custom_deposit_amount"):
         try:
             amt = float(raw_text.replace(",", ".").strip())
@@ -626,25 +445,27 @@ async def handle_sms_or_reference_text(update: Update, context: ContextTypes.DEF
             pass
 
     ref = _extract_reference_token(raw_text)
-    if not ref:
+    parsed = parse_deposit_sms(raw_text)
+    if not ref and not parsed:
         return False
 
     # Check if this reference was already credited in our database
-    existing_dep = await db.get_peerpay_deposit(ref)
-    if existing_dep and existing_dep.get("credited"):
-        await update.message.reply_text(
-            msg.DEPOSIT_REUSED.format(amount=existing_dep.get("amount", "?")),
-            parse_mode="Markdown",
-        )
-        return True
+    if ref:
+        existing_dep = await db.get_peerpay_deposit(ref)
+        if existing_dep and existing_dep.get("credited"):
+            await update.message.reply_text(
+                msg.DEPOSIT_REUSED.format(amount=existing_dep.get("amount", "?")),
+                parse_mode="Markdown",
+            )
+            return True
 
-    existing_tx = await db.get_deposit_by_fingerprint(f"ref:{ref}")
-    if existing_tx:
-        await update.message.reply_text(
-            msg.DEPOSIT_REUSED.format(amount=existing_tx.get("amount", "?")),
-            parse_mode="Markdown",
-        )
-        return True
+        existing_tx = await db.get_deposit_by_fingerprint(f"ref:{ref}")
+        if existing_tx:
+            await update.message.reply_text(
+                msg.DEPOSIT_REUSED.format(amount=existing_tx.get("amount", "?")),
+                parse_mode="Markdown",
+            )
+            return True
 
     # Check full SMS text fingerprint if applicable
     from bot.sms_parser import fingerprint
@@ -657,56 +478,14 @@ async def handle_sms_or_reference_text(update: Update, context: ContextTypes.DEF
         )
         return True
 
-    # 3. Determine transfer amount: parse from SMS, inline text, active session, or prompt the user
-    amount = None
-    parsed = parse_deposit_sms(raw_text)
-    if parsed and getattr(parsed, "amount", None):
-        try:
-            cand = float(parsed.amount)
-            if cand >= MIN_DEPOSIT_AMOUNT:
-                amount = cand
-        except (ValueError, TypeError):
-            pass
-
-    if amount is None:
-        m_amt = re.search(r"(?:etb|birr|ብር)\s*(\d+(?:\.\d{1,2})?)|\b(\d+(?:\.\d{1,2})?)\s*(?:etb|birr|ብር)", raw_text, re.I)
-        if m_amt:
-            val_str = m_amt.group(1) or m_amt.group(2)
-            try:
-                cand = float(val_str)
-                if cand >= MIN_DEPOSIT_AMOUNT and val_str != ref:
-                    amount = cand
-            except Exception:
-                pass
-
-    if amount is None:
-        m_inline = re.search(r"\b(\d+(?:\.\d{1,2})?)\s*(?:etb|birr|ብር)?$", raw_text.strip(), re.I)
-        if m_inline and m_inline.group(1) != ref:
-            try:
-                cand = float(m_inline.group(1))
-                if cand >= MIN_DEPOSIT_AMOUNT:
-                    amount = cand
-            except Exception:
-                pass
-
-    method = user_data.get("selected_deposit_method") or user_data.get("active_deposit_method") or ("telebirr" if ref.startswith("DI") else "cbe")
-
-    if amount is None or amount < MIN_DEPOSIT_AMOUNT:
-        user_data["awaiting_reference_amount"] = {
-            "ref": ref,
-            "method": method,
-        }
-        await update.message.reply_text(
-            (
-                f"📋 የማስረጃ ቁጥር: `{ref}`\n\n"
-                "💰 *ያስተላለፉትን የብር መጠን ያስገቡ:*\n"
-                "እባክዎ የተላለፈውን መጠን በቁጥር ይጻፉ (ለምሳሌ: `10` ወይም `50`):"
-            ),
-            parse_mode="Markdown",
-        )
-        return True
-
-    await _verify_and_credit_reference(update.message, user.id, ref, amount, method)
+    # All deposits are handled and verified via PeerPay's secure hosted checkout.
+    await update.message.reply_text(
+        "💡 *ክፍያ በ PeerPay በኩል ብቻ ይረጋገጣል*\n\n"
+        "ክፍያዎችን በደህንነት ለማረጋገጥ እባክዎ /deposit የሚለውን ተጭነው በሚመጣው የ PeerPay ማስፈንጠሪያ ይክፈሉ ወይም Transaction ID በ PeerPay ገጽ ላይ ያስገቡ።\n\n"
+        "ከታች ካሉት አማራጮች አንዱን በመምረጥ መጀመር ይችላሉ፦",
+        reply_markup=deposit_method_keyboard(webapp_url=settings.webapp_url),
+        parse_mode="Markdown",
+    )
     return True
 
 
