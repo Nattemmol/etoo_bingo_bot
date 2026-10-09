@@ -100,7 +100,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(MessageHandler(filters.CONTACT, contact_handler))
 
-    app.add_handler(CommandHandler("instructions", instructions_command))
+    app.add_handler(CommandHandler(["instructions", "instruction"], instructions_command))
     app.add_handler(CommandHandler("history", history_command))
     app.add_handler(CommandHandler("balance", balance_command))
     app.add_handler(CommandHandler("play", play_command))

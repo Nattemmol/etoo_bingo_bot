@@ -29,13 +29,23 @@ class TestSuperBingoReminders(unittest.IsolatedAsyncioTestCase):
         await db.init_db()
 
     def test_reminder_messages_content(self):
-        """Verify reminder templates contain exact requested text."""
+        """Verify reminder templates contain exact requested text and support contact info."""
         self.assertIn("🗓ዘወትር ከእሁድ እስከ እሁድ", SUPER_BINGO_REMINDER_6H)
         self.assertIn("🕙 ከምሽቱ 1 ሰዐት", SUPER_BINGO_REMINDER_6H)
         self.assertIn("0963572327", SUPER_BINGO_REMINDER_6H)
+        self.assertIn("@SEtoo_9", SUPER_BINGO_REMINDER_6H)
 
         self.assertIn("የ ETOO ሱፐር ቢንጎ ጨዋታ", SUPER_BINGO_REMINDER_10M)
         self.assertIn("ሙሉ ዝግ", SUPER_BINGO_REMINDER_10M)
+        self.assertIn("0963572327", SUPER_BINGO_REMINDER_10M)
+        self.assertIn("@SEtoo_9", SUPER_BINGO_REMINDER_10M)
+
+    def test_instruction_messages_support_contact(self):
+        """Verify instruction templates contain @SEtoo_9 and 0963572327."""
+        from bot.messages import INSTRUCTIONS_MENU, INSTRUCTIONS_10, INSTRUCTIONS_50, INSTRUCTIONS_GENERAL
+        for tpl in (INSTRUCTIONS_MENU, INSTRUCTIONS_10, INSTRUCTIONS_50, INSTRUCTIONS_GENERAL):
+            self.assertIn("SEtoo", tpl)
+            self.assertIn("0963572327", tpl)
 
     def test_format_amharic_prize(self):
         """Verify prize formatting matches Amharic conventions and user specification."""

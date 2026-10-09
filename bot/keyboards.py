@@ -165,6 +165,9 @@ def instructions_keyboard():
             [
                 InlineKeyboardButton("📖 አጠቃላይ መመሪያ (General Rules)", callback_data="inst_general"),
             ],
+            [
+                InlineKeyboardButton("💬 የደንበኞች ድጋፍ (@SEtoo_9)", url="https://t.me/SEtoo_9"),
+            ],
         ]
     )
 
@@ -179,6 +182,9 @@ def instructions_back_keyboard():
             ],
             [
                 InlineKeyboardButton("🎮 ወደ ጨዋታ ሂድ (Play Now)", callback_data="btn_action_play"),
+            ],
+            [
+                InlineKeyboardButton("💬 የደንበኞች ድጋፍ (@SEtoo_9)", url="https://t.me/SEtoo_9"),
             ],
         ]
     )
@@ -267,7 +273,13 @@ def super_bingo_reminder_keyboard(webapp_url: str = ""):
                     "🎮 ካርቴላ ይቁረጡ (Play superBingo)",
                     web_app=WebAppInfo(url=full_url),
                 )
-            ]
+            ],
+            [
+                InlineKeyboardButton(
+                    "💬 የደንበኞች ድጋፍ (@SEtoo_9)",
+                    url="https://t.me/SEtoo_9",
+                )
+            ],
         ]
     )
 
