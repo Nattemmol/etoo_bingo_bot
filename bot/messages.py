@@ -154,8 +154,8 @@ DEPOSIT_METHOD_PROMPT = (
     "ክፍያ ከፈጸሙ በኋላ ከባንክ ወይም ከቴሌብር የደረሰዎትን ሙሉ የ SMS መልዕክት ወይም Transaction ID እዚሁ ይላኩልን!"
 )
 
-TELEBIRR_1_DEPOSIT_INSTRUCTIONS = (
-    "🔵 *የ Telebirr 1 ክፍያ መረጃ*\n\n"
+TELEBIRR_DEPOSIT_INSTRUCTIONS = (
+    "🔵 *የ Telebirr ክፍያ መረጃ*\n\n"
     "📱 ስልክ ቁጥር: `0963572327`\n"
     "👤 ስም: *Habtamu Melese*\n\n"
     "*መመሪያ:*\n"
@@ -167,20 +167,8 @@ TELEBIRR_1_DEPOSIT_INSTRUCTIONS = (
     "3. ስርዓታችን ወዲያውኑ አረጋግጦ ሂሳብዎ ላይ ይጨምራል! 🎱"
 )
 
-TELEBIRR_2_DEPOSIT_INSTRUCTIONS = (
-    "🔵 *የ Telebirr 2 ክፍያ መረጃ*\n\n"
-    "📱 ስልክ ቁጥር: `0934921104`\n"
-    "👤 ስም: *Natnael Temesegen*\n\n"
-    "*መመሪያ:*\n"
-    "1. ወደ Telebirr በመግባት ወደ `0934921104` (Natnael Temesegen) ያስተላልፉ።\n"
-    "2. ክፍያው ሲጠናቀቅ ከታች ካሉት *አንዱን* እዚሁ ይላኩ (paste ያድርጉ):\n"
-    "   • 🔗 *ደረሰኝ ሊንክ* (receipt link) ፦ `https://transactioninfo.ethiotelecom.et/receipt/...`\n"
-    "   • 🔢 *Transaction ID* (ለምሳሌ: `DIK7W7R5VZ`)\n"
-    "   • 📩 *ሙሉ SMS መልዕክት* (ከ Telebirr የደረሰዎ)\n"
-    "3. ስርዓታችን ወዲያውኑ አረጋግጦ ሂሳብዎ ላይ ይጨምራል! 🎱"
-)
-
-TELEBIRR_DEPOSIT_INSTRUCTIONS = TELEBIRR_1_DEPOSIT_INSTRUCTIONS
+TELEBIRR_1_DEPOSIT_INSTRUCTIONS = TELEBIRR_DEPOSIT_INSTRUCTIONS
+TELEBIRR_2_DEPOSIT_INSTRUCTIONS = TELEBIRR_DEPOSIT_INSTRUCTIONS
 
 CBE_DEPOSIT_INSTRUCTIONS = (
     "🟢 *የ CBE Birr ክፍያ መረጃ*\n\n"
