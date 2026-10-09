@@ -83,8 +83,8 @@ class Settings:
             peerpay_webhook_secret=os.getenv("PEERPAY_WEBHOOK_SECRET", ""),
             peerpay_return_url=os.getenv(
                 "PEERPAY_RETURN_URL",
-                "https://etoobingobot.fly.dev/deposits/return",
-            ).rstrip("/") or "https://etoobingobot.fly.dev/deposits/return",
+                "https://bingo.natinael.tech/deposits/return",
+            ).rstrip("/") or "https://bingo.natinael.tech/deposits/return",
             verify_et_api_key=os.getenv("VERIFY_ET_API_KEY", ""),
             verify_et_base_url=os.getenv("VERIFY_BASE_URL", "https://verify.et"),
         )
