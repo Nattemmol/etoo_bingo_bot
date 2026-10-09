@@ -7,28 +7,79 @@ from enum import Enum
 EAT = timezone(timedelta(hours=3))
 
 
+# In-memory tracking of the last completed Super Bingo EAT date (YYYY-MM-DD)
+_last_super_bingo_played_date: str | None = None
+
+
 def get_eat_now() -> datetime:
     """Return current datetime in Ethiopian local time (UTC+3)."""
     return datetime.now(EAT)
 
 
+def mark_super_bingo_played(date_str: str | None = None) -> None:
+    """Mark that Super Bingo has completed its single daily game for date_str (defaults to today EAT)."""
+    global _last_super_bingo_played_date
+    _last_super_bingo_played_date = date_str or get_eat_now().strftime("%Y-%m-%d")
+
+
+def reset_super_bingo_played() -> None:
+    """Reset the last played Super Bingo date (used for testing or administrative resets)."""
+    global _last_super_bingo_played_date
+    _last_super_bingo_played_date = None
+
+
+def get_super_bingo_last_played_date() -> str | None:
+    """Return the date string of the last played Super Bingo round."""
+    return _last_super_bingo_played_date
+
+
+def is_super_bingo_played_today() -> bool:
+    """Check if today's Super Bingo round has already completed."""
+    today = get_eat_now().strftime("%Y-%m-%d")
+    return _last_super_bingo_played_date == today
+
+
 def is_super_bingo_open(always_open: bool = False) -> bool:
-    """Check if superBingo is currently active (1:00 LT night / 7:00 PM EAT)."""
+    """Check if superBingo is currently in its active window (1:00 LT night / 7:00 PM EAT).
+
+    Super Bingo runs strictly ONCE per day.
+    Once today's round has completed, it is closed until tomorrow's 1:00 LT night.
+    """
     if always_open:
         return True
+    if is_super_bingo_played_today():
+        return False
     now = get_eat_now()
     return now.hour == 19
 
 
-def get_seconds_until_super_bingo() -> int:
-    """Return seconds remaining until next 1:00 LT night (7:00 PM EAT)."""
+def get_seconds_until_super_bingo(always_open: bool = False) -> int:
+    """Return seconds remaining until next 1:00 LT night (7:00 PM EAT / 19:00 EAT).
+
+    Super Bingo is strictly once a day. Once today's round has played (or 19:xx window passed),
+    the countdown immediately starts counting down to tomorrow's round at 19:00:00 EAT.
+    """
+    if always_open:
+        return 0
+
     now = get_eat_now()
-    target = now.replace(hour=19, minute=0, second=0, microsecond=0)
+    target_today = now.replace(hour=19, minute=0, second=0, microsecond=0)
+    target_tomorrow = target_today + timedelta(days=1)
+
+    # 1. If today's single round has already completed, countdown to tomorrow at 19:00:00 EAT
+    if is_super_bingo_played_today():
+        return max(0, int((target_tomorrow - now).total_seconds()))
+
+    # 2. If it is currently 19:xx (1:00 LT night) and today's game hasn't played yet
     if now.hour == 19:
         return 0
-    if now >= target:
-        target += timedelta(days=1)
-    return max(0, int((target - now).total_seconds()))
+
+    # 3. If it is before 19:00 today
+    if now < target_today:
+        return max(0, int((target_today - now).total_seconds()))
+
+    # 4. If it is past 19:xx (e.g. 20:00 or later)
+    return max(0, int((target_tomorrow - now).total_seconds()))
 
 
 COLUMNS = {

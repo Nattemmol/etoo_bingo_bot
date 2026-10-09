@@ -68,6 +68,8 @@ if _is_valid_postgres_url(settings.database_url):
         get_active_round,
         clear_active_round,
         record_game_round,
+        set_game_metadata,
+        get_game_metadata,
     )
     logger.info("Database backend: PostgreSQL (asyncpg) — %s", settings.database_url.split("@")[-1] if "@" in settings.database_url else "configured")
 else:
@@ -179,6 +181,14 @@ CREATE TABLE IF NOT EXISTS active_rounds (
 );
 """
 
+CREATE_GAME_METADATA = """
+CREATE TABLE IF NOT EXISTS game_metadata (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
 # Performance indexes
 CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(telegram_id, created_at DESC);",
@@ -263,6 +273,7 @@ async def init_db() -> None:
         await db.execute(CREATE_PEERPAY_WITHDRAWALS)
         await db.execute(CREATE_HOUSE_REVENUE)
         await db.execute(CREATE_ACTIVE_ROUNDS)
+        await db.execute(CREATE_GAME_METADATA)
         await _ensure_transaction_fingerprint(db)
         for idx_sql in CREATE_INDEXES:
             await db.execute(idx_sql)
@@ -1035,3 +1046,28 @@ async def clear_active_round(room_id: str) -> None:
     async with _write_lock:
         await db.execute("DELETE FROM active_rounds WHERE room_id = ?", (room_id,))
         await db.commit()
+
+
+async def set_game_metadata(key: str, value: str) -> None:
+    """Store or update system/game metadata (e.g. daily super bingo date)."""
+    db = await get_db()
+    async with _write_lock:
+        await db.execute(
+            """
+            INSERT INTO game_metadata (key, value, updated_at)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = datetime('now')
+            """,
+            (key, value),
+        )
+        await db.commit()
+
+
+async def get_game_metadata(key: str) -> str | None:
+    """Fetch stored system/game metadata value."""
+    db = await get_db()
+    async with db.execute("SELECT value FROM game_metadata WHERE key = ?", (key,)) as cursor:
+        row = await cursor.fetchone()
+        return str(row["value"]) if row else None

@@ -231,3 +231,13 @@ ALTER TABLE peerpay_withdrawals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE house_revenue ENABLE ROW LEVEL SECURITY;
 ALTER TABLE active_rounds ENABLE ROW LEVEL SECURITY;
 ALTER TABLE game_rounds ENABLE ROW LEVEL SECURITY;
+
+-- ---------------------------------------------------------------------------
+-- 10. game_metadata
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS game_metadata (
+    key               TEXT          PRIMARY KEY,
+    value             TEXT          NOT NULL,
+    updated_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+ALTER TABLE game_metadata ENABLE ROW LEVEL SECURITY;

@@ -1036,3 +1036,23 @@ async def record_game_round(
     )
     logger.info("Recorded game round %s for room %s", round_id, room_id)
     return str(round_id)
+
+
+async def set_game_metadata(key: str, value: str) -> None:
+    """Store or update system/game metadata (e.g. daily super bingo date)."""
+    pool = await _get_pool()
+    query = """
+    INSERT INTO game_metadata (key, value, updated_at)
+    VALUES ($1, $2, NOW())
+    ON CONFLICT (key) DO UPDATE SET
+        value = EXCLUDED.value,
+        updated_at = NOW();
+    """
+    await pool.execute(query, key, value)
+
+
+async def get_game_metadata(key: str) -> str | None:
+    """Fetch stored system/game metadata value."""
+    pool = await _get_pool()
+    val = await pool.fetchval("SELECT value FROM game_metadata WHERE key = $1", key)
+    return str(val) if val is not None else None

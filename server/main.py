@@ -59,8 +59,11 @@ from server.game import (
     check_bingo_marked_fast_with_indexes,
     generate_card,
     generate_card_by_id,
+    get_eat_now,
     get_seconds_until_super_bingo,
     is_super_bingo_open,
+    is_super_bingo_played_today,
+    mark_super_bingo_played,
     number_to_letter,
 )
 from server.game import FREE_INDEX
@@ -253,6 +256,16 @@ async def lifespan(app: FastAPI):
     global _keep_alive_task, _peerpay_reconciliation_task
     await db.init_db()
     logger.info("Game server database ready.")
+
+    # Restore persisted last Super Bingo played date
+    try:
+        last_played = await db.get_game_metadata("last_super_bingo_played_date")
+        if last_played:
+            mark_super_bingo_played(last_played)
+            logger.info("Restored last Super Bingo played date: %s", last_played)
+    except Exception as e:
+        logger.warning("Could not restore last Super Bingo played date: %s", e)
+
     for room_id in ROOM_CONFIG:
         # Check if there was an active round before server restart
         try:
@@ -344,7 +357,7 @@ def get_room_state(room: GameRoom) -> dict:
     cfg = ROOM_CONFIG.get(room.room_id, {})
     is_super = room.room_id == "room_super_50"
     is_open = is_super_bingo_open(settings.super_bingo_always_open) if is_super else True
-    seconds_until = get_seconds_until_super_bingo() if is_super else 0
+    seconds_until = get_seconds_until_super_bingo(settings.super_bingo_always_open) if is_super else 0
     schedule_text = cfg.get("schedule", "24/7")
     unique_players = len(set(p.telegram_id for p in room.players.values()))
 
@@ -369,7 +382,7 @@ def get_room_state(room: GameRoom) -> dict:
             if room.called_numbers
             else None
         ),
-        "is_open": True,  # card selection allowed anytime; only the game itself is scheduled
+        "is_open": is_open,
         "schedule": schedule_text,
         "seconds_until_open": seconds_until,
         "taken_cards": {str(k): v for k, v in room.taken_cards.items()},
@@ -451,7 +464,7 @@ async def run_lobby_countdown(room: GameRoom) -> None:
 
     if room.room_id == "room_super_50" and not settings.super_bingo_always_open:
         # Super Bingo: wait until 7:00 PM EAT
-        secs = get_seconds_until_super_bingo()
+        secs = get_seconds_until_super_bingo(settings.super_bingo_always_open)
         room.countdown = secs
         # Broadcast relative seconds countdown — clients count down locally
         await broadcast(
@@ -464,7 +477,7 @@ async def run_lobby_countdown(room: GameRoom) -> None:
             },
         )
         while room.phase == GamePhase.LOBBY:
-            secs = get_seconds_until_super_bingo()
+            secs = get_seconds_until_super_bingo(settings.super_bingo_always_open)
             room.countdown = secs
             if secs <= 0:
                 break
@@ -486,6 +499,7 @@ async def run_lobby_countdown(room: GameRoom) -> None:
 
         if len(room.taken_cards) == 0:
             room_tasks.pop(room.room_id, None)
+            await asyncio.sleep(5)
             await schedule_lobby(room.room_id)
             return
 
@@ -502,6 +516,12 @@ async def run_lobby_countdown(room: GameRoom) -> None:
             room.house_income = round(len(room.taken_cards) * room.house_cut, 2)
 
         room.phase = GamePhase.PLAYING
+        today_str = get_eat_now().strftime("%Y-%m-%d")
+        mark_super_bingo_played(today_str)
+        try:
+            await db.set_game_metadata("last_super_bingo_played_date", today_str)
+        except Exception as e:
+            logger.warning("Could not persist super bingo played date: %s", e)
         await _persist_room_snapshot(room)
         await broadcast(
             room,
@@ -634,6 +654,13 @@ async def run_playing_round(room: GameRoom) -> None:
                     "message": "ሁሉም ቁጥሮች ተጠርተዋል — በዚህ ዙር ምንም አሸናፊ ስላልተገኘ የመጫወቻ ብር ተመልሷል!",
                 },
             )
+            if room.room_id == "room_super_50":
+                today_str = get_eat_now().strftime("%Y-%m-%d")
+                mark_super_bingo_played(today_str)
+                try:
+                    await db.set_game_metadata("last_super_bingo_played_date", today_str)
+                except Exception as e:
+                    logger.warning("Could not persist super bingo played date: %s", e)
             await asyncio.sleep(round_reset_delay(room))
             reset_room(room.room_id)
             await schedule_lobby(room.room_id)
@@ -1125,6 +1152,14 @@ async def finalize_bingo(room_id: str) -> None:
                 )
             except Exception as e:
                 logger.warning("Could not record game round: %s", e)
+
+        if room.room_id == "room_super_50":
+            today_str = get_eat_now().strftime("%Y-%m-%d")
+            mark_super_bingo_played(today_str)
+            try:
+                await db.set_game_metadata("last_super_bingo_played_date", today_str)
+            except Exception as e:
+                logger.warning("Could not persist super bingo played date: %s", e)
 
         await db.clear_active_round(room_id)
         await asyncio.sleep(round_reset_delay(get_room(room_id)))
