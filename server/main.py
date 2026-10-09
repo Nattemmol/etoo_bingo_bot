@@ -136,9 +136,13 @@ async def _flush_room_snapshot(room_id: str) -> None:
 
 def queue_room_snapshot(room_id: str) -> None:
     """Coalesce card/mark updates into one durable snapshot."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
     task = snapshot_tasks.get(room_id)
     if task is None or task.done():
-        snapshot_tasks[room_id] = asyncio.create_task(_flush_room_snapshot(room_id))
+        snapshot_tasks[room_id] = loop.create_task(_flush_room_snapshot(room_id))
 
 
 def round_reset_delay(room: GameRoom) -> float:
@@ -764,6 +768,53 @@ def add_claim(
     else:
         room.bingo_claimants.append(claim)
 
+    return True
+
+
+def process_player_mark(room: GameRoom, player: Player, card_id: int, row: int, col: int, desired: bool) -> bool:
+    """Apply manual mark to card_id and cross-mark the same number across player's other cards."""
+    if card_id not in player.cards:
+        return False
+    if card_id in player.locked_cards:
+        return False
+    flat = row * 5 + col
+    if flat == FREE_INDEX:
+        return False
+    if not (0 <= flat <= 24):
+        return False
+
+    card_grid = player.cards.get(card_id)
+    val = None
+    if card_grid and 0 <= row < 5 and 0 <= col < 5:
+        val = card_grid[row][col]
+
+    marks = player.marks.setdefault(card_id, set())
+    if desired:
+        marks.add(flat)
+    else:
+        marks.discard(flat)
+    player.marks[card_id] = marks
+
+    # Cross-card auto marking: if player owns other cards containing this same number
+    if val is not None:
+        for other_cid, other_grid in player.cards.items():
+            if other_cid == card_id or other_cid in player.locked_cards:
+                continue
+            if not other_grid:
+                continue
+            for r in range(5):
+                for c in range(5):
+                    if other_grid[r][c] == val:
+                        other_flat = r * 5 + c
+                        if other_flat != FREE_INDEX:
+                            other_marks = player.marks.setdefault(other_cid, set())
+                            if desired:
+                                other_marks.add(other_flat)
+                            else:
+                                other_marks.discard(other_flat)
+                            player.marks[other_cid] = other_marks
+
+    queue_room_snapshot(room.room_id)
     return True
 
 
@@ -1518,15 +1569,7 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                 if flat == FREE_INDEX:
                     continue  # the FREE center is always marked
 
-                if 0 <= flat <= 24:
-                    marks = player.marks.setdefault(card_id, set())
-                    if desired:
-                        marks.add(flat)
-                    else:
-                        marks.discard(flat)
-                    player.marks[card_id] = marks
-                    queue_room_snapshot(room_id)
-
+                if 0 <= flat <= 24 and process_player_mark(room, player, card_id, row, col, desired):
                     await send(
                         websocket,
                         {"type": "mark_ack", "card_id": card_id, "flat": flat, "marked": desired},

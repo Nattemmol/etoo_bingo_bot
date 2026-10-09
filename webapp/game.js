@@ -202,6 +202,7 @@ export function renderCard(container, card, marked, calledSet, onMark, interacti
       const isFree = isFreeCell(row, col);
 
       cell.className = "card-cell";
+      cell.dataset.idx = String(idx);
       if (isFree) {
         cell.classList.add("free");
         cell.textContent = "FREE";

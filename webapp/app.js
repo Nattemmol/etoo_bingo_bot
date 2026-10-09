@@ -559,33 +559,73 @@ function claimBingo(targetCardId = null) {
 
 function toggleMark(cardId, row, col, cellEl = null) {
   if (state.phase !== "playing") return;
-  const marks = state.marked[cardId] || new Set();
-  const idx = flatIndex(row, col);
-  let marked = true;
-  if (marks.has(idx)) {
-    marks.delete(idx);
-    marked = false;
-  } else {
-    marks.add(idx);
-  }
-  state.marked[cardId] = marks;
-  sendMark(cardId, row, col, marked);
+  const targetCard = state.cards[cardId];
+  if (!targetCard) return;
+  const val = targetCard[row][col];
+  if (val == null) return; // FREE cell or invalid
 
-  // Directly update cell class on the existing DOM element for smooth, glitch-free tap response
-  if (cellEl) {
-    cellEl.classList.toggle("marked", marked);
-    const cardEl = cellEl.closest(".mini-card");
-    if (cardEl) {
-      const card = state.cards[cardId];
-      const rule = state.room?.bingo_rule || "line_corners";
-      const isLocked = state.lockedCards && state.lockedCards.has(cardId);
-      if (!isLocked && card && hasAnyWin(card, marks, state.calledSet, rule)) {
-        cardEl.classList.add("has-bingo");
-      } else {
-        cardEl.classList.remove("has-bingo");
+  const currentMarks = state.marked[cardId] || new Set();
+  const targetIdx = flatIndex(row, col);
+  const isMarking = !currentMarks.has(targetIdx);
+
+  const rule = state.room?.bingo_rule || "line_corners";
+  let anyUpdated = false;
+
+  // Cross-card auto marking: if player owns multiple cards, sync mark across all cards with this number
+  (state.cardIds || [cardId]).forEach((cid) => {
+    const cardData = state.cards[cid];
+    if (!cardData) return;
+    const isLocked = state.lockedCards && state.lockedCards.has(cid);
+    if (isLocked) return;
+
+    let cardModified = false;
+    const cMarks = state.marked[cid] || new Set();
+
+    for (let r = 0; r < 5; r++) {
+      for (let c = 0; c < 5; c++) {
+        if (cardData[r][c] === val) {
+          const cellFlat = flatIndex(r, c);
+          if (cellFlat === 12) continue; // FREE index
+
+          if (isMarking) {
+            cMarks.add(cellFlat);
+          } else {
+            cMarks.delete(cellFlat);
+          }
+          cardModified = true;
+          sendMark(cid, r, c, isMarking);
+
+          // Update DOM for this specific cell
+          if (els.cardList) {
+            const cardBlock = els.cardList.querySelector(`.mini-card[data-card-id="${cid}"]`);
+            if (cardBlock) {
+              const domCell = cardBlock.querySelector(`.card-cell[data-idx="${cellFlat}"]`);
+              if (domCell) {
+                domCell.classList.toggle("marked", isMarking);
+              }
+            }
+          }
+        }
       }
     }
-  } else {
+
+    if (cardModified) {
+      anyUpdated = true;
+      state.marked[cid] = cMarks;
+      if (els.cardList) {
+        const cardBlock = els.cardList.querySelector(`.mini-card[data-card-id="${cid}"]`);
+        if (cardBlock) {
+          if (!isLocked && hasAnyWin(cardData, cMarks, state.calledSet, rule)) {
+            cardBlock.classList.add("has-bingo");
+          } else {
+            cardBlock.classList.remove("has-bingo");
+          }
+        }
+      }
+    }
+  });
+
+  if (!anyUpdated) {
     renderGameCards();
   }
   tg.HapticFeedback?.selectionChanged();
@@ -608,6 +648,7 @@ function renderGameCards() {
     const isLocked = state.lockedCards && state.lockedCards.has(id);
     const block = document.createElement("div");
     block.className = `mini-card${isLocked ? " card-locked" : ""}`;
+    block.dataset.cardId = String(id);
 
     const header = document.createElement("div");
     header.className = "mini-card-header";

@@ -331,6 +331,68 @@ class TestAutoDeclareWins(unittest.TestCase):
         data = json.loads(res)
         self.assertEqual(data["taken_cards"]["1"], 12345)
 
+    def test_cross_card_auto_marking(self):
+        from server.main import process_player_mark
+        card1 = generate_card_by_id(1)
+        card2 = generate_card_by_id(2)
+
+        # Find a common number between card1 and card2
+        common_num = None
+        pos1 = None
+        pos2 = None
+        for r1 in range(5):
+            for c1 in range(5):
+                v1 = card1[r1][c1]
+                if v1 is None:
+                    continue
+                for r2 in range(5):
+                    for c2 in range(5):
+                        v2 = card2[r2][c2]
+                        if v1 == v2:
+                            common_num = v1
+                            pos1 = (r1, c1)
+                            pos2 = (r2, c2)
+                            break
+                    if common_num is not None:
+                        break
+            if common_num is not None:
+                break
+
+        self.assertIsNotNone(common_num, "Should find a shared number between card 1 and card 2")
+        r1, c1 = pos1
+        r2, c2 = pos2
+        flat1 = r1 * 5 + c1
+        flat2 = r2 * 5 + c2
+
+        player = Player(
+            telegram_id=777,
+            name="TwoCardPlayer",
+            ws_id="ws-777",
+            card_ids=[1, 2],
+            cards={1: card1, 2: card2},
+            marks={1: set(), 2: set()},
+        )
+        self.room.players["ws-777"] = player
+
+        # 1. Mark on Card 1 -> should mark both Card 1 and Card 2
+        success = process_player_mark(self.room, player, 1, r1, c1, True)
+        self.assertTrue(success)
+        self.assertIn(flat1, player.marks[1])
+        self.assertIn(flat2, player.marks[2])
+
+        # 2. Unmark on Card 1 -> should unmark both Card 1 and Card 2
+        success = process_player_mark(self.room, player, 1, r1, c1, False)
+        self.assertTrue(success)
+        self.assertNotIn(flat1, player.marks[1])
+        self.assertNotIn(flat2, player.marks[2])
+
+        # 3. If Card 2 is locked, marking on Card 1 does NOT mark locked Card 2
+        player.locked_cards.add(2)
+        success = process_player_mark(self.room, player, 1, r1, c1, True)
+        self.assertTrue(success)
+        self.assertIn(flat1, player.marks[1])
+        self.assertNotIn(flat2, player.marks[2])
+
 
 if __name__ == "__main__":
     unittest.main()
