@@ -371,6 +371,27 @@ async def withdraw_account_handler(update: Update, context: ContextTypes.DEFAULT
         parse_mode="Markdown",
     )
 
+    # Notify admin if configured
+    admin_tid = getattr(settings, "admin_telegram_id", None)
+    if admin_tid:
+        try:
+            admin_text = (
+                "🚨 *አዲስ የገንዘብ ማውጣት ጥያቄ ደርሷል (New Withdrawal Request)!*\n\n"
+                f"👤 ተጠቃሚ: {user.full_name} (`{user.id}`)\n"
+                f"💰 መጠን: *{amount:.2f} ETB*\n"
+                f"🏦 መንገድ: *{method_label}*\n"
+                f"📱 {acct_label}: `{clean_dest_account}`\n"
+                f"🆔 Withdrawal ID: `{payment_id}`\n"
+                f"💳 የቀረው ሂሳብ: *{new_balance:.2f} ETB*"
+            )
+            await context.bot.send_message(
+                chat_id=settings.admin_telegram_id,
+                text=admin_text,
+                parse_mode="Markdown",
+            )
+        except Exception as exc:
+            logger.warning("Failed to notify admin of withdrawal: %s", exc)
+
     context.user_data.clear()
     return ConversationHandler.END
 

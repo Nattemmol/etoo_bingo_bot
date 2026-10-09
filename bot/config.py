@@ -37,6 +37,7 @@ class Settings:
     # Announcement and Super Bingo reminders
     announcement_channel_id: str = ""
     announcement_broadcast_users: bool = True
+    admin_telegram_id: int | None = None
     super_bingo_image_path: Path = field(default_factory=lambda: BASE_DIR / "pic" / "Etoo_bingo.jpg")
 
     @classmethod
@@ -49,6 +50,8 @@ class Settings:
         always_open = os.getenv("SUPER_BINGO_ALWAYS_OPEN", "false").lower() in ("1", "true", "yes")
         announcement_channel = os.getenv("ANNOUNCEMENT_CHANNEL_ID") or os.getenv("CHANNEL_ID", "")
         broadcast_users = os.getenv("ANNOUNCEMENT_BROADCAST_USERS", "true").lower() in ("1", "true", "yes")
+        admin_id_str = os.getenv("ADMIN_TELEGRAM_ID") or os.getenv("ADMIN_ID", "")
+        admin_id = int(admin_id_str.strip()) if admin_id_str.strip().isdigit() else None
         custom_img = os.getenv("SUPER_BINGO_IMAGE_PATH", "")
         img_path = Path(custom_img) if custom_img else BASE_DIR / "pic" / "Etoo_bingo.jpg"
         if not img_path.is_absolute():
@@ -61,6 +64,7 @@ class Settings:
             server_port=int(os.getenv("SERVER_PORT", "8080")),
             database_url=os.getenv("DATABASE_URL", ""),
             super_bingo_always_open=always_open,
+            admin_telegram_id=admin_id,
             announcement_channel_id=announcement_channel,
             announcement_broadcast_users=broadcast_users,
             super_bingo_image_path=img_path,

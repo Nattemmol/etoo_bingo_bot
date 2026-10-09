@@ -2150,10 +2150,27 @@ async def _apply_peerpay_withdrawal(event_type: str, obj: dict) -> None:
     verification = obj.get("verification") or {}
     decision_code = verification.get("decision_code")
 
+    admin_tid = getattr(settings, "admin_telegram_id", None)
+
     if event_type == "withdrawal.created":
         await db.create_peerpay_withdrawal_hold(
             payment_id, telegram_id or 0, amount, status=obj.get("status", "created")
         )
+        if admin_tid:
+            dest = obj.get("destination") or {}
+            dest_bank = dest.get("bank", "Telebirr")
+            dest_acct = dest.get("account_number", "")
+            await _notify_telegram(
+                admin_tid,
+                (
+                    "🚨 *አዲስ የገንዘብ ማውጣት ጥያቄ ደርሷል (New Withdrawal Request)!*\n\n"
+                    f"👤 ተጠቃሚ ID: `{telegram_id}`\n"
+                    f"💰 መጠን: *{amount:.2f} ETB*\n"
+                    f"🏦 ባንክ: *{dest_bank}*\n"
+                    f"📱 አካውንት/ስልክ: `{dest_acct}`\n"
+                    f"🆔 Withdrawal ID: `{payment_id}`"
+                ),
+            )
         return
 
     if telegram_id is None:
@@ -2175,6 +2192,16 @@ async def _apply_peerpay_withdrawal(event_type: str, obj: dict) -> None:
                     "ቶሎ ገንዘብዎን ይመልከቱ።"
                 ),
             )
+            if admin_tid:
+                await _notify_telegram(
+                    admin_tid,
+                    (
+                        "✅ *የገንዘብ ማውጣት ተጠናቋል (Withdrawal Completed)!*\n\n"
+                        f"👤 ተጠቃሚ ID: `{target_id}`\n"
+                        f"💰 መጠን: *{amount:.2f} ETB*\n"
+                        f"🆔 ID: `{payment_id}`"
+                    ),
+                )
         else:
             logger.info("PeerPay withdrawal %s — already captured/released", payment_id)
         return
@@ -2197,7 +2224,29 @@ async def _apply_peerpay_withdrawal(event_type: str, obj: dict) -> None:
                     f"💳 አዲስ ሂሳብ: *{new_balance:.2f} ETB*"
                 ),
             )
+            if admin_tid:
+                await _notify_telegram(
+                    admin_tid,
+                    (
+                        "↩️ *የገንዘብ ማውጣት አልተሳካም — ተመላሽ ተደርጓል (Withdrawal Failed/Released)*\n\n"
+                        f"👤 ተጠቃሚ ID: `{telegram_id}`\n"
+                        f"💰 መጠን: *{amount:.2f} ETB*\n"
+                        f"🆔 ID: `{payment_id}`"
+                    ),
+                )
         return
+
+    if event_type == "withdrawal.review_required" and admin_tid:
+        await _notify_telegram(
+            admin_tid,
+            (
+                "⚠️ *የገንዘብ ማውጣት ምርመራ ይፈልጋል (Withdrawal Review Required)!*\n\n"
+                f"👤 ተጠቃሚ ID: `{telegram_id}`\n"
+                f"💰 መጠን: *{amount:.2f} ETB*\n"
+                f"🆔 ID: `{payment_id}`\n\n"
+                "እባክዎ በ PeerPay dashboard ያረጋግጡ።"
+            ),
+        )
 
     # Hold stays unchanged for every other withdrawal event.
     await db.update_peerpay_withdrawal_progress(
