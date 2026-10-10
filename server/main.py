@@ -734,13 +734,23 @@ def find_winning_card(
     player: Player,
     allow_unmarked: bool = False,
     target_card_id: int | None = None,
+    current_number: int | None = None,
+    require_current_number: bool = True,
 ) -> tuple[str, int, list[int]] | None:
     """Return (pattern, card_id, winning_indexes) for the first player card that wins.
 
+    A valid winning line MUST include the current selected number on the board.
     Ignores locked cards (false bingo penalty). Checks player's manual marks
-    on called numbers so that completing a line or rule automatically
-    triggers BINGO. When allow_unmarked is True, also checks called numbers directly.
+    on called numbers. When allow_unmarked is True, also checks called numbers directly.
     """
+    if require_current_number and current_number is None:
+        if room.winning_number is not None:
+            current_number = room.winning_number
+        elif room.called_numbers:
+            current_number = room.called_numbers[-1]
+        else:
+            return None  # No ball called yet, BINGO cannot be valid
+
     card_items = (
         [(target_card_id, player.cards[target_card_id])]
         if (target_card_id is not None and target_card_id in player.cards)
@@ -750,12 +760,21 @@ def find_winning_card(
     for cid, card in card_items:
         if cid in player.locked_cards:
             continue
-        # Use bitmask-accelerated win check (nanosecond per pattern)
+        # Use bitmask-accelerated win check requiring current_number
         pattern, indexes = check_bingo_marked_fast_with_indexes(
-            card, player.marks.get(cid, set()), room.called_set, room.bingo_rule
+            card,
+            player.marks.get(cid, set()),
+            room.called_set,
+            room.bingo_rule,
+            current_number=current_number,
         )
         if not pattern and allow_unmarked:
-            pattern, indexes = check_bingo_fast_with_indexes(card, room.called_set, room.bingo_rule)
+            pattern, indexes = check_bingo_fast_with_indexes(
+                card,
+                room.called_set,
+                room.bingo_rule,
+                current_number=current_number,
+            )
         if pattern:
             return pattern, cid, indexes
     return None
@@ -768,7 +787,7 @@ def add_claim(
     card_id: int,
     winning_indexes: list[int] | None = None,
 ) -> bool:
-    """Register an auto-detected win claim; returns True if a new claim was added."""
+    """Register a win claim; returns True if a new claim was added."""
     now = time.monotonic()
     if room.bingo_window_until is not None and now > room.bingo_window_until:
         return False
@@ -784,8 +803,9 @@ def add_claim(
     }
 
     if room.bingo_window_until is None:
-        # First auto-detected win opens the 5s multi-winner window and freezes the board.
+        # First win opens the 5s multi-winner window and freezes the board.
         room.bingo_window_until = now + BINGO_CLAIM_WINDOW_SECONDS
+        room.winning_number = room.called_numbers[-1] if room.called_numbers else None
         room.bingo_claimants = [claim]
         task = room_tasks.get(room.room_id)
         if task and not task.done():
@@ -912,6 +932,7 @@ async def handle_cards_locked(
     ws_id: str,
     target_cid: int | None,
     all_locked: bool,
+    custom_message: str | None = None,
 ) -> None:
     """Handle false BINGO card lock, single-player refund, and round ending when all cards are locked."""
     unique_players = set(room.taken_cards.values())
@@ -957,6 +978,7 @@ async def handle_cards_locked(
         room.phase = GamePhase.FINISHED
 
         # 3. Inform player of the lock
+        solo_msg = custom_message or (f"❌ ትክክለኛ ያልሆነ BINGO! መጫወቻ #{target_cid} ተቆልፏል።" if target_cid else "❌ ሁሉም መጫወቻዎች ተቆልፈዋል።")
         await send(
             websocket,
             {
@@ -964,7 +986,7 @@ async def handle_cards_locked(
                 "card_id": target_cid,
                 "locked_cards": list(player.locked_cards),
                 "all_locked": True,
-                "message": f"❌ ትክክለኛ ያልሆነ BINGO! መጫወቻ #{target_cid} ተቆልፏል።" if target_cid else "❌ ሁሉም መጫወቻዎች ተቆልፈዋል።",
+                "message": solo_msg,
             },
         )
 
@@ -991,6 +1013,12 @@ async def handle_cards_locked(
 
     # If not a single player or not all cards are locked:
     # Send card_locked to the caller
+    default_msg = (
+        f"❌ ትክክለኛ ያልሆነ BINGO! መጫወቻ #{target_cid} ተቆልፏል። "
+        f"{'ሁሉም መጫወቻዎችዎ ተቆልፈዋል — ጨዋታውን መከታተል ይችላሉ።' if all_locked else 'በቀሪው መጫወቻዎ መቀጠል ይችላሉ።'}"
+        if target_cid
+        else "❌ ትክክለኛ ያልሆነ BINGO! ሁሉም መጫወቻዎችዎ ተቆልፈዋል። ጨዋታውን መከታተል ይችላሉ።"
+    )
     await send(
         websocket,
         {
@@ -998,12 +1026,7 @@ async def handle_cards_locked(
             "card_id": target_cid,
             "locked_cards": list(player.locked_cards),
             "all_locked": all_locked,
-            "message": (
-                f"❌ ትክክለኛ ያልሆነ BINGO! መጫወቻ #{target_cid} ተቆልፏል። "
-                f"{'ሁሉም መጫወቻዎችዎ ተቆልፈዋል — ጨዋታውን መከታተል ይችላሉ።' if all_locked else 'በቀሪው መጫወቻዎ መቀጠል ይችላሉ።'}"
-                if target_cid
-                else "❌ ትክክለኛ ያልሆነ BINGO! ሁሉም መጫወቻዎችዎ ተቆልፈዋል። ጨዋታውን መከታተል ይችላሉ።"
-            ),
+            "message": custom_message or default_msg,
         },
     )
 
@@ -1647,6 +1670,17 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                     )
                     continue
 
+                if room.bingo_window_until is not None and time.monotonic() > room.bingo_window_until:
+                    await send(
+                        websocket,
+                        {
+                            "type": "bingo_result",
+                            "valid": False,
+                            "message": "የ BINGO ማረጋገጫ ጊዜ አልቋል (BINGO claim window has closed).",
+                        },
+                    )
+                    continue
+
                 player = room.players.get(ws_id)
                 if not player and telegram_id:
                     for p in room.players.values():
@@ -1716,7 +1750,19 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                         if all_locked:
                             player.forfeited = True
 
-                        await handle_cards_locked(room, player, websocket, ws_id, target_cid, all_locked)
+                        has_completed_line = bool(check_bingo_marked_fast(
+                            player.cards[target_cid],
+                            player.marks.get(target_cid, set()),
+                            room.called_set,
+                            room.bingo_rule,
+                            current_number=None,
+                        ))
+                        lock_msg = (
+                            f"❌ ትክክለኛ ያልሆነ BINGO! ያሸነፉበት መስመር የአሁኑን የተጠራ ቁጥር አያካትትም። መጫወቻ #{target_cid} ተቆልፏል።"
+                            if has_completed_line
+                            else f"❌ ትክክለኛ ያልሆነ BINGO! መጫወቻ #{target_cid} ተቆልፏል።"
+                        )
+                        await handle_cards_locked(room, player, websocket, ws_id, target_cid, all_locked, custom_message=lock_msg)
                         continue
 
                     pattern, card_id, indexes = win
@@ -1759,7 +1805,16 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                         player.forfeited = True
                         queue_room_snapshot(room_id)
 
-                        await handle_cards_locked(room, player, websocket, ws_id, None, True)
+                        any_old = any(
+                            check_bingo_marked_fast(c, player.marks.get(cid, set()), room.called_set, room.bingo_rule, current_number=None)
+                            for cid, c in player.cards.items()
+                        )
+                        lock_msg = (
+                            "❌ ትክክለኛ ያልሆነ BINGO! ያሸነፉበት መስመር የአሁኑን የተጠራ ቁጥር አያካትትም። ሁሉም መጫወቻዎችዎ ተቆልፈዋል።"
+                            if any_old
+                            else "❌ ትክክለኛ ያልሆነ BINGO! ሁሉም መጫወቻዎችዎ ተቆልፈዋል።"
+                        )
+                        await handle_cards_locked(room, player, websocket, ws_id, None, True, custom_message=lock_msg)
                         continue
 
                     pattern, card_id, indexes = win

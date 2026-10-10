@@ -166,10 +166,26 @@ def _build_marked_mask(marks: set[int], card: list[list[int | None]], called: se
     return mask
 
 
-def check_bingo_fast(card: list[list[int | None]], called: set[int], rule: str = "line") -> str | None:
+def get_card_number_index(card: list[list[int | None]], number: int | None) -> int | None:
+    """Return flat index (0-24) of a number on a 5x5 card, or None if not present."""
+    if number is None:
+        return None
+    for r in range(5):
+        for c in range(5):
+            if card[r][c] == number:
+                return r * 5 + c
+    return None
+
+
+def check_bingo_fast(
+    card: list[list[int | None]],
+    called: set[int],
+    rule: str = "line",
+    current_number: int | None = None,
+) -> str | None:
     """Bitmask-accelerated win check (drop-in replacement for check_bingo)."""
-    mask = _build_called_mask(card, called)
-    return _match_rule(mask, rule)
+    pattern, _ = check_bingo_fast_with_indexes(card, called, rule, current_number=current_number)
+    return pattern
 
 
 def check_bingo_marked_fast(
@@ -177,9 +193,10 @@ def check_bingo_marked_fast(
     marks: set[int],
     called: set[int],
     rule: str = "line",
+    current_number: int | None = None,
 ) -> str | None:
     """Bitmask-accelerated win check for manually marked cards."""
-    pattern, _ = check_bingo_marked_fast_with_indexes(card, marks, called, rule)
+    pattern, _ = check_bingo_marked_fast_with_indexes(card, marks, called, rule, current_number=current_number)
     return pattern
 
 
@@ -188,26 +205,52 @@ def check_bingo_marked_fast_with_indexes(
     marks: set[int],
     called: set[int],
     rule: str = "line",
+    current_number: int | None = None,
 ) -> tuple[str | None, list[int]]:
-    """Bitmask-accelerated win check returning (pattern, winning_indexes)."""
+    """Bitmask-accelerated win check returning (pattern, winning_indexes).
+
+    If current_number is provided, the winning pattern MUST contain current_number.
+    """
+    if current_number is not None:
+        required_idx = get_card_number_index(card, current_number)
+        if required_idx is None:
+            return None, []
+    else:
+        required_idx = None
     mask = _build_marked_mask(marks, card, called)
-    return _match_rule_with_indexes(mask, rule)
+    return _match_rule_with_indexes(mask, rule, required_index=required_idx)
 
 
 def check_bingo_fast_with_indexes(
     card: list[list[int | None]],
     called: set[int],
     rule: str = "line",
+    current_number: int | None = None,
 ) -> tuple[str | None, list[int]]:
     """Bitmask-accelerated win check directly on called set returning (pattern, winning_indexes)."""
+    if current_number is not None:
+        required_idx = get_card_number_index(card, current_number)
+        if required_idx is None:
+            return None, []
+    else:
+        required_idx = None
     mask = _build_called_mask(card, called)
-    return _match_rule_with_indexes(mask, rule)
+    return _match_rule_with_indexes(mask, rule, required_index=required_idx)
 
 
-def _match_rule_with_indexes(mask: int, rule: str) -> tuple[str | None, list[int]]:
-    """Check a player's bitmask against the rule's winning patterns, returning pattern and flat indexes."""
+def _match_rule_with_indexes(
+    mask: int,
+    rule: str,
+    required_index: int | None = None,
+) -> tuple[str | None, list[int]]:
+    """Check a player's bitmask against the rule's winning patterns, returning pattern and flat indexes.
+
+    If required_index is provided, only patterns containing required_index are accepted.
+    """
     if rule == "full":
         if (mask & _FULL_MASK) == _FULL_MASK:
+            if required_index is not None and not (0 <= required_index <= 24):
+                return None, []
             return "full", list(range(25))
         return None, []
     if rule in ("line", "line_corners"):
@@ -218,6 +261,8 @@ def _match_rule_with_indexes(mask: int, rule: str) -> tuple[str | None, list[int
         patterns = _LINE_MASKS
     for win_mask, pattern_name in patterns:
         if (mask & win_mask) == win_mask:
+            if required_index is not None and not (win_mask & (1 << required_index)):
+                continue
             indexes = [i for i in range(25) if (win_mask & (1 << i))]
             return pattern_name, indexes
     return None, []
@@ -288,47 +333,14 @@ def flat_to_card(flat: list[int | None]) -> list[list[int | None]]:
     return [flat[i : i + 5] for i in range(0, 25, 5)]
 
 
-def check_bingo(card: list[list[int | None]], called: set[int], rule: str = "line") -> str | None:
-    """Return win pattern name or None.
-
-    rule:
-      - "line":         one full row, column, or diagonal.
-      - "line_corners": one line OR all four corners (10 ETB rooms).
-      - "corners":      only all four corners.
-      - "full":         entire card marked (all 25 numbers/free space for superBingo).
-    """
-    grid = card_to_flat(card)
-
-    def cell_marked(idx: int) -> bool:
-        if idx == FREE_INDEX:
-            return True
-        val = grid[idx]
-        return val is not None and val in called
-
-    if rule == "full":
-        return "full" if all(cell_marked(i) for i in range(25)) else None
-
-    if rule in ("line", "line_corners"):
-        # rows
-        for r in range(5):
-            if all(cell_marked(r * 5 + c) for c in range(5)):
-                return "row"
-
-        # columns
-        for c in range(5):
-            if all(cell_marked(r * 5 + c) for r in range(5)):
-                return "column"
-
-        # diagonals
-        if all(cell_marked(i * 6) for i in range(5)):
-            return "diagonal"
-        if all(cell_marked((i + 1) * 4) for i in range(5)):
-            return "diagonal"
-
-    if rule in ("corners", "line_corners") and all(cell_marked(i) for i in CORNERS):
-        return "corners"
-
-    return None
+def check_bingo(
+    card: list[list[int | None]],
+    called: set[int],
+    rule: str = "line",
+    current_number: int | None = None,
+) -> str | None:
+    """Return win pattern name or None."""
+    return check_bingo_fast(card, called, rule, current_number=current_number)
 
 
 def check_bingo_marked(
@@ -336,42 +348,10 @@ def check_bingo_marked(
     marks: set[int],
     called: set[int],
     rule: str = "line",
+    current_number: int | None = None,
 ) -> str | None:
-    """Win check for manually marked cards.
-
-    `marks` are the flat indexes the player tapped. A tapped cell only counts
-    once its number has actually been called (or it is the FREE center), so
-    tapping un-called numbers never produces a false win.
-    """
-    grid = card_to_flat(card)
-
-    def cell_hit(idx: int) -> bool:
-        if idx == FREE_INDEX:
-            return True
-        if idx not in marks or idx < 0 or idx > 24:
-            return False
-        val = grid[idx]
-        return val is not None and val in called
-
-    if rule == "full":
-        return "full" if all(cell_hit(i) for i in range(25)) else None
-
-    if rule in ("line", "line_corners"):
-        for r in range(5):
-            if all(cell_hit(r * 5 + c) for c in range(5)):
-                return "row"
-        for c in range(5):
-            if all(cell_hit(r * 5 + c) for r in range(5)):
-                return "column"
-        if all(cell_hit(i * 6) for i in range(5)):
-            return "diagonal"
-        if all(cell_hit((i + 1) * 4) for i in range(5)):
-            return "diagonal"
-
-    if rule in ("corners", "line_corners") and all(cell_hit(i) for i in CORNERS):
-        return "corners"
-
-    return None
+    """Win check for manually marked cards."""
+    return check_bingo_marked_fast(card, marks, called, rule, current_number=current_number)
 
 
 @dataclass
@@ -414,6 +394,7 @@ class GameRoom:
     winner_card_id: int | None = None
     countdown: int = 0
     bingo_window_until: float | None = None  # monotonic deadline of the 5s BINGO claim window
+    winning_number: int | None = None  # the ball number on which BINGO was first claimed
     bingo_claimants: list[dict] = field(default_factory=list)  # valid claims inside the window
     available_numbers: list[int] = field(default_factory=lambda: list(range(1, 76)))
 

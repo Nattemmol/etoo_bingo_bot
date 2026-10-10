@@ -131,10 +131,19 @@ export function generatePreviewCard() {
   return card;
 }
 
-export function getWinningIndexes(card, marked, calledSet, rule = "line_corners") {
+export function getWinningIndexes(card, marked, calledSet, rule = "line_corners", currentNumber = null) {
   const winIndexes = new Set();
   if (!card) return winIndexes;
   const flat = [].concat(...card);
+
+  let requiredIndex = null;
+  if (currentNumber != null) {
+    const foundIdx = flat.indexOf(currentNumber);
+    if (foundIdx === -1) {
+      return winIndexes; // currentNumber is not on this card at all
+    }
+    requiredIndex = foundIdx;
+  }
 
   function isHit(idx) {
     if (idx === FREE_INDEX) return true;
@@ -168,7 +177,9 @@ export function getWinningIndexes(card, marked, calledSet, rule = "line_corners"
   if (rule === "line" || rule === "line_corners") {
     for (const line of lines) {
       if (line.every(isHit)) {
-        line.forEach((idx) => winIndexes.add(idx));
+        if (requiredIndex == null || line.includes(requiredIndex)) {
+          line.forEach((idx) => winIndexes.add(idx));
+        }
       }
     }
   }
@@ -176,7 +187,9 @@ export function getWinningIndexes(card, marked, calledSet, rule = "line_corners"
   if (rule === "corners" || rule === "line_corners") {
     const corners = [0, 4, 20, 24];
     if (corners.every(isHit)) {
-      corners.forEach((idx) => winIndexes.add(idx));
+      if (requiredIndex == null || corners.includes(requiredIndex)) {
+        corners.forEach((idx) => winIndexes.add(idx));
+      }
     }
   }
 
@@ -296,8 +309,8 @@ export function renderWinnerCard(container, card, calledSet, rule = "line_corner
   }
 }
 
-export function hasAnyWin(card, marked, calledSet, rule = "line_corners") {
-  const winIndexes = getWinningIndexes(card, marked, calledSet, rule);
+export function hasAnyWin(card, marked, calledSet, rule = "line_corners", currentNumber = null) {
+  const winIndexes = getWinningIndexes(card, marked, calledSet, rule, currentNumber);
   return winIndexes.size > 0;
 }
 

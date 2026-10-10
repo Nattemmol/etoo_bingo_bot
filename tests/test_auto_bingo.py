@@ -148,11 +148,17 @@ class TestAutoDeclareWins(unittest.TestCase):
     def test_multiple_winners_share_pot(self):
         card_a = generate_card_by_id(3)
         card_b = generate_card_by_id(5)
+        shared_ball = 7
+        card_a[0][0] = shared_ball
+        card_b[1][0] = shared_ball
         marks_a, called_a = self._row_marks_and_called(card_a, 0)
         marks_b, called_b = self._row_marks_and_called(card_b, 1)
-        called = called_a | called_b
+        called = (called_a | called_b) - {shared_ball}
         self._add_player(101, "Alice", 3, marks_a, called)
         self._add_player(102, "Bob", 5, marks_b, called)
+        self.room.players["ws-101"].cards[3] = card_a
+        self.room.players["ws-102"].cards[5] = card_b
+        self.room.called_numbers.append(shared_ball)
 
         self._run(server_main.check_all_wins(self.room))
 

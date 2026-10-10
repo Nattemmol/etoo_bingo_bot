@@ -41,6 +41,7 @@ const state = {
   previewCardId: null,
   called: [],
   calledSet: new Set(),
+  currentNumber: null,
   claimed: false, // the system auto-declared my BINGO (I am in the winner pool)
   lockedCards: new Set(), // card_ids locked due to false bingo calls
   windowUntil: null, // claim window deadline (ms)
@@ -615,7 +616,7 @@ function toggleMark(cardId, row, col, cellEl = null) {
       if (els.cardList) {
         const cardBlock = els.cardList.querySelector(`.mini-card[data-card-id="${cid}"]`);
         if (cardBlock) {
-          if (!isLocked && hasAnyWin(cardData, cMarks, state.calledSet, rule)) {
+          if (!isLocked && hasAnyWin(cardData, cMarks, state.calledSet, rule, state.currentNumber)) {
             cardBlock.classList.add("has-bingo");
           } else {
             cardBlock.classList.remove("has-bingo");
@@ -695,7 +696,7 @@ function renderGameCards() {
       rule
     );
 
-    if (!isLocked && hasAnyWin(card, marked, state.calledSet, rule)) {
+    if (!isLocked && hasAnyWin(card, marked, state.calledSet, rule, state.currentNumber)) {
       block.classList.add("has-bingo");
     }
 
@@ -714,6 +715,24 @@ function renderGameCards() {
     block.appendChild(bingoBtn);
 
     els.cardList.appendChild(block);
+  });
+}
+
+function refreshCardBingoHighlights() {
+  if (!els.cardList) return;
+  const rule = state.room?.bingo_rule || "line_corners";
+  (state.cardIds || []).forEach((cid) => {
+    const cardData = state.cards[cid];
+    if (!cardData) return;
+    const isLocked = state.lockedCards && state.lockedCards.has(cid);
+    const cardBlock = els.cardList.querySelector(`.mini-card[data-card-id="${cid}"]`);
+    if (!cardBlock) return;
+    const cMarks = state.marked[cid] || new Set();
+    if (!isLocked && hasAnyWin(cardData, cMarks, state.calledSet, rule, state.currentNumber)) {
+      cardBlock.classList.add("has-bingo");
+    } else {
+      cardBlock.classList.remove("has-bingo");
+    }
   });
 }
 
@@ -860,6 +879,7 @@ function handleMessage(socket, msg) {
       state.takenCards = msg.room.taken_cards || {};
       state.called = msg.room.called || [];
       state.calledSet = new Set(state.called);
+      state.currentNumber = msg.room.latest_call ? msg.room.latest_call.number : (state.called.length ? state.called[state.called.length - 1] : null);
       if (msg.user) {
         state.myId = msg.user.id || state.myId;
         updateBalanceDisplay(msg.user.balance);
@@ -1053,12 +1073,14 @@ function handleMessage(socket, msg) {
     case "call":
       state.called = msg.called;
       state.calledSet = new Set(msg.called);
+      state.currentNumber = msg.number;
       els.lastCallLetter.textContent = msg.letter;
       els.lastCallNumber.textContent = msg.number;
       updateGameStats(null, null, msg.called.length);
       updateCalledBoard(els.calledBoard, msg.called, msg.number);
       if (state.isPlayer) {
         updateCalledCell(msg.number);
+        refreshCardBingoHighlights();
       }
       tg.HapticFeedback?.impactOccurred("light");
       break;
@@ -1148,6 +1170,7 @@ function handleMessage(socket, msg) {
       state.isPlayer = false;
       state.called = [];
       state.calledSet = new Set();
+      state.currentNumber = null;
       state.winners = [];
       state.phase = "lobby";
       state.claimed = false;
