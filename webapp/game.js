@@ -38,7 +38,7 @@ export function buildCalledBoard(container) {
 
     const label = document.createElement("div");
     label.className = "called-row-label";
-    label.innerHTML = `<span class="c-letter">${letter}</span><span class="c-range">(${rangeText})</span>`;
+    label.innerHTML = `<span class="c-letter">${letter}</span>`;
     row.appendChild(label);
 
     const chipsWrap = document.createElement("div");
@@ -203,7 +203,7 @@ export function renderCard(container, card, marked, calledSet, onMark, interacti
   LETTERS.forEach((letter) => {
     const head = document.createElement("div");
     head.className = `card-header-cell hdr-${letter.toLowerCase()}`;
-    head.innerHTML = `<span class="hdr-letter">${letter}</span><span class="hdr-range">${RANGE_LABELS[letter]}</span>`;
+    head.innerHTML = `<span class="hdr-letter">${letter}</span>`;
     container.appendChild(head);
   });
 
@@ -277,7 +277,7 @@ export function renderWinnerCard(container, card, calledSet, rule = "line_corner
   LETTERS.forEach((letter) => {
     const head = document.createElement("div");
     head.className = `card-header-cell hdr-${letter.toLowerCase()}`;
-    head.innerHTML = `<span class="hdr-letter">${letter}</span><span class="hdr-range">${RANGE_LABELS[letter]}</span>`;
+    head.innerHTML = `<span class="hdr-letter">${letter}</span>`;
     container.appendChild(head);
   });
 
