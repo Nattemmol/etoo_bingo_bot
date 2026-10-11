@@ -737,17 +737,54 @@ body {
 }
 
 .btn-bingo {
-  background: linear-gradient(135deg, #e17055, #d63031);
-  color: #fff;
-  font-size: 1.2rem;
-  letter-spacing: 2px;
-  box-shadow: 0 4px 20px rgba(214, 48, 49, 0.35);
+  background: linear-gradient(135deg, #ff1744 0%, #ff5252 50%, #ff9100 100%);
+  color: #ffffff;
+  font-size: 1.45rem;
+  font-weight: 950;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  padding: 22px 16px;
+  border-radius: 14px;
+  position: relative;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 0 25px rgba(255, 23, 68, 0.65), 0 6px 20px rgba(0, 0, 0, 0.35), inset 0 2px 4px rgba(255, 255, 255, 0.6);
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5), 0 0 12px rgba(255, 255, 255, 0.7);
+  animation: pulse-bingo-btn 1.8s infinite ease-in-out;
+}
+
+.btn-bingo::after {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -60%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(
+    60deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.45) 50%,
+    transparent 65%
+  );
+  transform: translateX(-100%);
+  animation: shine-sweep 3s infinite ease-in-out;
+  pointer-events: none;
+}
+
+.btn-bingo:hover:not(:disabled) {
+  filter: brightness(1.1);
+  transform: scale(1.02);
+}
+
+.btn-bingo:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .btn-bingo:disabled {
   opacity: 0.4;
   cursor: not-allowed;
   box-shadow: none;
+  animation: none;
 }
 
 .auto-bingo-hint {
@@ -1179,34 +1216,60 @@ body {
 
 .btn-card-bingo {
   width: 100%;
-  margin-top: 4px;
-  padding: 6px 8px;
-  border-radius: 7px;
-  font-size: 0.84rem;
-  font-weight: 900;
-  letter-spacing: 0.8px;
-  background: linear-gradient(135deg, #ff4757 0%, #ff6b81 100%);
+  margin-top: 6px;
+  padding: 13px 10px;
+  border-radius: 9px;
+  font-size: 1.05rem;
+  font-weight: 950;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, #ff0844 0%, #ff4e50 48%, #f9d423 100%);
+  background-size: 200% 200%;
   color: #ffffff;
-  border: none;
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(255, 71, 87, 0.4);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(255, 8, 68, 0.55), 0 0 10px rgba(249, 212, 35, 0.4), inset 0 1px 2px rgba(255, 255, 255, 0.6);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6), 0 0 8px rgba(255, 255, 255, 0.6);
   transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  animation: pulse-bingo-btn 1.7s infinite ease-in-out, gradient-shift 4s infinite linear;
+}
+
+.btn-card-bingo::after {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -60%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(
+    60deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.45) 50%,
+    transparent 65%
+  );
+  transform: translateX(-100%);
+  animation: shine-sweep 2.8s infinite ease-in-out;
+  pointer-events: none;
 }
 
 .card-list.two-cards .btn-card-bingo {
-  margin-top: 3px;
-  padding: 4px 6px;
-  font-size: 0.70rem;
-  border-radius: 6px;
+  margin-top: 5px;
+  padding: 9px 6px;
+  font-size: 0.86rem;
+  letter-spacing: 0.8px;
+  border-radius: 7px;
 }
 
 .btn-card-bingo:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(255, 71, 87, 0.6);
+  transform: translateY(-2px) scale(1.02);
+  filter: brightness(1.12);
+  box-shadow: 0 6px 20px rgba(255, 8, 68, 0.75), 0 0 16px rgba(249, 212, 35, 0.6);
 }
 
 .btn-card-bingo:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: scale(0.96);
 }
 
 .btn-card-bingo:disabled {
@@ -1214,8 +1277,32 @@ body {
   border: 1px solid #57606f;
   color: #747d8c;
   box-shadow: none;
+  text-shadow: none;
   cursor: not-allowed;
   opacity: 0.6;
+  animation: none;
+}
+
+.btn-card-bingo:disabled::after {
+  display: none;
+}
+
+@keyframes pulse-bingo-btn {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 4px 16px rgba(255, 8, 68, 0.5), 0 0 8px rgba(249, 212, 35, 0.3);
+  }
+  50% {
+    transform: scale(1.03);
+    box-shadow: 0 6px 22px rgba(255, 8, 68, 0.8), 0 0 16px rgba(249, 212, 35, 0.7);
+    filter: brightness(1.1);
+  }
+}
+
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
 /* Modals */
