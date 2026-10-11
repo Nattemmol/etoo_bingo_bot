@@ -106,9 +106,9 @@ const els = {
   themeToggleBtn: document.getElementById("theme-toggle-btn"),
 };
 
-// Theme Management (Defaults to Dark Mode)
+// Theme Management (Defaults to Light Mode)
 function initTheme() {
-  const saved = localStorage.getItem("goodbingo_theme") || "dark";
+  const saved = localStorage.getItem("goodbingo_theme") || "light";
   setTheme(saved);
 }
 
@@ -129,7 +129,7 @@ function setTheme(theme) {
 
 if (els.themeToggleBtn) {
   els.themeToggleBtn.addEventListener("click", () => {
-    const current = document.documentElement.getAttribute("data-theme") || "dark";
+    const current = document.documentElement.getAttribute("data-theme") || "light";
     const next = current === "dark" ? "light" : "dark";
     setTheme(next);
     tg.HapticFeedback?.impactOccurred("light");

@@ -4,36 +4,7 @@
   padding: 0;
 }
 
-:root, [data-theme="dark"] {
-  --bg: #0d0d18;
-  --text: #f0f0f8;
-  --hint: #8e8ea8;
-  --text-muted: #6e6e8c;
-  --accent: #6c5ce7;
-  --accent-text: #ffffff;
-  --secondary: #17172c;
-  --secondary-hover: #22223e;
-  --card-bg: #1c1c34;
-  --cell-bg: #1a1a32;
-  --cell-border: #323254;
-  --border-light: rgba(255, 255, 255, 0.08);
-  --header-bar-bg: rgba(23, 23, 44, 0.88);
-  --board-bg: #141426;
-  --modal-backdrop: rgba(6, 6, 14, 0.78);
-  --marked: #00b894;
-  --marked-gradient: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
-  --called: #00e676;
-  --called-chip-bg: #23233c;
-  --called-chip-border: #38385a;
-  --called-chip-color: #8b8ba8;
-  --called-active-bg: linear-gradient(135deg, #00b894 0%, #00e676 100%);
-  --called-active-text: #022415;
-  --quick-input-bg: #131322;
-  --quick-input-border: #323254;
-  --shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-}
-
-[data-theme="light"] {
+:root, [data-theme="light"] {
   --bg: #f4f6fb;
   --text: #171926;
   --hint: #5a6478;
@@ -60,6 +31,35 @@
   --quick-input-bg: #f8fafc;
   --quick-input-border: #cbd5e1;
   --shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="dark"] {
+  --bg: #0d0d18;
+  --text: #f0f0f8;
+  --hint: #8e8ea8;
+  --text-muted: #6e6e8c;
+  --accent: #6c5ce7;
+  --accent-text: #ffffff;
+  --secondary: #17172c;
+  --secondary-hover: #22223e;
+  --card-bg: #1c1c34;
+  --cell-bg: #1a1a32;
+  --cell-border: #323254;
+  --border-light: rgba(255, 255, 255, 0.08);
+  --header-bar-bg: rgba(23, 23, 44, 0.88);
+  --board-bg: #141426;
+  --modal-backdrop: rgba(6, 6, 14, 0.78);
+  --marked: #00b894;
+  --marked-gradient: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
+  --called: #00e676;
+  --called-chip-bg: #23233c;
+  --called-chip-border: #38385a;
+  --called-chip-color: #8b8ba8;
+  --called-active-bg: linear-gradient(135deg, #00b894 0%, #00e676 100%);
+  --called-active-text: #022415;
+  --quick-input-bg: #131322;
+  --quick-input-border: #323254;
+  --shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
 }
 
 body {
@@ -1090,11 +1090,20 @@ body {
   width: 100%;
 }
 
-/* Single card: centered, clean proportions */
+/* Single card: centered, clean proportions & compact size */
 .card-list:not(.two-cards) .mini-card {
-  max-width: 320px;
+  max-width: 270px;
   margin: 0 auto;
   width: 100%;
+  padding: 4px 4px;
+}
+
+.card-list:not(.two-cards) .mini-bingo-card .card-cell {
+  font-size: 0.68rem;
+}
+
+.card-list:not(.two-cards) .mini-bingo-card .card-header-cell .hdr-letter {
+  font-size: 0.95rem;
 }
 
 /* Two cards side-by-side: 85% scale, minmax(0, 1fr) prevents overlap */
