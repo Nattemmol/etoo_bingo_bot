@@ -283,7 +283,7 @@ function setupScheduleTimer(seconds) {
     }
     const str = formatCountdown(remaining);
     if (els.scheduleCountdown) {
-      els.scheduleCountdown.textContent = `Starts in: ${str}`;
+      els.scheduleCountdown.textContent = `የሚጀመረው በ: ${str}`;
     }
     remaining--;
   }
@@ -369,7 +369,7 @@ function updatePoolChip(cardId) {
 
 function buildPool() {
   const maxCards = state.room?.max_cards || (roomId === "room_super_50" ? 1500 : 450);
-  if (els.cardActionTitle) els.cardActionTitle.textContent = `Card Pool (1-${maxCards})`;
+  if (els.cardActionTitle) els.cardActionTitle.textContent = `የመጫወቻ ምርጫ (1-${maxCards})`;
   if (els.quickCardInput) {
     els.quickCardInput.max = maxCards;
     els.quickCardInput.placeholder = `መጫወቻ ቁጥር (1-${maxCards})`;
@@ -781,12 +781,12 @@ function setupGameScreen() {
   if (state.cardIds.length) {
     els.gameLayout.classList.remove("spectator");
     els.gameSpectatorSection.classList.add("hidden");
-    els.cardsPanelTitle.textContent = "Your Cards";
+    els.cardsPanelTitle.textContent = "የእርስዎ መጫወቻዎች";
     renderGameCards();
   } else {
     els.gameLayout.classList.add("spectator");
     els.gameSpectatorSection.classList.remove("hidden");
-    els.cardsPanelTitle.textContent = "Spectator";
+    els.cardsPanelTitle.textContent = "ተመልካች";
     els.cardList.innerHTML = "";
   }
 }
