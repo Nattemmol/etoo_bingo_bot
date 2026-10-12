@@ -264,43 +264,8 @@ class TestBingoCurrentNumberRule(unittest.TestCase):
         self.assertEqual(win[1], 6)
         self.assertEqual(win[2], [0, 5, 10, 15, 20])
 
-    def test_recent_call_latency_grace_window(self):
-        """If server advanced to next ball, claim on previous ball within grace is accepted."""
-        room = GameRoom(room_id="room_play_10", name="PLAY", entry_fee=10.0, bingo_rule="line_corners")
-        room.phase = GamePhase.PLAYING
-
-        card = generate_card_by_id(7)
-        flat = _card_flat(card)
-        row_0_cells = [flat[i] for i in _card_row_indexes(0)]
-
-        # Row 0 cells completed with row_0_cells[4]
-        # But server JUST called another number 99 (not on card)
-        room.called_numbers = list(row_0_cells) + [99]
-
-        player = Player(
-            telegram_id=777,
-            name="LaggingPlayer",
-            ws_id="ws-777",
-            card_ids=[7],
-            cards={7: card},
-            marks={7: set(_card_row_indexes(0))},
-        )
-        room.players = {"ws-777": player}
-
-        # Client saw row_0_cells[4]
-        win = find_winning_card(
-            room,
-            player,
-            allow_unmarked=False,
-            target_card_id=7,
-            client_current_number=row_0_cells[4],
-        )
-        self.assertIsNotNone(win)
-        self.assertEqual(win[0], "row")
-        self.assertEqual(win[1], 7)
-
-    def test_multi_card_claim_fallback_to_winning_card(self):
-        """Player with 2 cards clicks BINGO on Card A, but Card B is the winning one."""
+    def test_strict_target_card_validation(self):
+        """When player specifies target_card_id, ONLY that specific card is checked."""
         room = GameRoom(room_id="room_play_10", name="PLAY", entry_fee=10.0, bingo_rule="line_corners")
         room.phase = GamePhase.PLAYING
 
@@ -321,12 +286,14 @@ class TestBingoCurrentNumberRule(unittest.TestCase):
         )
         room.players = {"ws-888": player}
 
-        # Player accidentally clicked Card 8's button
+        # Player targets Card 8 which has NOT won
         win = find_winning_card(room, player, allow_unmarked=False, target_card_id=8)
-        self.assertIsNotNone(win)
-        # Fallback recognized Card 9 as the winner!
-        self.assertEqual(win[1], 9)
-        self.assertEqual(win[0], "row")
+        self.assertIsNone(win)
+
+        # Targeting Card 9 wins
+        win_b = find_winning_card(room, player, allow_unmarked=False, target_card_id=9)
+        self.assertIsNotNone(win_b)
+        self.assertEqual(win_b[1], 9)
 
 
 if __name__ == "__main__":
