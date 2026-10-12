@@ -195,6 +195,139 @@ class TestBingoCurrentNumberRule(unittest.TestCase):
 
         asyncio.run(_test())
 
+    def test_premarked_uncalled_numbers_allowed_and_wins_when_number_called(self):
+        """Player pre-marks 7 uncalled numbers. When their needed number is picked, claim is valid!"""
+        room = GameRoom(room_id="room_play_10", name="PLAY", entry_fee=10.0, bingo_rule="line_corners")
+        room.phase = GamePhase.PLAYING
+
+        card = generate_card_by_id(5)
+        flat = _card_flat(card)
+        row_0_cells = [flat[i] for i in _card_row_indexes(0)]
+
+        # Row 0 cells 0..3 called earlier; cell 4 is the winning ball called NOW!
+        earlier_balls = row_0_cells[:4]
+        winning_ball = row_0_cells[4]
+        room.called_numbers = list(earlier_balls) + [winning_ball]
+
+        # Player marked Row 0 (including pre-marking cell 4 before it was picked)
+        # PLUS pre-marked 7 other numbers on card that have NOT been called!
+        uncalled_indexes = {5, 6, 7, 8, 9, 15, 16}
+        all_marks = set(_card_row_indexes(0)) | uncalled_indexes
+
+        player = Player(
+            telegram_id=555,
+            name="PreMarker",
+            ws_id="ws-555",
+            card_ids=[5],
+            cards={5: card},
+            marks={5: all_marks},
+        )
+        room.players = {"ws-555": player}
+
+        win = find_winning_card(room, player, allow_unmarked=False, target_card_id=5)
+        self.assertIsNotNone(win)
+        self.assertEqual(win[0], "row")
+        self.assertEqual(win[1], 5)
+        self.assertEqual(win[2], [0, 1, 2, 3, 4])
+
+    def test_multiple_lines_where_one_contains_current_number(self):
+        """Card has multiple completed lines; the one containing current number wins."""
+        room = GameRoom(room_id="room_play_10", name="PLAY", entry_fee=10.0, bingo_rule="line_corners")
+        room.phase = GamePhase.PLAYING
+
+        card = generate_card_by_id(6)
+        flat = _card_flat(card)
+
+        # Row 0 (0..4) and Column 0 (0, 5, 10, 15, 20)
+        row_0_cells = [flat[i] for i in range(5)]
+        col_0_rest = [flat[5], flat[10], flat[15]]
+        current_ball = flat[20]  # On Column 0, NOT on Row 0!
+
+        # Called list has Row 0 numbers and Col 0 numbers, with current_ball at the end
+        room.called_numbers = list(row_0_cells) + list(col_0_rest) + [current_ball]
+
+        # Marks have both Row 0 and Col 0, plus 5 uncalled marks
+        marks = {0, 1, 2, 3, 4, 5, 10, 15, 20, 6, 7, 8, 9, 14}
+        player = Player(
+            telegram_id=666,
+            name="MultiLiner",
+            ws_id="ws-666",
+            card_ids=[6],
+            cards={6: card},
+            marks={6: marks},
+        )
+        room.players = {"ws-666": player}
+
+        win = find_winning_card(room, player, allow_unmarked=False, target_card_id=6)
+        self.assertIsNotNone(win)
+        self.assertEqual(win[0], "column")
+        self.assertEqual(win[1], 6)
+        self.assertEqual(win[2], [0, 5, 10, 15, 20])
+
+    def test_recent_call_latency_grace_window(self):
+        """If server advanced to next ball, claim on previous ball within grace is accepted."""
+        room = GameRoom(room_id="room_play_10", name="PLAY", entry_fee=10.0, bingo_rule="line_corners")
+        room.phase = GamePhase.PLAYING
+
+        card = generate_card_by_id(7)
+        flat = _card_flat(card)
+        row_0_cells = [flat[i] for i in _card_row_indexes(0)]
+
+        # Row 0 cells completed with row_0_cells[4]
+        # But server JUST called another number 99 (not on card)
+        room.called_numbers = list(row_0_cells) + [99]
+
+        player = Player(
+            telegram_id=777,
+            name="LaggingPlayer",
+            ws_id="ws-777",
+            card_ids=[7],
+            cards={7: card},
+            marks={7: set(_card_row_indexes(0))},
+        )
+        room.players = {"ws-777": player}
+
+        # Client saw row_0_cells[4]
+        win = find_winning_card(
+            room,
+            player,
+            allow_unmarked=False,
+            target_card_id=7,
+            client_current_number=row_0_cells[4],
+        )
+        self.assertIsNotNone(win)
+        self.assertEqual(win[0], "row")
+        self.assertEqual(win[1], 7)
+
+    def test_multi_card_claim_fallback_to_winning_card(self):
+        """Player with 2 cards clicks BINGO on Card A, but Card B is the winning one."""
+        room = GameRoom(room_id="room_play_10", name="PLAY", entry_fee=10.0, bingo_rule="line_corners")
+        room.phase = GamePhase.PLAYING
+
+        card_a = generate_card_by_id(8)
+        card_b = generate_card_by_id(9)
+        flat_b = _card_flat(card_b)
+
+        row_0_cells_b = [flat_b[i] for i in _card_row_indexes(0)]
+        room.called_numbers = list(row_0_cells_b)
+
+        player = Player(
+            telegram_id=888,
+            name="TwoCardPlayer",
+            ws_id="ws-888",
+            card_ids=[8, 9],
+            cards={8: card_a, 9: card_b},
+            marks={8: {1, 2}, 9: set(_card_row_indexes(0))},
+        )
+        room.players = {"ws-888": player}
+
+        # Player accidentally clicked Card 8's button
+        win = find_winning_card(room, player, allow_unmarked=False, target_card_id=8)
+        self.assertIsNotNone(win)
+        # Fallback recognized Card 9 as the winner!
+        self.assertEqual(win[1], 9)
+        self.assertEqual(win[0], "row")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -544,17 +544,16 @@ function claimBingo(targetCardId = null) {
   state.cardIds.forEach((cid) => {
     allMarks[cid] = Array.from(state.marked[cid] || []);
   });
+  const payload = {
+    type: "bingo",
+    all_marks: allMarks,
+    current_number: state.currentNumber,
+  };
   if (targetCardId != null) {
-    const marksList = Array.from(state.marked[targetCardId] || []);
-    ws.send(JSON.stringify({
-      type: "bingo",
-      card_id: Number(targetCardId),
-      marks: marksList,
-      all_marks: allMarks
-    }));
-  } else {
-    ws.send(JSON.stringify({ type: "bingo", all_marks: allMarks }));
+    payload.card_id = Number(targetCardId);
+    payload.marks = Array.from(state.marked[targetCardId] || []);
   }
+  ws.send(JSON.stringify(payload));
   tg.HapticFeedback?.notificationOccurred("success");
 }
 
@@ -693,7 +692,8 @@ function renderGameCards() {
         toggleMark(id, row, col, cellEl);
       },
       !isLocked && state.phase === "playing",
-      rule
+      rule,
+      state.phase === "playing" ? state.currentNumber : null
     );
 
     if (!isLocked && hasAnyWin(card, marked, state.calledSet, rule, state.currentNumber)) {

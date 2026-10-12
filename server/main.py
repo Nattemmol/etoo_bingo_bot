@@ -746,47 +746,69 @@ def find_winning_card(
     target_card_id: int | None = None,
     current_number: int | None = None,
     require_current_number: bool = True,
+    client_current_number: int | None = None,
 ) -> tuple[str, int, list[int]] | None:
     """Return (pattern, card_id, winning_indexes) for the first player card that wins.
 
-    A valid winning line MUST include the current selected number on the board.
+    A valid winning line MUST include the current selected number on the board (or recent call within grace).
     Ignores locked cards (false bingo penalty). Checks player's manual marks
     on called numbers. When allow_unmarked is True, also checks called numbers directly.
     """
-    if require_current_number and current_number is None:
-        if room.winning_number is not None:
-            current_number = room.winning_number
-        elif room.called_numbers:
-            current_number = room.called_numbers[-1]
+    candidate_numbers: list[int | None] = []
+    if require_current_number:
+        if current_number is not None:
+            candidate_numbers = [current_number]
+        elif room.winning_number is not None:
+            candidate_numbers = [room.winning_number]
         else:
-            return None  # No ball called yet, BINGO cannot be valid
+            if room.called_numbers:
+                latest = room.called_numbers[-1]
+                candidate_numbers.append(latest)
+                # If client reported they claimed on the immediately preceding ball (in-flight network latency grace):
+                if (
+                    client_current_number is not None
+                    and len(room.called_numbers) >= 2
+                    and client_current_number == room.called_numbers[-2]
+                ):
+                    candidate_numbers.append(client_current_number)
+            if not candidate_numbers:
+                return None  # No ball called yet, BINGO cannot be valid
+    else:
+        candidate_numbers = [None]
 
-    card_items = (
-        [(target_card_id, player.cards[target_card_id])]
-        if (target_card_id is not None and target_card_id in player.cards)
-        else list(player.cards.items())
-    )
+    # Target card is checked first (if provided and owned), followed by other unlocked cards
+    ordered_card_items = []
+    if target_card_id is not None and target_card_id in player.cards:
+        ordered_card_items.append((target_card_id, player.cards[target_card_id]))
+        for cid, card in player.cards.items():
+            if cid != target_card_id:
+                ordered_card_items.append((cid, card))
+    else:
+        ordered_card_items = list(player.cards.items())
 
-    for cid, card in card_items:
-        if cid in player.locked_cards:
-            continue
-        # Use bitmask-accelerated win check requiring current_number
-        pattern, indexes = check_bingo_marked_fast_with_indexes(
-            card,
-            player.marks.get(cid, set()),
-            room.called_set,
-            room.bingo_rule,
-            current_number=current_number,
-        )
-        if not pattern and allow_unmarked:
-            pattern, indexes = check_bingo_fast_with_indexes(
+    for cand_num in candidate_numbers:
+        for cid, card in ordered_card_items:
+            if cid in player.locked_cards:
+                continue
+            # Use bitmask-accelerated win check requiring cand_num
+            pattern, indexes = check_bingo_marked_fast_with_indexes(
                 card,
+                player.marks.get(cid, set()),
                 room.called_set,
                 room.bingo_rule,
-                current_number=current_number,
+                current_number=cand_num,
             )
-        if pattern:
-            return pattern, cid, indexes
+            if not pattern and allow_unmarked:
+                pattern, indexes = check_bingo_fast_with_indexes(
+                    card,
+                    room.called_set,
+                    room.bingo_rule,
+                    current_number=cand_num,
+                )
+            if pattern:
+                if room.winning_number is None and cand_num is not None:
+                    room.winning_number = cand_num
+                return pattern, cid, indexes
     return None
 
 
@@ -1737,6 +1759,13 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                     continue
 
                 target_cid = msg.get("card_id")
+                client_curr_num = msg.get("current_number")
+                if client_curr_num is not None:
+                    try:
+                        client_curr_num = int(client_curr_num)
+                    except (ValueError, TypeError):
+                        client_curr_num = None
+
                 # If specific card_id is claimed
                 if target_cid is not None:
                     try:
@@ -1777,7 +1806,28 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                         except Exception:
                             pass
 
-                    win = find_winning_card(room, player, allow_unmarked=False, target_card_id=target_cid)
+                    # Also sync all_marks across all player cards if attached
+                    client_all_marks = msg.get("all_marks")
+                    if isinstance(client_all_marks, dict):
+                        for cid_str, m_list in client_all_marks.items():
+                            if str(cid_str).isdigit():
+                                cid_int = int(cid_str)
+                                if cid_int in player.cards and isinstance(m_list, list):
+                                    try:
+                                        player.marks[cid_int] = {
+                                            int(idx) for idx in m_list
+                                            if isinstance(idx, (int, str)) and str(idx).isdigit() and 0 <= int(idx) <= 24 and int(idx) != FREE_INDEX
+                                        }
+                                    except Exception:
+                                        pass
+
+                    win = find_winning_card(
+                        room,
+                        player,
+                        allow_unmarked=False,
+                        target_card_id=target_cid,
+                        client_current_number=client_curr_num,
+                    )
                     if not win:
                         # False BINGO: Lock this specific card!
                         player.locked_cards.add(target_cid)
@@ -1833,7 +1883,12 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                                     except Exception:
                                         pass
 
-                    win = find_winning_card(room, player, allow_unmarked=False)
+                    win = find_winning_card(
+                        room,
+                        player,
+                        allow_unmarked=False,
+                        client_current_number=client_curr_num,
+                    )
                     if not win:
                         # Lock all unlocked cards
                         for cid in list(player.cards.keys()):

@@ -196,9 +196,9 @@ export function getWinningIndexes(card, marked, calledSet, rule = "line_corners"
   return winIndexes;
 }
 
-export function renderCard(container, card, marked, calledSet, onMark, interactive = true, rule = "line_corners") {
+export function renderCard(container, card, marked, calledSet, onMark, interactive = true, rule = "line_corners", currentNumber = null) {
   container.innerHTML = "";
-  const winningIndexes = getWinningIndexes(card, marked, calledSet, rule);
+  const winningIndexes = getWinningIndexes(card, marked, calledSet, rule, currentNumber);
 
   LETTERS.forEach((letter) => {
     const head = document.createElement("div");
