@@ -895,7 +895,7 @@ function handleMessage(socket, msg) {
       if (msg.marks) {
         for (const [cardId, indices] of Object.entries(msg.marks)) {
           const cid = Number(cardId);
-          const current = state.marked[cid] || new Set();
+          const current = new Set();
           if (Array.isArray(indices)) {
             indices.forEach((idx) => current.add(Number(idx)));
           }

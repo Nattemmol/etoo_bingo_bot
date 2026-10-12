@@ -684,6 +684,16 @@ async def run_playing_round(room: GameRoom) -> None:
             },
         )
 
+        # Auto-mark for any players who are disconnected/not currently connected in the room
+        active_tids = {
+            p.telegram_id
+            for wid, p in list(room.players.items())
+            if wid in room.connections and wid in connections
+        }
+        for p in list(room.players.values()):
+            if p.telegram_id not in active_tids:
+                mark_called_numbers_for_offline_player(room, p)
+
         # Snapshot every 5 ball calls for crash recovery
         if len(room.called_numbers) % 5 == 0:
             await _persist_room_snapshot(room)
@@ -863,6 +873,29 @@ def process_player_mark(room: GameRoom, player: Player, card_id: int, row: int, 
 
     queue_room_snapshot(room.room_id)
     return True
+
+
+def mark_called_numbers_for_offline_player(room: GameRoom, player: Player) -> bool:
+    """Automatically mark all currently called numbers on player's cards for the time they were away from the room."""
+    if not player or not player.cards or not room.called_set:
+        return False
+    changed = False
+    for cid, grid in player.cards.items():
+        if cid in player.locked_cards or not grid:
+            continue
+        c_marks = player.marks.setdefault(cid, set())
+        for r in range(5):
+            for c in range(5):
+                flat = r * 5 + c
+                if flat == FREE_INDEX:
+                    continue
+                num = grid[r][c]
+                if num is not None and num in room.called_set:
+                    if flat not in c_marks:
+                        c_marks.add(flat)
+                        changed = True
+        player.marks[cid] = c_marks
+    return changed
 
 
 async def check_player_win(room: GameRoom, player: Player) -> bool:
@@ -1267,6 +1300,9 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                 room.players[ws_id] = player
 
         if player:
+            # Player is returning/reconnecting: auto-mark any numbers that were selected while away from the room
+            if room.phase == GamePhase.PLAYING and room.called_set:
+                mark_called_numbers_for_offline_player(room, player)
             old_ws = player.ws_id
             player.ws_id = ws_id
             room.players[ws_id] = player
