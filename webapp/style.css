@@ -1144,20 +1144,39 @@ body {
   width: 100%;
 }
 
-/* Single card: centered, clean proportions & compact size to prevent scrolling */
+/* Single card: scaled to 75% of previous size (188px) across both dimensions */
 .card-list:not(.two-cards) .mini-card {
-  max-width: 250px;
+  max-width: 188px;
   margin: 0 auto;
   width: 100%;
-  padding: 3px 4px;
+  padding: 3px 3px;
+  border-radius: 7px;
+}
+
+.card-list:not(.two-cards) .mini-bingo-card {
+  gap: 1.5px;
 }
 
 .card-list:not(.two-cards) .mini-bingo-card .card-cell {
-  font-size: 0.66rem;
+  font-size: 0.58rem;
+  font-weight: 800;
+  border-radius: 3px;
+}
+
+.card-list:not(.two-cards) .mini-bingo-card .card-header-cell {
+  border-radius: 3px;
+  padding: 1px 0;
 }
 
 .card-list:not(.two-cards) .mini-bingo-card .card-header-cell .hdr-letter {
-  font-size: 0.90rem;
+  font-size: 0.72rem;
+}
+
+.card-list:not(.two-cards) .btn-card-bingo {
+  padding: 20px 10px;
+  font-size: 1.05rem;
+  letter-spacing: 1.2px;
+  margin-top: 5px;
 }
 
 /* Two cards side-by-side: 85% scale, minmax(0, 1fr) prevents overlap */
