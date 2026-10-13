@@ -557,6 +557,26 @@ function claimBingo(targetCardId = null) {
   tg.HapticFeedback?.notificationOccurred("success");
 }
 
+function checkAutoBingoSuper() {
+  if (state.phase !== "playing") return;
+  if (state.claimed) return;
+  const isSuper = state.room?.room_id === "room_super_50" || state.room?.bingo_rule === "full";
+  if (!isSuper) return;
+
+  const rule = state.room?.bingo_rule || "full";
+  for (const cid of (state.cardIds || [])) {
+    if (state.lockedCards && state.lockedCards.has(cid)) continue;
+    const cardData = state.cards[cid];
+    if (!cardData) continue;
+    const cMarks = state.marked[cid] || new Set();
+    if (hasAnyWin(cardData, cMarks, state.calledSet, rule, state.currentNumber)) {
+      state.claimed = true;
+      claimBingo(cid);
+      break;
+    }
+  }
+}
+
 function toggleMark(cardId, row, col, cellEl = null) {
   if (state.phase !== "playing") return;
   const targetCard = state.cards[cardId];
@@ -628,6 +648,7 @@ function toggleMark(cardId, row, col, cellEl = null) {
   if (!anyUpdated) {
     renderGameCards();
   }
+  checkAutoBingoSuper();
   tg.HapticFeedback?.selectionChanged();
 }
 
@@ -707,7 +728,8 @@ function renderGameCards() {
       bingoBtn.disabled = true;
       bingoBtn.textContent = "🔒 መጫወቻው ተቆልፏል (Locked)";
     } else {
-      bingoBtn.textContent = "🎉 BINGO!";
+      const isSuper = state.room?.room_id === "room_super_50" || state.room?.bingo_rule === "full";
+      bingoBtn.textContent = isSuper ? "⚡ ራስ-ሰር BINGO (Auto)" : "🎉 BINGO!";
       bingoBtn.addEventListener("click", () => {
         claimBingo(id);
       });
@@ -778,6 +800,16 @@ function stopWindowTimer() {
 }
 
 function setupGameScreen() {
+  const isSuper = state.room?.room_id === "room_super_50" || state.room?.bingo_rule === "full";
+  const hintEl = document.querySelector(".auto-bingo-hint");
+  if (hintEl) {
+    if (isSuper) {
+      hintEl.textContent = "👆 የተጠሩትን ቁጥሮች ምልክት ያድርጉ፤ ካርዱ ሙሉ ሲሆን ስርዓቱ በራስ-ሰር BINGO ይላል (Auto-Bingo)!";
+    } else {
+      hintEl.textContent = '👆 የተጠሩትን ቁጥሮች ምልክት ያድርጉ፤ ሲሟላ "BINGO!" ይጫኑ። ሳያሸንፉ BINGO ከተባለ ያ መጫወቻ ይቆለፋል!';
+    }
+  }
+
   if (state.cardIds.length) {
     els.gameLayout.classList.remove("spectator");
     els.gameSpectatorSection.classList.add("hidden");
@@ -1081,6 +1113,7 @@ function handleMessage(socket, msg) {
       if (state.isPlayer) {
         updateCalledCell(msg.number);
         refreshCardBingoHighlights();
+        checkAutoBingoSuper();
       }
       tg.HapticFeedback?.impactOccurred("light");
       break;
@@ -1126,6 +1159,7 @@ function handleMessage(socket, msg) {
       } else {
         showBanner(`🎉 ${msg.claimant_name} has Bingo! ${msg.window_seconds || 5}s remain to claim too.`);
         tg.HapticFeedback?.impactOccurred("medium");
+        checkAutoBingoSuper();
       }
       break;
     }

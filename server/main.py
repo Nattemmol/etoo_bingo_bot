@@ -694,6 +694,12 @@ async def run_playing_round(room: GameRoom) -> None:
             if p.telegram_id not in active_tids:
                 mark_called_numbers_for_offline_player(room, p)
 
+        # In Super Bingo (50 Birr / full card), automatically claim BINGO for valid winners
+        if room.room_id == "room_super_50" or room.bingo_rule == "full":
+            await check_all_wins(room)
+            if room.bingo_window_until is not None:
+                break
+
         # Snapshot every 5 ball calls for crash recovery
         if len(room.called_numbers) % 5 == 0:
             await _persist_room_snapshot(room)
@@ -818,7 +824,11 @@ def add_claim(
         room.winning_number = room.called_numbers[-1] if room.called_numbers else None
         room.bingo_claimants = [claim]
         task = room_tasks.get(room.room_id)
-        if task and not task.done():
+        try:
+            current_task = asyncio.current_task()
+        except RuntimeError:
+            current_task = None
+        if task and not task.done() and task is not current_task:
             task.cancel()
         room_tasks.pop(room.room_id, None)
         asyncio.create_task(finalize_bingo(room.room_id))
@@ -1668,6 +1678,8 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                         websocket,
                         {"type": "mark_ack", "card_id": card_id, "flat": flat, "marked": desired},
                     )
+                    if desired and (room.room_id == "room_super_50" or room.bingo_rule == "full"):
+                        await check_player_win(room, player)
                 continue
 
             if msg_type == "sync_marks":
@@ -1692,6 +1704,8 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                         except Exception:
                             pass
                     queue_room_snapshot(room_id)
+                    if room.room_id == "room_super_50" or room.bingo_rule == "full":
+                        await check_player_win(room, player)
                 continue
 
             if msg_type == "bingo":

@@ -295,6 +295,100 @@ class TestBingoCurrentNumberRule(unittest.TestCase):
         self.assertIsNotNone(win_b)
         self.assertEqual(win_b[1], 9)
 
+    def test_super_bingo_auto_claim_on_call(self):
+        """In room_super_50 with rule='full', calling the 24th card number auto-declares BINGO."""
+        room = GameRoom(room_id="room_super_50", name="superBingo", entry_fee=50.0, bingo_rule="full")
+        room.phase = GamePhase.PLAYING
+
+        card = generate_card_by_id(50)
+        flat = _card_flat(card)
+        # All 24 card numbers (excluding index 12 / FREE)
+        card_numbers = [flat[i] for i in range(25) if i != 12]
+        all_card_marks = {i for i in range(25) if i != 12}
+
+        # Player has pre-marked all numbers
+        player = Player(
+            telegram_id=5050,
+            name="SuperWinner",
+            ws_id="ws-5050",
+            card_ids=[50],
+            cards={50: card},
+            marks={50: all_card_marks},
+        )
+        room.players = {"ws-5050": player}
+
+        # First 23 numbers called
+        room.called_numbers = list(card_numbers[:23])
+        room.available_numbers = [n for n in range(1, 76) if n not in set(room.called_numbers)]
+
+        async def _test():
+            # Before 24th number is called, no win
+            await server_main.check_all_wins(room)
+            self.assertEqual(len(room.bingo_claimants), 0)
+
+            # 24th number is called!
+            final_ball = card_numbers[23]
+            room.called_numbers.append(final_ball)
+
+            # check_all_wins automatically detects full card win on this ball
+            with patch("server.main.finalize_bingo", new=AsyncMock()):
+                await server_main.check_all_wins(room)
+
+            self.assertEqual(len(room.bingo_claimants), 1)
+            self.assertEqual(room.bingo_claimants[0]["telegram_id"], 5050)
+            self.assertEqual(room.bingo_claimants[0]["card_id"], 50)
+            self.assertEqual(room.bingo_claimants[0]["pattern"], "full")
+            self.assertIsNotNone(room.bingo_window_until)
+            self.assertEqual(room.winning_number, final_ball)
+
+        asyncio.run(_test())
+
+    def test_super_bingo_auto_claim_on_mark(self):
+        """When player marks the 24th number in room_super_50 after it is called, check_player_win auto-claims."""
+        room = GameRoom(room_id="room_super_50", name="superBingo", entry_fee=50.0, bingo_rule="full")
+        room.phase = GamePhase.PLAYING
+
+        card = generate_card_by_id(51)
+        flat = _card_flat(card)
+        card_numbers = [flat[i] for i in range(25) if i != 12]
+
+        # 24 card numbers called, but player only marked 23 so far
+        room.called_numbers = list(card_numbers)
+        last_ball = card_numbers[-1]
+        last_ball_idx = [i for i in range(25) if flat[i] == last_ball][0]
+
+        player_marks = {i for i in range(25) if i != 12 and i != last_ball_idx}
+        player = Player(
+            telegram_id=5151,
+            name="MarkLaterWinner",
+            ws_id="ws-5151",
+            card_ids=[51],
+            cards={51: card},
+            marks={51: player_marks},
+        )
+        room.players = {"ws-5151": player}
+
+        async def _test():
+            # Player hasn't marked the 24th number yet -> no win
+            won = await server_main.check_player_win(room, player)
+            self.assertFalse(won)
+            self.assertEqual(len(room.bingo_claimants), 0)
+
+            # Player taps/marks the 24th cell
+            r, c = last_ball_idx // 5, last_ball_idx % 5
+            server_main.process_player_mark(room, player, 51, r, c, True)
+
+            # check_player_win is called by mark handler
+            with patch("server.main.finalize_bingo", new=AsyncMock()):
+                won = await server_main.check_player_win(room, player)
+
+            self.assertTrue(won)
+            self.assertEqual(len(room.bingo_claimants), 1)
+            self.assertEqual(room.bingo_claimants[0]["telegram_id"], 5151)
+            self.assertEqual(room.bingo_claimants[0]["pattern"], "full")
+
+        asyncio.run(_test())
+
 
 if __name__ == "__main__":
     unittest.main()
