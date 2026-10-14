@@ -8,7 +8,7 @@ import {
   showError,
   showScreen,
   updateCalledBoard,
-} from "./game.js";
+} from "./game.js?v=3.0";
 
 const tg =
   window.Telegram?.WebApp || {
