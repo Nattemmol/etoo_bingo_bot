@@ -31,18 +31,17 @@ export function buildCalledBoard(container) {
   container.innerHTML = "";
   LETTERS.forEach((letter) => {
     const [min, max] = COLUMN_RANGES[letter];
-    const rangeText = RANGE_LABELS[letter];
 
-    const row = document.createElement("div");
-    row.className = `called-board-row row-${letter.toLowerCase()}`;
+    const col = document.createElement("div");
+    col.className = `called-board-col col-${letter.toLowerCase()}`;
 
     const label = document.createElement("div");
-    label.className = "called-row-label";
+    label.className = "called-col-label";
     label.innerHTML = `<span class="c-letter">${letter}</span>`;
-    row.appendChild(label);
+    col.appendChild(label);
 
     const chipsWrap = document.createElement("div");
-    chipsWrap.className = "called-row-chips";
+    chipsWrap.className = "called-col-chips";
 
     for (let n = min; n <= max; n++) {
       const chip = document.createElement("div");
@@ -51,8 +50,8 @@ export function buildCalledBoard(container) {
       chip.textContent = n;
       chipsWrap.appendChild(chip);
     }
-    row.appendChild(chipsWrap);
-    container.appendChild(row);
+    col.appendChild(chipsWrap);
+    container.appendChild(col);
   });
 }
 

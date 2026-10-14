@@ -371,81 +371,83 @@ body {
   color: #1a1200;
 }
 
-/* Called numbers board (5 Rows with B, I, N, G, O Range Badges) */
+/* Called numbers board: 5 vertical columns (B, I, N, G, O) */
 .called-board {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
   gap: 2px;
   width: 100%;
   margin-bottom: 3px;
-  padding: 4px 5px;
+  padding: 3px 2px;
   background: var(--board-bg);
   border: 1px solid var(--border-light);
   border-radius: 8px;
+  box-sizing: border-box;
 }
 
-.called-board-row {
+.called-board-col {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 2px;
+  min-width: 0;
   width: 100%;
 }
 
-.called-row-label {
+.called-col-label {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 24px;
   padding: 3px 0;
-  border-radius: 6px;
+  border-radius: 4px;
   font-weight: 900;
   text-align: center;
-  flex-shrink: 0;
-  border: 1.5px solid transparent;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  border: 1px solid transparent;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  margin-bottom: 2px;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
   animation: pulse-glow-board 3.2s infinite ease-in-out;
 }
 
-.called-row-label .c-letter {
-  font-size: 0.88rem;
+.called-col-label .c-letter {
+  font-size: 0.82rem;
   font-weight: 950;
+  line-height: 1.1;
   letter-spacing: 0.5px;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
-.row-b .called-row-label {
+.col-b .called-col-label {
   background: linear-gradient(135deg, #ff4757 0%, #ff6b81 100%);
   color: #ffffff;
   border-color: rgba(255, 71, 87, 0.7);
-  box-shadow: 0 0 10px rgba(255, 71, 87, 0.45);
+  box-shadow: 0 0 8px rgba(255, 71, 87, 0.45);
 }
-.row-i .called-row-label {
+.col-i .called-col-label {
   background: linear-gradient(135deg, #ff9f1a 0%, #ffc048 100%);
   color: #ffffff;
   border-color: rgba(255, 159, 26, 0.7);
-  box-shadow: 0 0 10px rgba(255, 159, 26, 0.45);
+  box-shadow: 0 0 8px rgba(255, 159, 26, 0.45);
   animation-delay: 0.3s;
 }
-.row-n .called-row-label {
+.col-n .called-col-label {
   background: linear-gradient(135deg, #2ed573 0%, #7bed9f 100%);
   color: #0b381b;
   border-color: rgba(46, 213, 115, 0.7);
-  box-shadow: 0 0 10px rgba(46, 213, 115, 0.45);
+  box-shadow: 0 0 8px rgba(46, 213, 115, 0.45);
   animation-delay: 0.6s;
 }
-.row-g .called-row-label {
+.col-g .called-col-label {
   background: linear-gradient(135deg, #2f3542 0%, #1e90ff 100%);
   color: #ffffff;
   border-color: rgba(30, 144, 255, 0.7);
-  box-shadow: 0 0 10px rgba(30, 144, 255, 0.45);
+  box-shadow: 0 0 8px rgba(30, 144, 255, 0.45);
   animation-delay: 0.9s;
 }
-.row-o .called-row-label {
+.col-o .called-col-label {
   background: linear-gradient(135deg, #8e44ad 0%, #e056fd 100%);
   color: #ffffff;
   border-color: rgba(224, 86, 253, 0.7);
-  box-shadow: 0 0 10px rgba(224, 86, 253, 0.45);
+  box-shadow: 0 0 8px rgba(224, 86, 253, 0.45);
   animation-delay: 1.2s;
 }
 
@@ -460,11 +462,11 @@ body {
   }
 }
 
-.called-row-chips {
-  display: grid;
-  grid-template-columns: repeat(15, 1fr);
+.called-col-chips {
+  display: flex;
+  flex-direction: column;
   gap: 1.5px;
-  flex: 1;
+  width: 100%;
 }
 
 .called-chip {
@@ -472,12 +474,15 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.52rem;
-  font-weight: 700;
+  font-size: 0.60rem;
+  font-weight: 800;
   border-radius: 3px;
   background: var(--called-chip-bg);
   border: 1px solid var(--called-chip-border);
   color: var(--called-chip-color);
+  line-height: 1;
+  min-height: 0;
+  padding: 0;
   transition: background-color 0.15s ease, transform 0.15s ease;
 }
 
@@ -1107,106 +1112,85 @@ body {
   color: #fab1a0;
 }
 
-/* Stacked game layout: Board on top, player cards on bottom */
+/* Side-by-side game layout: Board on left (35%), player cards on right (65%) */
 .game-layout {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px; /* space between board and cards */
   width: 100%;
+  box-sizing: border-box;
 }
 
 .board-panel {
+  flex: 0 0 calc(35% - 4px);
+  max-width: calc(35% - 4px);
+  width: calc(35% - 4px);
+  min-width: 0;
   background: var(--secondary);
   border-radius: 10px;
-  padding: 4px 6px;
+  padding: 4px 4px;
+  box-sizing: border-box;
 }
 
 .cards-panel {
+  flex: 0 0 calc(65% - 4px);
+  max-width: calc(65% - 4px);
+  width: calc(65% - 4px);
+  min-width: 0;
   background: var(--secondary);
   border-radius: 10px;
-  padding: 4px 6px;
+  padding: 4px 5px;
+  box-sizing: border-box;
 }
 
 .panel-title {
-  font-size: 0.65rem;
+  font-size: 0.70rem;
   font-weight: 800;
   color: var(--hint);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  margin-bottom: 2px;
+  margin-bottom: 3px;
 }
 
 .card-list {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  margin-bottom: 2px;
+  gap: 10px;
+  margin-bottom: 4px;
   width: 100%;
 }
 
-/* Single card: scaled to 75% of previous size (188px) across both dimensions */
-.card-list:not(.two-cards) .mini-card {
-  max-width: 188px;
-  margin: 0 auto;
-  width: 100%;
-  padding: 3px 3px;
-  border-radius: 7px;
-}
-
-.card-list:not(.two-cards) .mini-bingo-card {
-  gap: 1.5px;
-}
-
-.card-list:not(.two-cards) .mini-bingo-card .card-cell {
-  font-size: 0.58rem;
-  font-weight: 800;
-  border-radius: 3px;
-}
-
-.card-list:not(.two-cards) .mini-bingo-card .card-header-cell {
-  border-radius: 3px;
-  padding: 1px 0;
-}
-
-.card-list:not(.two-cards) .mini-bingo-card .card-header-cell .hdr-letter {
-  font-size: 0.72rem;
-}
-
-.card-list:not(.two-cards) .btn-card-bingo {
-  padding: 20px 10px;
-  font-size: 1.05rem;
-  letter-spacing: 1.2px;
-  margin-top: 5px;
-}
-
-/* Two cards side-by-side: 85% scale, minmax(0, 1fr) prevents overlap */
+/* Two cards stacked vertically on the right side */
 .card-list.two-cards {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   width: 100%;
 }
 
 .mini-card {
   background: var(--card-bg);
   border: 1.5px solid var(--cell-border);
-  border-radius: 8px;
-  padding: 5px 5px;
+  border-radius: 10px;
+  padding: 5px 5px 6px;
   transition: all 0.25s ease;
   display: flex;
   flex-direction: column;
+  width: 100%;
   min-width: 0;
+  box-sizing: border-box;
 }
 
 .card-list.two-cards .mini-card {
-  padding: 3px 3px;
-  border-radius: 7px;
-  border-width: 1px;
+  padding: 5px 5px 6px;
+  border-radius: 10px;
+  border-width: 1.5px;
 }
 
 .mini-card.has-bingo {
   border-color: #00e676;
-  box-shadow: 0 0 12px rgba(0, 230, 118, 0.45);
+  box-shadow: 0 0 14px rgba(0, 230, 118, 0.55);
 }
 
 .mini-card.card-locked {
@@ -1218,27 +1202,28 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 2px;
+  margin-bottom: 3px;
+  padding: 0 2px;
 }
 
 .mini-card-title {
-  font-size: 0.76rem;
+  font-size: 0.82rem;
   font-weight: 800;
   color: var(--text);
   white-space: nowrap;
 }
 
 .card-list.two-cards .mini-card-title {
-  font-size: 0.68rem;
+  font-size: 0.82rem;
 }
 
 .card-locked-badge {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 1px 4px;
+  padding: 1.5px 5px;
   border-radius: 6px;
-  font-size: 0.58rem;
+  font-size: 0.62rem;
   font-weight: 800;
   background: rgba(255, 71, 87, 0.2);
   color: #ff4757;
@@ -1248,47 +1233,59 @@ body {
 .mini-bingo-card {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 2px;
+  gap: 3px;
   width: 100%;
+  box-sizing: border-box;
 }
 
 .card-list.two-cards .mini-bingo-card {
-  gap: 1.5px;
+  gap: 3px;
 }
 
 .mini-bingo-card .card-header-cell {
-  font-size: 0.68rem;
-  font-weight: 800;
-  padding: 1.5px 0;
-  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 950;
+  padding: 2.5px 0;
+  border-radius: 6px;
+  aspect-ratio: 1;
+}
+
+.mini-bingo-card .card-header-cell .hdr-letter {
+  font-size: 0.95rem;
+  font-weight: 950;
+}
+
+.card-list.two-cards .mini-bingo-card .card-header-cell .hdr-letter {
+  font-size: 0.95rem;
 }
 
 .mini-bingo-card .card-cell {
-  font-size: 0.72rem;
+  font-size: 0.96rem;
   font-weight: 800;
   aspect-ratio: 1;
   min-height: unset;
-  border-width: 1px;
-  border-radius: 4px;
+  border-width: 1.5px;
+  border-radius: 6px;
   pointer-events: auto;
   cursor: pointer;
   padding: 0;
 }
 
 .card-list.two-cards .mini-bingo-card .card-cell {
-  font-size: 0.60rem;
+  font-size: 0.96rem;
   font-weight: 800;
-  border-radius: 3px;
-  border-width: 1px;
+  border-radius: 6px;
+  border-width: 1.5px;
 }
 
-.card-list.two-cards .mini-bingo-card .card-header-cell {
-  border-radius: 3px;
-  padding: 1px 0;
+.mini-bingo-card .card-cell.free {
+  font-size: 0.66rem;
+  font-weight: 900;
 }
 
-.card-list.two-cards .mini-bingo-card .card-header-cell .hdr-letter {
-  font-size: 0.72rem;
+.card-list.two-cards .mini-bingo-card .card-cell.free {
+  font-size: 0.66rem;
+  font-weight: 900;
 }
 
 .mini-card.card-locked .mini-bingo-card .card-cell {
@@ -1298,8 +1295,8 @@ body {
 
 .btn-card-bingo {
   width: 100%;
-  margin-top: 4px;
-  padding: 10px 10px;
+  margin-top: 6px;
+  padding: 11px 10px;
   border-radius: 9px;
   font-size: 1.02rem;
   font-weight: 950;
@@ -1337,11 +1334,11 @@ body {
 }
 
 .card-list.two-cards .btn-card-bingo {
-  margin-top: 5px;
-  padding: 9px 6px;
-  font-size: 0.86rem;
-  letter-spacing: 0.8px;
-  border-radius: 7px;
+  margin-top: 6px;
+  padding: 11px 10px;
+  font-size: 1.02rem;
+  letter-spacing: 1.2px;
+  border-radius: 9px;
 }
 
 .btn-card-bingo:hover:not(:disabled) {
@@ -1556,34 +1553,34 @@ body {
 
 .spectator-card {
   background: var(--secondary);
-  border-radius: 14px;
-  padding: 24px 16px;
+  border-radius: 12px;
+  padding: 14px 10px;
   text-align: center;
   border: 1px dashed rgba(253, 203, 110, 0.3);
 }
 
 .spectator-icon {
-  font-size: 2.5rem;
-  margin-bottom: 10px;
+  font-size: 1.8rem;
+  margin-bottom: 6px;
 }
 
 .spectator-card h3 {
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   font-weight: 700;
   color: #fdcb6e;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .spectator-card p {
   color: var(--text);
-  font-size: 0.85rem;
-  line-height: 1.5;
-  margin-bottom: 8px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  margin-bottom: 6px;
 }
 
 .spectator-hint {
   color: var(--hint) !important;
-  font-size: 0.78rem !important;
+  font-size: 0.72rem !important;
 }
 
 /* ========================================================
