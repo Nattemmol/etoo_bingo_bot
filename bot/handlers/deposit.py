@@ -42,8 +42,8 @@ async def _broadcast_balance(telegram_id: int, new_balance: float) -> None:
         pass
 
 METHOD_LABELS = {
-    "telebirr": "🔵 Telebirr (Habtamu - 0963572327)",
-    "telebirr_1": "🔵 Telebirr (Habtamu - 0963572327)",
+    "telebirr": "🔵 Telebirr (ቴሌብር)",
+    "telebirr_1": "🔵 Telebirr (ቴሌብር)",
     "cbebirr": "🟢 CBE Birr (ሲቢኢ ብር)",
     "cbe_bank": "🏦 Mobile Banking (ንግድ ባንክ)",
 }
@@ -106,7 +106,7 @@ async def deposit_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     text = (
         "💳 *ገንዘብ ማስገቢያ (Deposit via PeerPay)*\n\n"
         "ክፍያ የሚፈጽሙበትን መንገድ ይምረጡ:\n"
-        "1️⃣ 🔵 Telebirr (Habtamu - 0963572327)\n"
+        "1️⃣ 🔵 Telebirr (ቴሌብር)\n"
         "2️⃣ 🟢 CBE Birr (ሲቢኢ ብር)\n"
         "3️⃣ 🏦 Mobile Banking (የንግድ ባንክ)\n\n"
         "ከታች ካሉት አማራጮች አንዱን ይጫኑ:"
