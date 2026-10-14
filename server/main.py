@@ -149,8 +149,9 @@ def queue_room_snapshot(room_id: str) -> None:
 
 
 def round_reset_delay(room: GameRoom) -> float:
-    """The weekly room opens its next-round lobby immediately after settlement."""
-    return 0.0 if room.room_id == "room_super_50" else WINNER_RESET_WAIT_SECONDS
+    """Return the settlement delay before resetting the room and broadcasting round_reset,
+    allowing players to view the celebration modal and winners list."""
+    return WINNER_RESET_WAIT_SECONDS
 _keep_alive_task: asyncio.Task | None = None
 
 SELF_PING_INTERVAL_SECONDS = 600  # 10 minutes — well within Render's 15-min inactivity window
