@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import telegram.error
-from telegram import Bot, InlineKeyboardMarkup
+from telegram import Bot, InlineKeyboardMarkup, InputMediaPhoto
 
 from bot.config import settings
 from bot import database as db
@@ -32,21 +32,28 @@ async def broadcast_super_bingo_announcement(
     bot: Bot,
     text: str,
     photo_path: Path | str | None = None,
+    photo_bytes: bytes | None = None,
+    photo_bytes_list: list[bytes] | None = None,
     reply_markup: InlineKeyboardMarkup | None = None,
 ) -> dict[str, int]:
-    """Broadcast an announcement with photo to the configured channel and registered users.
+    """Broadcast an announcement with photo or media group to the configured channel and registered users.
 
-    Caches the Telegram file_id from the first successful send to stream-send
-    to subsequent recipients without re-uploading the file.
+    Caches Telegram file_id(s) from the first successful send to stream-send
+    to subsequent recipients without re-uploading the file(s).
     """
-    path = Path(photo_path) if photo_path else settings.super_bingo_image_path
-    photo_bytes: bytes | None = None
-    if path and path.is_file():
-        try:
-            with open(path, "rb") as f:
-                photo_bytes = f.read()
-        except Exception as e:
-            logger.warning("Could not read super bingo image %s: %s", path, e)
+    # If a list of photos was provided
+    if photo_bytes_list and len(photo_bytes_list) == 1:
+        photo_bytes = photo_bytes_list[0]
+        photo_bytes_list = None
+
+    if not photo_bytes_list and not photo_bytes:
+        path = Path(photo_path) if photo_path else settings.super_bingo_image_path
+        if path and path.is_file():
+            try:
+                with open(path, "rb") as f:
+                    photo_bytes = f.read()
+            except Exception as e:
+                logger.warning("Could not read super bingo image %s: %s", path, e)
 
     # Collect recipient targets
     targets: list[str | int] = []
@@ -65,11 +72,37 @@ async def broadcast_super_bingo_announcement(
     sent = 0
     failed = 0
     cached_file_id: str | None = None
+    cached_file_ids: list[str] | None = None
 
     for target in targets:
         try:
-            photo_payload = cached_file_id if cached_file_id else photo_bytes
-            if photo_payload:
+            if photo_bytes_list and len(photo_bytes_list) > 1:
+                # Option A2: Multiple winners media album
+                if cached_file_ids:
+                    media = [
+                        InputMediaPhoto(media=fid, caption=text if idx == 0 else None)
+                        for idx, fid in enumerate(cached_file_ids)
+                    ]
+                else:
+                    media = [
+                        InputMediaPhoto(media=b, caption=text if idx == 0 else None)
+                        for idx, b in enumerate(photo_bytes_list)
+                    ]
+                sent_msgs = await bot.send_media_group(chat_id=target, media=media)
+                if not cached_file_ids and sent_msgs:
+                    cached_file_ids = [m.photo[-1].file_id for m in sent_msgs if m.photo]
+                if reply_markup:
+                    try:
+                        await bot.send_message(
+                            chat_id=target,
+                            text="🎮 በሱፐር ቢንጎ ይጫወቱ (Play superBingo)",
+                            reply_markup=reply_markup,
+                        )
+                    except Exception:
+                        pass
+            elif cached_file_id or photo_bytes:
+                # Single photo announcement
+                photo_payload = cached_file_id if cached_file_id else photo_bytes
                 sent_msg = await bot.send_photo(
                     chat_id=target,
                     photo=photo_payload,
@@ -90,7 +123,23 @@ async def broadcast_super_bingo_announcement(
             logger.warning("Telegram flood limit: sleeping %s seconds", e.retry_after)
             await asyncio.sleep(e.retry_after)
             try:
-                if cached_file_id or photo_bytes:
+                if photo_bytes_list and len(photo_bytes_list) > 1:
+                    media_sources = cached_file_ids if cached_file_ids else photo_bytes_list
+                    media = [
+                        InputMediaPhoto(media=item, caption=text if idx == 0 else None)
+                        for idx, item in enumerate(media_sources)
+                    ]
+                    await bot.send_media_group(chat_id=target, media=media)
+                    if reply_markup:
+                        try:
+                            await bot.send_message(
+                                chat_id=target,
+                                text="🎮 በሱፐር ቢንጎ ይጫወቱ (Play superBingo)",
+                                reply_markup=reply_markup,
+                            )
+                        except Exception:
+                            pass
+                elif cached_file_id or photo_bytes:
                     await bot.send_photo(
                         chat_id=target,
                         photo=cached_file_id or photo_bytes,
@@ -138,11 +187,27 @@ async def send_super_bingo_reminder_10m(bot: Bot) -> dict[str, int]:
 async def send_super_bingo_winner_announcement(
     bot: Bot, winners: list[dict[str, Any]], pot: float
 ) -> dict[str, int]:
-    """Send winner announcement at the conclusion of 50 Birr Super Bingo."""
+    """Send winner announcement with real card images at the conclusion of 50 Birr Super Bingo."""
     text = format_super_bingo_winner_announcement(winners, pot)
+    photo_bytes_list: list[bytes] = []
+
+    if winners:
+        try:
+            from server.card_image import generate_winner_card_image_from_winner_dict
+            for w in winners:
+                try:
+                    img_data = generate_winner_card_image_from_winner_dict(w, pot=pot)
+                    if img_data:
+                        photo_bytes_list.append(img_data)
+                except Exception as e:
+                    logger.error("Failed to generate winner card image: %s", e)
+        except Exception as exc:
+            logger.error("Could not import card_image generator: %s", exc)
+
     return await broadcast_super_bingo_announcement(
         bot=bot,
         text=text,
+        photo_bytes_list=photo_bytes_list if photo_bytes_list else None,
         reply_markup=super_bingo_reminder_keyboard(),
     )
 
