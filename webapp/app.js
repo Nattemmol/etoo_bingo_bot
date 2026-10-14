@@ -8,7 +8,7 @@ import {
   showError,
   showScreen,
   updateCalledBoard,
-} from "./game.js?v=3.0";
+} from "./game.js?v=3.1";
 
 const tg =
   window.Telegram?.WebApp || {
@@ -102,6 +102,7 @@ const els = {
   winnerCardsScroll: document.getElementById("winner-cards-scroll"),
   winnerCountdownText: document.getElementById("winner-countdown-text"),
   winnerProgressFill: document.getElementById("winner-progress-fill"),
+  winnerCarouselDots: document.getElementById("winner-carousel-dots"),
   btnWinnerContinue: document.getElementById("btn-winner-continue"),
   themeToggleBtn: document.getElementById("theme-toggle-btn"),
 };
@@ -1289,6 +1290,8 @@ function openWinnerModal(msg) {
   // Populate scrollable winner cards
   if (els.winnerCardsScroll && !msg.all_locked) {
     els.winnerCardsScroll.innerHTML = "";
+    els.winnerCardsScroll.scrollLeft = 0;
+
     winners.forEach((w) => {
       const cardGrid = w.card || generateCardById(w.card_id);
       const isMe = w.telegram_id === state.myId;
@@ -1328,6 +1331,39 @@ function openWinnerModal(msg) {
       renderWinnerCard(gridEl, cardGrid, calledSet, rule, w.winning_indexes, w.pattern);
       els.winnerCardsScroll.appendChild(cardItem);
     });
+
+    // Pagination dots for multiple winners (● ○ ○)
+    if (els.winnerCarouselDots) {
+      els.winnerCarouselDots.innerHTML = "";
+      if (winners.length > 1) {
+        els.winnerCarouselDots.classList.remove("hidden");
+        winners.forEach((_, i) => {
+          const dot = document.createElement("span");
+          dot.className = `winner-dot${i === 0 ? " active" : ""}`;
+          dot.addEventListener("click", () => {
+            const target = els.winnerCardsScroll.children[i];
+            if (target) {
+              target.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+            }
+          });
+          els.winnerCarouselDots.appendChild(dot);
+        });
+
+        els.winnerCardsScroll.onscroll = () => {
+          const scrollLeft = els.winnerCardsScroll.scrollLeft;
+          const cardWidth = els.winnerCardsScroll.clientWidth;
+          if (cardWidth <= 0) return;
+          const activeIndex = Math.min(winners.length - 1, Math.max(0, Math.round(scrollLeft / cardWidth)));
+          const dots = els.winnerCarouselDots.querySelectorAll(".winner-dot");
+          dots.forEach((dot, idx) => {
+            dot.classList.toggle("active", idx === activeIndex);
+          });
+        };
+      } else {
+        els.winnerCarouselDots.classList.add("hidden");
+        els.winnerCardsScroll.onscroll = null;
+      }
+    }
   }
 
   // 10-second countdown with progress bar

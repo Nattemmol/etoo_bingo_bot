@@ -1626,16 +1626,22 @@ body {
    Winner Celebration Modal & Animated Winner Cards
    ======================================================== */
 .modal-winner-box {
-  max-width: 360px;
+  max-width: 330px;
   width: 92%;
-  background: linear-gradient(180deg, #1f1b3c 0%, #121026 100%);
-  border: 2px solid rgba(241, 196, 15, 0.5);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7), 0 0 30px rgba(241, 196, 15, 0.25);
-  border-radius: 20px;
-  padding: 20px 16px;
+  background: linear-gradient(180deg, #18172c 0%, #100f20 100%);
+  border: 2px solid rgba(241, 196, 15, 0.6);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7), 0 0 25px rgba(241, 196, 15, 0.25);
+  border-radius: 18px;
+  padding: 14px 12px 10px;
   position: relative;
   overflow: hidden;
   animation: winnerPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+[data-theme="light"] .modal-winner-box {
+  background: #ffffff;
+  border: 2px solid rgba(245, 158, 11, 0.6);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15), 0 0 20px rgba(245, 158, 11, 0.2);
 }
 
 @keyframes winnerPop {
@@ -1644,8 +1650,8 @@ body {
 }
 
 .winner-trophy-badge {
-  font-size: 3rem;
-  margin-bottom: 4px;
+  font-size: 2.2rem;
+  margin-bottom: 2px;
   animation: trophyBounce 1.2s ease-in-out infinite alternate;
   display: inline-block;
   filter: drop-shadow(0 0 12px rgba(241, 196, 15, 0.6));
@@ -1653,11 +1659,11 @@ body {
 
 @keyframes trophyBounce {
   0% { transform: translateY(0) scale(1); }
-  100% { transform: translateY(-8px) scale(1.08); }
+  100% { transform: translateY(-6px) scale(1.06); }
 }
 
 .winner-head-title {
-  font-size: 1.35rem;
+  font-size: 1.18rem;
   font-weight: 900;
   background: linear-gradient(135deg, #FFE066 0%, #F59E0B 50%, #FBBF24 100%);
   -webkit-background-clip: text;
@@ -1668,36 +1674,42 @@ body {
 }
 
 .winner-sub-message {
-  color: #c7c7e2;
-  font-size: 0.85rem;
-  margin-bottom: 12px;
+  color: var(--hint);
+  font-size: 0.78rem;
+  margin-bottom: 8px;
 }
 
+/* Horizontal swipeable carousel for winners */
 .winner-cards-scroll {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-height: 280px;
-  overflow-y: auto;
-  padding: 4px 2px;
-  margin-bottom: 12px;
+  flex-direction: row;
+  gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  margin-bottom: 6px;
+  padding: 2px 1px;
+  width: 100%;
 }
 
 .winner-cards-scroll::-webkit-scrollbar {
-  width: 4px;
-}
-
-.winner-cards-scroll::-webkit-scrollbar-thumb {
-  background: rgba(241, 196, 15, 0.4);
-  border-radius: 4px;
+  display: none;
 }
 
 .winner-card-item {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1.5px solid rgba(241, 196, 15, 0.4);
-  border-radius: 14px;
-  padding: 10px;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  flex: 0 0 100%;
+  max-width: 100%;
+  width: 100%;
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
+  box-sizing: border-box;
+  background: var(--card-bg);
+  border: 1.5px solid var(--cell-border);
+  border-radius: 12px;
+  padding: 8px;
+  box-shadow: var(--shadow);
   position: relative;
 }
 
@@ -1705,9 +1717,9 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 6px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--border-light);
 }
 
 .winner-name-badge {
@@ -1717,14 +1729,14 @@ body {
 }
 
 .winner-name-text {
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 800;
-  color: #fff;
+  color: var(--text);
 }
 
 .winner-card-id-text {
-  font-size: 0.72rem;
-  color: #a0a0b8;
+  font-size: 0.7rem;
+  color: var(--hint);
   font-weight: 600;
 }
 
@@ -1737,59 +1749,90 @@ body {
 .winner-prize-tag {
   background: linear-gradient(135deg, #00E676 0%, #00B0FF 100%);
   color: #0b2014;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 900;
-  padding: 2px 8px;
-  border-radius: 6px;
+  padding: 2px 7px;
+  border-radius: 5px;
   box-shadow: 0 0 8px rgba(0, 230, 118, 0.4);
 }
 
 .winner-pattern-tag {
   background: rgba(241, 196, 15, 0.15);
   border: 1px solid rgba(241, 196, 15, 0.4);
-  color: #FBBF24;
+  color: #F59E0B;
   font-size: 0.68rem;
   font-weight: 700;
   padding: 2px 6px;
-  border-radius: 6px;
+  border-radius: 5px;
 }
 
 .winner-mini-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 3px;
+  gap: 2.5px;
+  max-width: 260px;
+  margin: 0 auto;
 }
 
-.winner-grid-cell {
+.winner-mini-grid .card-header-cell {
+  height: 22px;
+  border-radius: 4px;
+}
+
+.winner-mini-grid .card-header-cell .hdr-letter {
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.winner-mini-grid .winner-grid-cell {
   aspect-ratio: 1;
+  height: auto;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.65rem;
-  font-weight: 700;
+  font-size: 0.82rem;
+  font-weight: 800;
   border-radius: 5px;
   pointer-events: none;
+  background: var(--cell-bg);
+  color: var(--text);
+  border: 1px solid var(--cell-border);
+  box-sizing: border-box;
+  position: relative;
 }
 
-.winner-grid-cell.dimmed-cell {
-  background: rgba(255, 255, 255, 0.03);
-  color: rgba(255, 255, 255, 0.25);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+.winner-mini-grid .winner-grid-cell.marked {
+  background: var(--marked-gradient) !important;
+  color: #ffffff !important;
+  border-color: #00b894 !important;
+  font-weight: 900;
 }
 
-.winner-grid-cell.winning-cell {
-  background: linear-gradient(135deg, #FF007A 0%, #7000FF 100%) !important;
-  color: #fff !important;
-  font-weight: 900 !important;
-  box-shadow: 0 0 10px rgba(255, 0, 122, 0.7);
-  animation: winGlowPulse 1s ease-in-out infinite alternate !important;
-  border: 1px solid rgba(255, 255, 255, 0.6) !important;
+.winner-mini-grid .winner-grid-cell.marked::after {
+  content: "✓";
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  font-size: 0.5rem;
+  font-weight: 900;
+  color: #ffffff;
 }
 
-.winner-grid-cell.free {
+.winner-mini-grid .winner-grid-cell.free {
   background: linear-gradient(135deg, #f1c40f 0%, #e67e22 100%) !important;
-  color: #000 !important;
+  color: #000000 !important;
+  font-weight: 900;
+  font-size: 0.6rem;
+}
+
+.winner-mini-grid .winner-grid-cell.winning-cell {
+  background: linear-gradient(135deg, #FF007A 0%, #7000FF 100%) !important;
+  color: #ffffff !important;
   font-weight: 900 !important;
+  border: 1.5px solid #ffffff !important;
+  box-shadow: 0 0 10px rgba(255, 0, 122, 0.8) !important;
+  animation: winGlowPulse 1s ease-in-out infinite alternate !important;
+  z-index: 2;
 }
 
 @keyframes winGlowPulse {
@@ -1797,23 +1840,52 @@ body {
   100% { transform: scale(1.06); filter: brightness(1.25); box-shadow: 0 0 16px rgba(255, 0, 122, 0.95); }
 }
 
+/* Pagination indicator dots for multi-winner carousel */
+.winner-carousel-dots {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 8px;
+  min-height: 12px;
+}
+
+.winner-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--hint);
+  opacity: 0.4;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+
+.winner-dot.active {
+  width: 18px;
+  border-radius: 4px;
+  background: #F59E0B;
+  opacity: 1;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
+}
+
 .winner-timer-bar {
-  margin-top: 6px;
+  margin-top: 4px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 #winner-countdown-text {
-  font-size: 0.75rem;
-  color: #a0a0b8;
+  font-size: 0.72rem;
+  color: var(--hint);
   font-weight: 600;
+  text-align: center;
 }
 
 .timer-progress-track {
   width: 100%;
-  height: 5px;
-  background: rgba(255, 255, 255, 0.1);
+  height: 4px;
+  background: var(--cell-border);
   border-radius: 3px;
   overflow: hidden;
 }

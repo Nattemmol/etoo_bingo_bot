@@ -289,19 +289,17 @@ export function renderWinnerCard(container, card, calledSet, rule = "line_corner
 
       cell.className = "card-cell winner-grid-cell";
       if (isFree) {
-        if (winningIndexes.has(FREE_INDEX)) {
-          cell.classList.add("free", "winning-cell");
-        } else {
-          cell.classList.add("free", "dimmed-cell");
-        }
+        cell.classList.add("free");
         cell.textContent = "FREE";
       } else {
         cell.textContent = value;
-        if (winningIndexes.has(idx)) {
-          cell.classList.add("winning-cell", "marked");
-        } else {
-          cell.classList.add("dimmed-cell");
+        // Show as marked if the number was called in the game
+        if (calledSet && calledSet.has(value)) {
+          cell.classList.add("marked");
         }
+      }
+      if (winningIndexes.has(idx)) {
+        cell.classList.add("winning-cell");
       }
       container.appendChild(cell);
     }
