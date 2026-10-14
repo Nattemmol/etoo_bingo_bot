@@ -793,11 +793,11 @@ body {
 }
 
 .auto-bingo-hint {
-  font-size: 0.74rem;
+  font-size: 0.65rem;
   color: var(--text-muted, #888);
   text-align: center;
-  padding: 4px 6px 1px;
-  line-height: 1.25;
+  padding: 2px 4px 0;
+  line-height: 1.2;
 }
 
 /* Error & Result */
@@ -1161,14 +1161,7 @@ body {
   width: 100%;
 }
 
-/* Two cards stacked vertically on the right side */
-.card-list.two-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: 100%;
-}
-
+/* Base mini-card */
 .mini-card {
   background: var(--card-bg);
   border: 1.5px solid var(--cell-border);
@@ -1180,12 +1173,6 @@ body {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-}
-
-.card-list.two-cards .mini-card {
-  padding: 5px 5px 6px;
-  border-radius: 10px;
-  border-width: 1.5px;
 }
 
 .mini-card.has-bingo {
@@ -1213,10 +1200,6 @@ body {
   white-space: nowrap;
 }
 
-.card-list.two-cards .mini-card-title {
-  font-size: 0.82rem;
-}
-
 .card-locked-badge {
   display: inline-flex;
   align-items: center;
@@ -1238,10 +1221,6 @@ body {
   box-sizing: border-box;
 }
 
-.card-list.two-cards .mini-bingo-card {
-  gap: 3px;
-}
-
 .mini-bingo-card .card-header-cell {
   font-size: 0.85rem;
   font-weight: 950;
@@ -1253,10 +1232,6 @@ body {
 .mini-bingo-card .card-header-cell .hdr-letter {
   font-size: 0.95rem;
   font-weight: 950;
-}
-
-.card-list.two-cards .mini-bingo-card .card-header-cell .hdr-letter {
-  font-size: 0.95rem;
 }
 
 .mini-bingo-card .card-cell {
@@ -1271,19 +1246,7 @@ body {
   padding: 0;
 }
 
-.card-list.two-cards .mini-bingo-card .card-cell {
-  font-size: 0.96rem;
-  font-weight: 800;
-  border-radius: 6px;
-  border-width: 1.5px;
-}
-
 .mini-bingo-card .card-cell.free {
-  font-size: 0.66rem;
-  font-weight: 900;
-}
-
-.card-list.two-cards .mini-bingo-card .card-cell.free {
   font-size: 0.66rem;
   font-weight: 900;
 }
@@ -1333,12 +1296,88 @@ body {
   pointer-events: none;
 }
 
+/* ========================================================
+   Two cards layout: compact height to level with the board
+   and eliminate scrolling on all mobile screens
+   ======================================================== */
+.card-list.two-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.card-list.two-cards .mini-card {
+  padding: 3px 4px 4px;
+  border-radius: 8px;
+  border-width: 1px;
+}
+
+.card-list.two-cards .mini-card-header {
+  margin-bottom: 2px;
+  padding: 0 1px;
+}
+
+.card-list.two-cards .mini-card-title {
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.card-list.two-cards .card-locked-badge {
+  padding: 1px 4px;
+  font-size: 0.56rem;
+  border-radius: 4px;
+}
+
+.card-list.two-cards .mini-bingo-card {
+  gap: 2px;
+}
+
+.card-list.two-cards .mini-bingo-card .card-header-cell {
+  aspect-ratio: unset;
+  height: 18px;
+  padding: 0;
+  border-radius: 4px;
+  font-size: 0.74rem;
+}
+
+.card-list.two-cards .mini-bingo-card .card-header-cell .hdr-letter {
+  font-size: 0.78rem;
+  font-weight: 950;
+  line-height: 18px;
+}
+
+.card-list.two-cards .mini-bingo-card .card-cell {
+  aspect-ratio: unset;
+  height: 24px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  border-radius: 5px;
+  border-width: 1px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card-list.two-cards .mini-bingo-card .card-cell.free {
+  font-size: 0.56rem;
+  font-weight: 900;
+}
+
+.card-list.two-cards .card-cell.marked::after {
+  font-size: 0.52rem;
+  top: 1px;
+  right: 2px;
+}
+
 .card-list.two-cards .btn-card-bingo {
-  margin-top: 6px;
-  padding: 11px 10px;
-  font-size: 1.02rem;
-  letter-spacing: 1.2px;
-  border-radius: 9px;
+  margin-top: 4px;
+  padding: 7px 6px;
+  font-size: 0.88rem;
+  font-weight: 950;
+  letter-spacing: 0.8px;
+  border-radius: 7px;
 }
 
 .btn-card-bingo:hover:not(:disabled) {
