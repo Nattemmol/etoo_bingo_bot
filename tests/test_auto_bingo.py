@@ -219,8 +219,8 @@ class TestAutoDeclareWins(unittest.TestCase):
 
     def test_call_interval_increased_by_two_seconds(self):
         from server.game import ROOM_CONFIG
-        self.assertEqual(ROOM_CONFIG["room_play_10"]["call_interval"], 6.0)
-        self.assertEqual(ROOM_CONFIG["room_super_50"]["call_interval"], 5.0)
+        self.assertEqual(ROOM_CONFIG["room_play_10"]["call_interval"], 8.0)
+        self.assertEqual(ROOM_CONFIG["room_super_50"]["call_interval"], 8.0)
 
     def test_claim_includes_winning_indexes(self):
         card = generate_card_by_id(3)

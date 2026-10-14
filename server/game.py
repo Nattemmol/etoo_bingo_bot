@@ -379,7 +379,7 @@ class GameRoom:
     entry_fee: float
     house_cut: float = 0.0
     max_cards: int = 450
-    call_interval: float = 6.0
+    call_interval: float = 8.0
     lobby_seconds: int = 30  # 30-second intermission between rounds
     bingo_rule: str = "line"  # passed to check_bingo: line / line_corners / corners / full
     phase: GamePhase = GamePhase.LOBBY
@@ -424,7 +424,7 @@ ROOM_CONFIG = {
         "entry_fee": 10.0,
         "house_cut": 2.0,
         "max_cards": 450,
-        "call_interval": 6.0,
+        "call_interval": 8.0,
         "lobby_seconds": 30,
         "bingo_rule": "line_corners",  # one line OR all four corners
         "schedule": "24/7 (All the time)",
@@ -434,7 +434,7 @@ ROOM_CONFIG = {
         "entry_fee": 50.0,
         "house_cut": 10.0,
         "max_cards": 1500,
-        "call_interval": 5.0,
+        "call_interval": 8.0,
         "lobby_seconds": 30,
         "bingo_rule": "full",
         "schedule": "Daily at 1:00 LT night (7:00 PM EAT)",

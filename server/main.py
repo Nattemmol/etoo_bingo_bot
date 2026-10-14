@@ -346,7 +346,7 @@ def get_room(room_id: str) -> GameRoom:
             entry_fee=cfg["entry_fee"],
             house_cut=cfg.get("house_cut", 0.0),
             max_cards=cfg.get("max_cards", 450),
-            call_interval=cfg.get("call_interval", 6.0),
+            call_interval=cfg.get("call_interval", 8.0),
             lobby_seconds=cfg.get("lobby_seconds", 30),
             bingo_rule=cfg.get("bingo_rule", "line"),
         )
@@ -738,7 +738,7 @@ def reset_room(room_id: str) -> None:
         entry_fee=cfg["entry_fee"],
         house_cut=cfg.get("house_cut", 0.0),
         max_cards=cfg.get("max_cards", 450),
-        call_interval=cfg.get("call_interval", 6.0),
+        call_interval=cfg.get("call_interval", 8.0),
         lobby_seconds=cfg.get("lobby_seconds", 30),
         bingo_rule=cfg.get("bingo_rule", "line"),
         connections=existing_conns,
