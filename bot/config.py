@@ -36,7 +36,7 @@ class Settings:
     verify_et_base_url: str = "https://verify.et"
     # Announcement and Super Bingo reminders
     announcement_channel_id: str = ""
-    announcement_broadcast_users: bool = False
+    announcement_broadcast_users: bool = True
     admin_telegram_id: int | None = None
     bot_username: str = "Etoo_Bingo_Bot"
     super_bingo_image_path: Path = field(default_factory=lambda: BASE_DIR / "pic" / "Etoo_bingo.jpg")
@@ -50,7 +50,7 @@ class Settings:
         db_path = Path(os.getenv("DATABASE_PATH", "goodbingo.db"))
         always_open = os.getenv("SUPER_BINGO_ALWAYS_OPEN", "false").lower() in ("1", "true", "yes")
         announcement_channel = os.getenv("ANNOUNCEMENT_CHANNEL_ID") or os.getenv("CHANNEL_ID", "")
-        broadcast_users = os.getenv("ANNOUNCEMENT_BROADCAST_USERS", "false").lower() in ("1", "true", "yes")
+        broadcast_users = os.getenv("ANNOUNCEMENT_BROADCAST_USERS", "true").lower() in ("1", "true", "yes")
         admin_id_str = os.getenv("ADMIN_TELEGRAM_ID") or os.getenv("ADMIN_ID", "")
         admin_id = int(admin_id_str.strip()) if admin_id_str.strip().isdigit() else None
         b_user = (os.getenv("BOT_USERNAME") or "Etoo_Bingo_Bot").lstrip("@").strip()
