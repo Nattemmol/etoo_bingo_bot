@@ -141,6 +141,11 @@ async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TY
     if not message:
         return
 
+    user = update.effective_user
+    if settings.admin_telegram_id and (not user or user.id != settings.admin_telegram_id):
+        await message.reply_text("⛔ ይህ ትዕዛዝ ለአስተዳዳሪ (Admin) ብቻ የተፈቀደ ነው።")
+        return
+
     args = context.args or []
     sub = args[0].lower() if args else ""
     is_broadcast = len(args) > 1 and args[1].lower() == "all"
