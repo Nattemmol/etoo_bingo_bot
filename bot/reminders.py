@@ -28,6 +28,74 @@ def get_eat_now() -> datetime:
     return datetime.now(EAT)
 
 
+async def get_latest_super_bingo_winners() -> tuple[list[dict[str, Any]], float] | None:
+    """Fetch the latest real Super Bingo winners from game_metadata or recent transactions.
+
+    Returns (winners_list, prize_pot) or None if no previous game recorded.
+    """
+    import json
+    import re
+
+    # 1. First, check persistent game_metadata for 'last_super_bingo_round'
+    try:
+        raw = await db.get_game_metadata("last_super_bingo_round")
+        if raw:
+            data = json.loads(raw)
+            winners = data.get("winners") or []
+            prize = float(data.get("prize", 0.0))
+            if winners:
+                return winners, prize
+    except Exception as e:
+        logger.warning("Could not read last_super_bingo_round metadata: %s", e)
+
+    # 2. Fallback: inspect transactions table for recent superBingo winning payouts
+    try:
+        # Check SQLite or Postgres transactions
+        database = await db.get_db()
+        async with database.execute(
+            """
+            SELECT t.telegram_id, t.amount, t.description, t.created_at, u.first_name, u.username
+            FROM transactions t
+            LEFT JOIN users u ON t.telegram_id = u.telegram_id
+            WHERE t.type = 'win' AND t.description LIKE '%superBingo%'
+            ORDER BY t.id DESC
+            LIMIT 10
+            """
+        ) as cursor:
+            rows = await cursor.fetchall()
+            if rows:
+                first_time = rows[0]["created_at"]
+                # Group winners paid out in the same round (within same minute or timestamp)
+                matched = [
+                    r for r in rows
+                    if str(r["created_at"])[:16] == str(first_time)[:16]
+                ]
+                winners = []
+                total_pot = 0.0
+                for r in matched:
+                    desc = r["description"] or ""
+                    card_match = re.search(r"Card #(\d+)", desc)
+                    card_id = int(card_match.group(1)) if card_match else 1
+                    pattern_match = re.search(r"—\s*(\w+)", desc)
+                    pattern = pattern_match.group(1) if pattern_match else "full"
+                    name = r["first_name"] or (f"@{r['username']}" if r["username"] else f"ተጫዋች #{r['telegram_id']}")
+                    share = float(r["amount"])
+                    total_pot += share
+                    winners.append({
+                        "telegram_id": r["telegram_id"],
+                        "name": name,
+                        "card_id": card_id,
+                        "prize": share,
+                        "pattern": pattern,
+                    })
+                if winners:
+                    return winners, total_pot
+    except Exception as exc:
+        logger.warning("Could not inspect transactions for super bingo winners: %s", exc)
+
+    return None
+
+
 async def broadcast_super_bingo_announcement(
     bot: Bot,
     text: str,

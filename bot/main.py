@@ -184,57 +184,67 @@ async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TY
         clean_args = [a for a in args[1:] if a.lower() != "all"]
         is_broadcast = "all" in [a.lower() for a in args[1:]]
 
-        winner_card_id = 84
-        winner_prize = 50000.0
-        winner_name = (update.effective_user.first_name if update.effective_user else None) or "በሪሁን ደሴው"
-
-        if len(clean_args) >= 1 and clean_args[0].isdigit():
-            winner_card_id = int(clean_args[0])
-        if len(clean_args) >= 2:
+        # 1. Automatically load REAL winners of the day from DB if no custom arguments given
+        real_round = None
+        if not clean_args:
             try:
-                winner_prize = float(clean_args[1].replace(",", ""))
-            except ValueError:
-                pass
-        if len(clean_args) >= 3:
-            winner_name = " ".join(clean_args[2:]).replace("_", " ")
+                from bot.reminders import get_latest_super_bingo_winners
+                real_round = await get_latest_super_bingo_winners()
+            except Exception as e:
+                logger.warning("Could not auto-fetch real winners: %s", e)
 
-        sample_winners = [
-            {
-                "telegram_id": update.effective_user.id if update.effective_user else 0,
-                "name": winner_name,
-                "card_id": winner_card_id,
-                "prize": winner_prize,
-                "pattern": "full",
-            }
-        ]
+        if real_round:
+            winners_list, total_prize = real_round
+            logger.info("Auto-loaded real winners from DB: %d winner(s), pot=%.2f", len(winners_list), total_prize)
+        else:
+            winner_card_id = 84
+            winner_prize = 50000.0
+            winner_name = (update.effective_user.first_name if update.effective_user else None) or "በሪሁን ደሴው"
+
+            if len(clean_args) >= 1 and clean_args[0].isdigit():
+                winner_card_id = int(clean_args[0])
+            if len(clean_args) >= 2:
+                try:
+                    winner_prize = float(clean_args[1].replace(",", ""))
+                except ValueError:
+                    pass
+            if len(clean_args) >= 3:
+                winner_name = " ".join(clean_args[2:]).replace("_", " ")
+
+            winners_list = [
+                {
+                    "telegram_id": update.effective_user.id if update.effective_user else 0,
+                    "name": winner_name,
+                    "card_id": winner_card_id,
+                    "prize": winner_prize,
+                    "pattern": "full",
+                }
+            ]
+            total_prize = winner_prize
+
         if is_broadcast:
             from bot.reminders import send_super_bingo_winner_announcement
-            res = await send_super_bingo_winner_announcement(context.bot, sample_winners, winner_prize)
-            await message.reply_text(f"📢 Winner announcement broadcasted: {res}")
+            res = await send_super_bingo_winner_announcement(context.bot, winners_list, total_prize)
+            await message.reply_text(f"📢 Winner announcement broadcasted ({len(winners_list)} winner(s)): {res}")
             return
-        from server.card_image import generate_winner_card_image_from_winner_dict
-        card_img = generate_winner_card_image_from_winner_dict(sample_winners[0], winner_prize)
-        winner_text = format_super_bingo_winner_announcement(sample_winners, winner_prize)
-        await message.reply_photo(photo=card_img, caption=winner_text, reply_markup=kb)
-    elif sub == "multiwinner":
-        sample_winners = [
-            {"telegram_id": 1, "name": "በሪሁን ደሴው", "card_id": 84, "prize": 25000.0, "pattern": "full"},
-            {"telegram_id": 2, "name": "ናትናኤል ተመስገን", "card_id": 12, "prize": 25000.0, "pattern": "full"},
-        ]
-        if is_broadcast:
-            from bot.reminders import send_super_bingo_winner_announcement
-            res = await send_super_bingo_winner_announcement(context.bot, sample_winners, 50000.0)
-            await message.reply_text(f"📢 Multi-winner announcement broadcasted: {res}")
-            return
+
         from server.card_image import generate_winner_card_image_from_winner_dict
         from telegram import InputMediaPhoto
-        winner_text = format_super_bingo_winner_announcement(sample_winners, 50000.0)
-        media = [
-            InputMediaPhoto(media=generate_winner_card_image_from_winner_dict(w, 25000.0), caption=winner_text if i == 0 else None)
-            for i, w in enumerate(sample_winners)
-        ]
-        await message.reply_media_group(media=media)
-        await message.reply_text("🎮 በሱፐር ቢንጎ ይጫወቱ (Play superBingo)", reply_markup=kb)
+        winner_text = format_super_bingo_winner_announcement(winners_list, total_prize)
+
+        if len(winners_list) > 1:
+            media = [
+                InputMediaPhoto(
+                    media=generate_winner_card_image_from_winner_dict(w, float(w.get("prize", total_prize / len(winners_list)))),
+                    caption=winner_text if i == 0 else None,
+                )
+                for i, w in enumerate(winners_list)
+            ]
+            await message.reply_media_group(media=media)
+            await message.reply_text("🎮 በሱፐር ቢንጎ ይጫወቱ (Play superBingo)", reply_markup=kb)
+        else:
+            card_img = generate_winner_card_image_from_winner_dict(winners_list[0], total_prize)
+            await message.reply_photo(photo=card_img, caption=winner_text, reply_markup=kb)
     else:
         await message.reply_text(
             "ℹ️ *የማስታወቂያ መሞከሪያ መመሪያ:*\n\n"

@@ -1229,8 +1229,17 @@ async def finalize_bingo(room_id: str) -> None:
             mark_super_bingo_played(today_str)
             try:
                 await db.set_game_metadata("last_super_bingo_played_date", today_str)
+                await db.set_game_metadata(
+                    "last_super_bingo_round",
+                    json.dumps({
+                        "winners": winners,
+                        "prize": prize,
+                        "called_numbers": room.called_numbers,
+                        "date": today_str,
+                    }),
+                )
             except Exception as e:
-                logger.warning("Could not persist super bingo played date: %s", e)
+                logger.warning("Could not persist super bingo played date or winners: %s", e)
 
         await db.clear_active_round(room_id)
         await asyncio.sleep(round_reset_delay(get_room(room_id)))
