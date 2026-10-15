@@ -180,23 +180,41 @@ async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TY
         else:
             await message.reply_text(SUPER_BINGO_REMINDER_10M, reply_markup=kb)
     elif sub in ("winner", "winners"):
+        # Support flexible arguments: /test_reminder winner [card_id] [prize] [name] [all]
+        clean_args = [a for a in args[1:] if a.lower() != "all"]
+        is_broadcast = "all" in [a.lower() for a in args[1:]]
+
+        winner_card_id = 84
+        winner_prize = 50000.0
+        winner_name = (update.effective_user.first_name if update.effective_user else None) or "በሪሁን ደሴው"
+
+        if len(clean_args) >= 1 and clean_args[0].isdigit():
+            winner_card_id = int(clean_args[0])
+        if len(clean_args) >= 2:
+            try:
+                winner_prize = float(clean_args[1].replace(",", ""))
+            except ValueError:
+                pass
+        if len(clean_args) >= 3:
+            winner_name = " ".join(clean_args[2:]).replace("_", " ")
+
         sample_winners = [
             {
                 "telegram_id": update.effective_user.id if update.effective_user else 0,
-                "name": (update.effective_user.first_name if update.effective_user else None) or "በሪሁን ደሴው",
-                "card_id": 84,
-                "prize": 50000.0,
+                "name": winner_name,
+                "card_id": winner_card_id,
+                "prize": winner_prize,
                 "pattern": "full",
             }
         ]
         if is_broadcast:
             from bot.reminders import send_super_bingo_winner_announcement
-            res = await send_super_bingo_winner_announcement(context.bot, sample_winners, 50000.0)
+            res = await send_super_bingo_winner_announcement(context.bot, sample_winners, winner_prize)
             await message.reply_text(f"📢 Winner announcement broadcasted: {res}")
             return
         from server.card_image import generate_winner_card_image_from_winner_dict
-        card_img = generate_winner_card_image_from_winner_dict(sample_winners[0], 50000.0)
-        winner_text = format_super_bingo_winner_announcement(sample_winners, 50000.0)
+        card_img = generate_winner_card_image_from_winner_dict(sample_winners[0], winner_prize)
+        winner_text = format_super_bingo_winner_announcement(sample_winners, winner_prize)
         await message.reply_photo(photo=card_img, caption=winner_text, reply_markup=kb)
     elif sub == "multiwinner":
         sample_winners = [
