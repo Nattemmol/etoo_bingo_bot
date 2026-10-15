@@ -60,14 +60,31 @@ async def broadcast_super_bingo_announcement(
     if settings.announcement_channel_id:
         targets.append(settings.announcement_channel_id.strip())
 
+    users_count = 0
     if settings.announcement_broadcast_users:
         try:
             user_ids = await db.get_all_user_ids()
+            users_count = len(user_ids)
             for uid in user_ids:
                 if uid not in targets:
                     targets.append(uid)
         except Exception as e:
             logger.warning("Could not fetch user ids for announcement: %s", e)
+
+    if not targets:
+        logger.warning(
+            "Super Bingo announcement has NO targets! ANNOUNCEMENT_CHANNEL_ID='%s', ANNOUNCEMENT_BROADCAST_USERS=%s, users_in_db=%d",
+            settings.announcement_channel_id,
+            settings.announcement_broadcast_users,
+            users_count,
+        )
+    else:
+        logger.info(
+            "Broadcasting Super Bingo announcement to %d targets (channel='%s', users=%d)",
+            len(targets),
+            settings.announcement_channel_id,
+            users_count,
+        )
 
     sent = 0
     failed = 0
@@ -215,25 +232,44 @@ async def send_super_bingo_winner_announcement(
 async def run_super_bingo_scheduler(bot: Bot) -> None:
     """Background loop checking EAT time and triggering 6h and 10m reminders."""
     logger.info("Super Bingo reminder scheduler started.")
-    last_sent_6h_date: str | None = None
-    last_sent_10m_date: str | None = None
 
     while True:
         try:
             now = get_eat_now()
             today_str = now.strftime("%Y-%m-%d")
 
-            # 1. Check 6-hour reminder (13:00 EAT / 1:00 PM)
-            if now.hour == 13 and now.minute < 5 and last_sent_6h_date != today_str:
-                logger.info("Triggering 6-hour Super Bingo reminder for %s", today_str)
-                await send_super_bingo_reminder_6h(bot)
-                last_sent_6h_date = today_str
+            # Check persistent state in db (fallback to in-memory if db query fails)
+            try:
+                last_sent_6h_date = await db.get_game_metadata("last_super_bingo_6h_sent_date")
+                last_sent_10m_date = await db.get_game_metadata("last_super_bingo_10m_sent_date")
+            except Exception as e:
+                logger.warning("Could not read super bingo reminder metadata: %s", e)
+                last_sent_6h_date = getattr(run_super_bingo_scheduler, "_mem_6h", None)
+                last_sent_10m_date = getattr(run_super_bingo_scheduler, "_mem_10m", None)
 
-            # 2. Check 10-minute reminder (18:50 EAT / 6:50 PM)
-            if now.hour == 18 and 50 <= now.minute < 55 and last_sent_10m_date != today_str:
-                logger.info("Triggering 10-minute Super Bingo reminder for %s", today_str)
-                await send_super_bingo_reminder_10m(bot)
-                last_sent_10m_date = today_str
+            # 1. Check 6-hour reminder:
+            # Scheduled for 13:00 EAT (1:00 PM). If not sent yet today and time is between 13:00 and 18:49 EAT:
+            if 13 <= now.hour < 18 or (now.hour == 18 and now.minute < 50):
+                if last_sent_6h_date != today_str:
+                    logger.info("Triggering 6-hour Super Bingo reminder for %s at %s EAT", today_str, now.strftime("%H:%M:%S"))
+                    await send_super_bingo_reminder_6h(bot)
+                    run_super_bingo_scheduler._mem_6h = today_str
+                    try:
+                        await db.set_game_metadata("last_super_bingo_6h_sent_date", today_str)
+                    except Exception as e:
+                        logger.warning("Could not persist 6h reminder date: %s", e)
+
+            # 2. Check 10-minute reminder:
+            # Scheduled for 18:50 EAT (6:50 PM / 12:50 local night). Fires anytime from 18:50:00 to 18:59:59 before game:
+            if now.hour == 18 and now.minute >= 50:
+                if last_sent_10m_date != today_str:
+                    logger.info("Triggering 10-minute Super Bingo reminder for %s at %s EAT", today_str, now.strftime("%H:%M:%S"))
+                    await send_super_bingo_reminder_10m(bot)
+                    run_super_bingo_scheduler._mem_10m = today_str
+                    try:
+                        await db.set_game_metadata("last_super_bingo_10m_sent_date", today_str)
+                    except Exception as e:
+                        logger.warning("Could not persist 10m reminder date: %s", e)
 
             await asyncio.sleep(20)
         except asyncio.CancelledError:

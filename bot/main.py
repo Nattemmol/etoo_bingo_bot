@@ -224,12 +224,16 @@ async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TY
         )
 
 
+_scheduler_task = None
+
+
 async def post_init(application: Application) -> None:
+    global _scheduler_task
     import asyncio
     await init_db()
     logger.info("Database initialized.")
     from bot.reminders import run_super_bingo_scheduler
-    asyncio.create_task(run_super_bingo_scheduler(application.bot))
+    _scheduler_task = asyncio.create_task(run_super_bingo_scheduler(application.bot))
     logger.info("Super Bingo reminder scheduler background task registered.")
 
 
