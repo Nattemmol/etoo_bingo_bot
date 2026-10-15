@@ -127,6 +127,18 @@ def build_application() -> Application:
     return app
 
 
+def _format_broadcast_report(title: str, res: dict[str, int]) -> str:
+    total = res.get("total", 0)
+    sent = res.get("sent", 0)
+    failed = res.get("failed", 0)
+    return (
+        f"📢 *{title}*\n\n"
+        f"👥 አጠቃላይ ተጠቃሚዎች (Total): *{total}*\n"
+        f"✅ በተሳካ ሁኔታ የደረሳቸው (Sent): *{sent}*\n"
+        + (f"⚠️ ያልደረሳቸው (Blocked/Inactive): *{failed}*\n" if failed else "")
+    )
+
+
 async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Test or preview Super Bingo reminders and winner announcements."""
     from bot.keyboards import super_bingo_reminder_keyboard
@@ -164,7 +176,7 @@ async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TY
     if sub == "6h":
         if is_broadcast:
             res = await send_super_bingo_reminder_6h(context.bot)
-            await message.reply_text(f"📢 6-hour reminder broadcasted: {res}")
+            await message.reply_text(_format_broadcast_report("የ 6 ሰዓት በፊት ማስታወቂያ ተልኳል", res), parse_mode="Markdown")
             return
         if photo_bytes:
             await message.reply_photo(photo=photo_bytes, caption=SUPER_BINGO_REMINDER_6H, reply_markup=kb)
@@ -173,7 +185,7 @@ async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TY
     elif sub == "10m":
         if is_broadcast:
             res = await send_super_bingo_reminder_10m(context.bot)
-            await message.reply_text(f"📢 10-minute reminder broadcasted: {res}")
+            await message.reply_text(_format_broadcast_report("የ 10 ደቂቃ በፊት ማስታወቂያ ተልኳል", res), parse_mode="Markdown")
             return
         if photo_bytes:
             await message.reply_photo(photo=photo_bytes, caption=SUPER_BINGO_REMINDER_10M, reply_markup=kb)
@@ -225,7 +237,7 @@ async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TY
         if is_broadcast:
             from bot.reminders import send_super_bingo_winner_announcement
             res = await send_super_bingo_winner_announcement(context.bot, winners_list, total_prize)
-            await message.reply_text(f"📢 Winner announcement broadcasted ({len(winners_list)} winner(s)): {res}")
+            await message.reply_text(_format_broadcast_report(f"የአሸናፊዎች ማስታወቂያ ተልኳል ({len(winners_list)} winner(s))", res), parse_mode="Markdown")
             return
 
         from server.card_image import generate_winner_card_image_from_winner_dict
