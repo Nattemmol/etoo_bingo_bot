@@ -23,9 +23,9 @@
   --marked: #00b894;
   --marked-gradient: linear-gradient(135deg, #00b894 0%, #00a884 100%);
   --called: #00b894;
-  --called-chip-bg: #eef2f7;
-  --called-chip-border: #d2dbe8;
-  --called-chip-color: #55627a;
+  --called-chip-bg: #e8ecf4;
+  --called-chip-border: #cbd5e1;
+  --called-chip-color: #0f172a;
   --called-active-bg: linear-gradient(135deg, #00b894 0%, #00e676 100%);
   --called-active-text: #ffffff;
   --quick-input-bg: #f8fafc;
@@ -52,9 +52,9 @@
   --marked: #00b894;
   --marked-gradient: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
   --called: #00e676;
-  --called-chip-bg: #23233c;
-  --called-chip-border: #38385a;
-  --called-chip-color: #8b8ba8;
+  --called-chip-bg: #1c1c36;
+  --called-chip-border: #35355a;
+  --called-chip-color: #ffffff;
   --called-active-bg: linear-gradient(135deg, #00b894 0%, #00e676 100%);
   --called-active-text: #022415;
   --quick-input-bg: #131322;
@@ -375,10 +375,10 @@ body {
 .called-board {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 2px;
+  gap: 2.5px;
   width: 100%;
   margin-bottom: 3px;
-  padding: 3px 2px;
+  padding: 4px 3px;
   background: var(--board-bg);
   border: 1px solid var(--border-light);
   border-radius: 8px;
@@ -388,7 +388,7 @@ body {
 .called-board-col {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 2.5px;
   min-width: 0;
   width: 100%;
 }
@@ -397,8 +397,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 3px 0;
-  border-radius: 4px;
+  padding: 3.5px 0;
+  border-radius: 5px;
   font-weight: 900;
   text-align: center;
   border: 1px solid transparent;
@@ -409,7 +409,7 @@ body {
 }
 
 .called-col-label .c-letter {
-  font-size: 0.82rem;
+  font-size: 0.88rem;
   font-weight: 950;
   line-height: 1.1;
   letter-spacing: 0.5px;
@@ -465,7 +465,7 @@ body {
 .called-col-chips {
   display: flex;
   flex-direction: column;
-  gap: 1.5px;
+  gap: 2px;
   width: 100%;
 }
 
@@ -474,9 +474,9 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.60rem;
-  font-weight: 800;
-  border-radius: 3px;
+  font-size: 0.74rem;
+  font-weight: 900;
+  border-radius: 4px;
   background: var(--called-chip-bg);
   border: 1px solid var(--called-chip-border);
   color: var(--called-chip-color);
@@ -489,9 +489,9 @@ body {
 /* Green luminous active chips on Game Board (previously called numbers) */
 .called-chip.active {
   background: var(--called-active-bg, linear-gradient(135deg, #00b894 0%, #00e676 100%));
-  color: var(--called-active-text, #ffffff);
+  color: #ffffff !important;
   border-color: #00e676;
-  font-weight: 900;
+  font-weight: 950;
   box-shadow: 0 0 8px rgba(0, 230, 118, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.4);
   transform: scale(1.06);
 }
@@ -1112,7 +1112,7 @@ body {
   color: #fab1a0;
 }
 
-/* Side-by-side game layout: Board on left (35%), player cards on right (65%) */
+/* Side-by-side game layout: Board on left (40%), player cards on right (60%) */
 .game-layout {
   display: flex;
   flex-direction: row;
@@ -1123,20 +1123,20 @@ body {
 }
 
 .board-panel {
-  flex: 0 0 calc(35% - 4px);
-  max-width: calc(35% - 4px);
-  width: calc(35% - 4px);
+  flex: 0 0 calc(40% - 4px);
+  max-width: calc(40% - 4px);
+  width: calc(40% - 4px);
   min-width: 0;
   background: var(--secondary);
   border-radius: 10px;
-  padding: 4px 4px;
+  padding: 4px 4px 6px;
   box-sizing: border-box;
 }
 
 .cards-panel {
-  flex: 0 0 calc(65% - 4px);
-  max-width: calc(65% - 4px);
-  width: calc(65% - 4px);
+  flex: 0 0 calc(60% - 4px);
+  max-width: calc(60% - 4px);
+  width: calc(60% - 4px);
   min-width: 0;
   background: var(--secondary);
   border-radius: 10px;
