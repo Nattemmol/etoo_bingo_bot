@@ -158,6 +158,97 @@ class TestSuperBingoReminders(unittest.IsolatedAsyncioTestCase):
                     ast_count = sum(p.count("*") for i, p in enumerate(parts) if i % 2 == 0)
                     self.assertEqual(ast_count % 2, 0, f"Odd asterisks for method {m}")
 
+    def test_super_bingo_reminder_keyboard_channel_vs_user(self):
+        """Verify channel keyboard has standard URL button (no WebAppInfo) and user has WebAppInfo."""
+        from bot.keyboards import super_bingo_reminder_keyboard
+
+        channel_kb = super_bingo_reminder_keyboard(is_channel=True)
+        user_kb = super_bingo_reminder_keyboard(is_channel=False)
+
+        # Channel button must be URL, no web_app
+        channel_btn = channel_kb.inline_keyboard[0][0]
+        self.assertIsNotNone(channel_btn.url)
+        self.assertIsNone(channel_btn.web_app)
+        self.assertIn("start=super_50", channel_btn.url)
+
+        # User button must be web_app
+        user_btn = user_kb.inline_keyboard[0][0]
+        self.assertIsNotNone(user_btn.web_app)
+
+    async def test_broadcast_routes_channel_markup_to_channel_target(self):
+        """Verify broadcast automatically sends channel-safe markup to channels and web_app to users."""
+        from bot.keyboards import super_bingo_reminder_keyboard
+
+        mock_bot = AsyncMock()
+        mock_msg = MagicMock()
+        mock_photo_size = MagicMock()
+        mock_photo_size.file_id = "cached_fid_999"
+        mock_msg.photo = [mock_photo_size]
+        mock_bot.send_photo.return_value = mock_msg
+
+        with patch("bot.reminders.settings") as mock_settings, \
+             patch("bot.reminders.db.get_all_user_ids", return_value=[55555]):
+            mock_settings.announcement_channel_id = "@official_channel"
+            mock_settings.announcement_broadcast_users = True
+            mock_settings.super_bingo_image_path = None
+
+            # Pass sample photo bytes
+            sample_photo = b"fake_jpeg_bytes"
+            res = await broadcast_super_bingo_announcement(
+                bot=mock_bot,
+                text="Super Bingo starts soon!",
+                photo_bytes=sample_photo,
+                reply_markup=super_bingo_reminder_keyboard(is_channel=False),
+                channel_reply_markup=super_bingo_reminder_keyboard(is_channel=True),
+            )
+
+            self.assertEqual(res["sent"], 2)
+            self.assertEqual(res["failed"], 0)
+
+            # Check call args for target 1 (@official_channel)
+            first_call_kwargs = mock_bot.send_photo.call_args_list[0][1]
+            self.assertEqual(first_call_kwargs["chat_id"], "@official_channel")
+            channel_btn = first_call_kwargs["reply_markup"].inline_keyboard[0][0]
+            self.assertIsNotNone(channel_btn.url)
+            self.assertIsNone(channel_btn.web_app)
+
+            # Check call args for target 2 (user 55555)
+            second_call_kwargs = mock_bot.send_photo.call_args_list[1][1]
+            self.assertEqual(second_call_kwargs["chat_id"], 55555)
+            user_btn = second_call_kwargs["reply_markup"].inline_keyboard[0][0]
+            self.assertIsNotNone(user_btn.web_app)
+
+    async def test_broadcast_survives_channel_error(self):
+        """Verify that if the channel target throws an exception, user broadcasts still succeed."""
+        import telegram.error
+        from bot.keyboards import super_bingo_reminder_keyboard
+
+        mock_bot = AsyncMock()
+        # First send (channel) fails with BadRequest, second send (user) succeeds
+        mock_msg = MagicMock()
+        mock_msg.photo = [MagicMock(file_id="user_fid")]
+        mock_bot.send_photo.side_effect = [
+            telegram.error.BadRequest("Web app buttons are not allowed in channel posts"),
+            mock_msg,
+        ]
+
+        with patch("bot.reminders.settings") as mock_settings, \
+             patch("bot.reminders.db.get_all_user_ids", return_value=[77777]):
+            mock_settings.announcement_channel_id = "@failed_channel"
+            mock_settings.announcement_broadcast_users = True
+            mock_settings.super_bingo_image_path = None
+
+            res = await broadcast_super_bingo_announcement(
+                bot=mock_bot,
+                text="Super Bingo Announcement",
+                photo_bytes=b"fake_bytes",
+            )
+
+            self.assertEqual(res["total"], 2)
+            self.assertEqual(res["failed"], 1)
+            self.assertEqual(res["sent"], 1)
+            # User 77777 still received it!
+            self.assertEqual(mock_bot.send_photo.call_count, 2)
 
 
 if __name__ == "__main__":

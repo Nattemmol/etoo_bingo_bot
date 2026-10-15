@@ -251,8 +251,13 @@ def verify_bank_keyboard():
     )
 
 
-def super_bingo_reminder_keyboard(webapp_url: str = ""):
-    """Inline keyboard for super bingo reminders linking directly to room_super_50 WebApp."""
+def super_bingo_reminder_keyboard(webapp_url: str = "", is_channel: bool = False):
+    """Inline keyboard for super bingo reminders linking directly to room_super_50.
+
+    When is_channel=True, uses a standard URL button (deep-link to bot /start super_50)
+    because Telegram channel posts strictly forbid web_app buttons.
+    When is_channel=False, uses web_app=WebAppInfo for 1-click in-app play in private chats.
+    """
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
     from bot.config import settings
 
@@ -265,14 +270,21 @@ def super_bingo_reminder_keyboard(webapp_url: str = ""):
     else:
         full_url = f"{base_url}{sep}room={room}"
 
+    if is_channel:
+        bot_user = (getattr(settings, "bot_username", "") or "Etoo_Bingo_Bot").lstrip("@").strip()
+        play_btn = InlineKeyboardButton(
+            "🎮 ካርቴላ ይቁረጡ (Play superBingo)",
+            url=f"https://t.me/{bot_user}?start=super_50",
+        )
+    else:
+        play_btn = InlineKeyboardButton(
+            "🎮 ካርቴላ ይቁረጡ (Play superBingo)",
+            web_app=WebAppInfo(url=full_url),
+        )
+
     return InlineKeyboardMarkup(
         [
-            [
-                InlineKeyboardButton(
-                    "🎮 ካርቴላ ይቁረጡ (Play superBingo)",
-                    web_app=WebAppInfo(url=full_url),
-                )
-            ],
+            [play_btn],
             [
                 InlineKeyboardButton(
                     "💬 የደንበኞች ድጋፍ (@SEtoo_9)",

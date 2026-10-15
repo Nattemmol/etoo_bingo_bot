@@ -35,12 +35,21 @@ async def broadcast_super_bingo_announcement(
     photo_bytes: bytes | None = None,
     photo_bytes_list: list[bytes] | None = None,
     reply_markup: InlineKeyboardMarkup | None = None,
+    channel_reply_markup: InlineKeyboardMarkup | None = None,
 ) -> dict[str, int]:
     """Broadcast an announcement with photo or media group to the configured channel and registered users.
 
     Caches Telegram file_id(s) from the first successful send to stream-send
     to subsequent recipients without re-uploading the file(s).
+    Automatically uses channel-safe buttons (no WebAppInfo) for channel targets.
     """
+    # Ensure bot session is initialized
+    if not getattr(bot, "_initialized", False):
+        try:
+            await bot.initialize()
+        except Exception:
+            pass
+
     # If a list of photos was provided
     if photo_bytes_list and len(photo_bytes_list) == 1:
         photo_bytes = photo_bytes_list[0]
@@ -57,8 +66,9 @@ async def broadcast_super_bingo_announcement(
 
     # Collect recipient targets
     targets: list[str | int] = []
-    if settings.announcement_channel_id:
-        targets.append(settings.announcement_channel_id.strip())
+    channel_id_str = str(settings.announcement_channel_id).strip() if settings.announcement_channel_id else ""
+    if channel_id_str:
+        targets.append(channel_id_str)
 
     users_count = 0
     if settings.announcement_broadcast_users:
@@ -92,6 +102,20 @@ async def broadcast_super_bingo_announcement(
     cached_file_ids: list[str] | None = None
 
     for target in targets:
+        target_str = str(target).strip()
+        is_channel_target = bool(
+            (channel_id_str and target_str == channel_id_str)
+            or target_str.startswith("@")
+            or target_str.startswith("-100")
+        )
+
+        # Telegram channels strictly reject web_app buttons (causes BadRequest).
+        # Use channel-safe URL buttons for channels, and web_app buttons for users.
+        if is_channel_target:
+            current_markup = channel_reply_markup or super_bingo_reminder_keyboard(is_channel=True)
+        else:
+            current_markup = reply_markup if reply_markup is not None else super_bingo_reminder_keyboard(is_channel=False)
+
         try:
             if photo_bytes_list and len(photo_bytes_list) > 1:
                 # Option A2: Multiple winners media album
@@ -108,15 +132,15 @@ async def broadcast_super_bingo_announcement(
                 sent_msgs = await bot.send_media_group(chat_id=target, media=media)
                 if not cached_file_ids and sent_msgs:
                     cached_file_ids = [m.photo[-1].file_id for m in sent_msgs if m.photo]
-                if reply_markup:
+                if current_markup:
                     try:
                         await bot.send_message(
                             chat_id=target,
                             text="🎮 በሱፐር ቢንጎ ይጫወቱ (Play superBingo)",
-                            reply_markup=reply_markup,
+                            reply_markup=current_markup,
                         )
-                    except Exception:
-                        pass
+                    except Exception as err:
+                        logger.warning("Could not send action keyboard to %s: %s", target, err)
             elif cached_file_id or photo_bytes:
                 # Single photo announcement
                 photo_payload = cached_file_id if cached_file_id else photo_bytes
@@ -124,7 +148,7 @@ async def broadcast_super_bingo_announcement(
                     chat_id=target,
                     photo=photo_payload,
                     caption=text,
-                    reply_markup=reply_markup,
+                    reply_markup=current_markup,
                 )
                 if not cached_file_id and sent_msg.photo:
                     cached_file_id = sent_msg.photo[-1].file_id
@@ -132,7 +156,7 @@ async def broadcast_super_bingo_announcement(
                 await bot.send_message(
                     chat_id=target,
                     text=text,
-                    reply_markup=reply_markup,
+                    reply_markup=current_markup,
                 )
             sent += 1
             await asyncio.sleep(0.05)  # Telegram broadcast rate limit throttle
@@ -146,34 +170,43 @@ async def broadcast_super_bingo_announcement(
                         InputMediaPhoto(media=item, caption=text if idx == 0 else None)
                         for idx, item in enumerate(media_sources)
                     ]
-                    await bot.send_media_group(chat_id=target, media=media)
-                    if reply_markup:
+                    sent_msgs = await bot.send_media_group(chat_id=target, media=media)
+                    if not cached_file_ids and sent_msgs:
+                        cached_file_ids = [m.photo[-1].file_id for m in sent_msgs if m.photo]
+                    if current_markup:
                         try:
                             await bot.send_message(
                                 chat_id=target,
                                 text="🎮 በሱፐር ቢንጎ ይጫወቱ (Play superBingo)",
-                                reply_markup=reply_markup,
+                                reply_markup=current_markup,
                             )
                         except Exception:
                             pass
                 elif cached_file_id or photo_bytes:
-                    await bot.send_photo(
+                    sent_msg = await bot.send_photo(
                         chat_id=target,
                         photo=cached_file_id or photo_bytes,
                         caption=text,
-                        reply_markup=reply_markup,
+                        reply_markup=current_markup,
                     )
+                    if not cached_file_id and sent_msg.photo:
+                        cached_file_id = sent_msg.photo[-1].file_id
                 else:
                     await bot.send_message(
                         chat_id=target,
                         text=text,
-                        reply_markup=reply_markup,
+                        reply_markup=current_markup,
                     )
                 sent += 1
-            except Exception:
+            except Exception as retry_exc:
+                logger.warning("Failed retry send to %s: %s", target, retry_exc)
                 failed += 1
-        except (telegram.error.Forbidden, telegram.error.ChatNotFound):
+        except telegram.error.Forbidden:
             # User blocked the bot or chat was deleted
+            logger.info("Bot forbidden/blocked by target %s", target)
+            failed += 1
+        except telegram.error.BadRequest as b_exc:
+            logger.warning("Telegram BadRequest sending announcement to %s: %s", target, b_exc)
             failed += 1
         except Exception as exc:
             logger.warning("Failed to send announcement to %s: %s", target, exc)
@@ -188,7 +221,8 @@ async def send_super_bingo_reminder_6h(bot: Bot) -> dict[str, int]:
     return await broadcast_super_bingo_announcement(
         bot=bot,
         text=SUPER_BINGO_REMINDER_6H,
-        reply_markup=super_bingo_reminder_keyboard(),
+        reply_markup=super_bingo_reminder_keyboard(is_channel=False),
+        channel_reply_markup=super_bingo_reminder_keyboard(is_channel=True),
     )
 
 
@@ -197,7 +231,8 @@ async def send_super_bingo_reminder_10m(bot: Bot) -> dict[str, int]:
     return await broadcast_super_bingo_announcement(
         bot=bot,
         text=SUPER_BINGO_REMINDER_10M,
-        reply_markup=super_bingo_reminder_keyboard(),
+        reply_markup=super_bingo_reminder_keyboard(is_channel=False),
+        channel_reply_markup=super_bingo_reminder_keyboard(is_channel=True),
     )
 
 
@@ -217,15 +252,16 @@ async def send_super_bingo_winner_announcement(
                     if img_data:
                         photo_bytes_list.append(img_data)
                 except Exception as e:
-                    logger.error("Failed to generate winner card image: %s", e)
+                    logger.error("Failed to generate winner card image: %s", e, exc_info=True)
         except Exception as exc:
-            logger.error("Could not import card_image generator: %s", exc)
+            logger.error("Could not import card_image generator: %s", exc, exc_info=True)
 
     return await broadcast_super_bingo_announcement(
         bot=bot,
         text=text,
         photo_bytes_list=photo_bytes_list if photo_bytes_list else None,
-        reply_markup=super_bingo_reminder_keyboard(),
+        reply_markup=super_bingo_reminder_keyboard(is_channel=False),
+        channel_reply_markup=super_bingo_reminder_keyboard(is_channel=True),
     )
 
 

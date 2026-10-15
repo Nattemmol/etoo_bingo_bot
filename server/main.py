@@ -1195,13 +1195,17 @@ async def finalize_bingo(room_id: str) -> None:
 
         # Broadcast Super Bingo winner announcement to channel and users
         if room.room_id == "room_super_50" and winners:
-            try:
-                from telegram import Bot
-                from bot.reminders import send_super_bingo_winner_announcement
-                _bot = Bot(token=settings.bot_token)
-                asyncio.create_task(send_super_bingo_winner_announcement(_bot, winners, prize))
-            except Exception as e:
-                logger.warning("Could not broadcast super bingo winner announcement: %s", e)
+            async def _bg_broadcast_winner() -> None:
+                try:
+                    from telegram import Bot
+                    from bot.reminders import send_super_bingo_winner_announcement
+                    async with Bot(token=settings.bot_token) as _bot:
+                        res = await send_super_bingo_winner_announcement(_bot, winners, prize)
+                        logger.info("Super Bingo winner announcement broadcasted: %s", res)
+                except Exception as exc:
+                    logger.error("Could not broadcast super bingo winner announcement: %s", exc, exc_info=True)
+
+            asyncio.create_task(_bg_broadcast_winner())
 
         # Persist completed game round for auditing & dispute resolution
         if hasattr(db, "record_game_round"):

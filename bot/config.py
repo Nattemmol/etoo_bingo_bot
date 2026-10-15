@@ -38,6 +38,7 @@ class Settings:
     announcement_channel_id: str = ""
     announcement_broadcast_users: bool = True
     admin_telegram_id: int | None = None
+    bot_username: str = "Etoo_Bingo_Bot"
     super_bingo_image_path: Path = field(default_factory=lambda: BASE_DIR / "pic" / "Etoo_bingo.jpg")
 
     @classmethod
@@ -52,6 +53,7 @@ class Settings:
         broadcast_users = os.getenv("ANNOUNCEMENT_BROADCAST_USERS", "true").lower() in ("1", "true", "yes")
         admin_id_str = os.getenv("ADMIN_TELEGRAM_ID") or os.getenv("ADMIN_ID", "")
         admin_id = int(admin_id_str.strip()) if admin_id_str.strip().isdigit() else None
+        b_user = (os.getenv("BOT_USERNAME") or "Etoo_Bingo_Bot").lstrip("@").strip()
         custom_img = os.getenv("SUPER_BINGO_IMAGE_PATH", "")
         img_path = Path(custom_img) if custom_img else BASE_DIR / "pic" / "Etoo_bingo.jpg"
         if not img_path.is_absolute():
@@ -67,6 +69,7 @@ class Settings:
             admin_telegram_id=admin_id,
             announcement_channel_id=announcement_channel,
             announcement_broadcast_users=broadcast_users,
+            bot_username=b_user,
             super_bingo_image_path=img_path,
             telebirr_base_url=os.getenv(
                 "TELEBIRR_BASE_URL",
