@@ -217,9 +217,9 @@ export function renderCard(container, card, marked, calledSet, onMark, interacti
       cell.dataset.idx = String(idx);
       if (isFree) {
         cell.classList.add("free");
-        cell.textContent = "FREE";
+        cell.innerHTML = `<span class="cell-free">FREE</span>`;
       } else {
-        cell.textContent = value;
+        cell.innerHTML = `<span class="cell-num">${value}</span>`;
         // Do not add automatic called color — marking must be completely manual
         if (marked && marked.has(idx)) cell.classList.add("marked");
 
@@ -290,9 +290,9 @@ export function renderWinnerCard(container, card, calledSet, rule = "line_corner
       cell.className = "card-cell winner-grid-cell";
       if (isFree) {
         cell.classList.add("free");
-        cell.textContent = "FREE";
+        cell.innerHTML = `<span class="cell-free">FREE</span>`;
       } else {
-        cell.textContent = value;
+        cell.innerHTML = `<span class="cell-num">${value}</span>`;
         // Show as marked if the number was called in the game
         if (calledSet && calledSet.has(value)) {
           cell.classList.add("marked");

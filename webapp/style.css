@@ -628,7 +628,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.88rem;
+  font-size: 0.92rem;
   font-weight: 700;
   border-radius: 8px;
   cursor: pointer;
@@ -637,6 +637,29 @@ body {
   position: relative;
   overflow: hidden;
   color: var(--text);
+  box-sizing: border-box;
+}
+
+.card-cell .cell-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Arial Narrow', 'Roboto Condensed', 'SF Pro Condensed', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 1.12rem;
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: -0.3px;
+  transform: scale(0.96, 1.18);
+  transform-origin: center center;
+  pointer-events: none;
+}
+
+.card-cell .cell-free {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  pointer-events: none;
 }
 
 .card-cell.free {
@@ -1235,20 +1258,33 @@ body {
 }
 
 .mini-bingo-card .card-cell {
-  font-size: 0.96rem;
-  font-weight: 800;
   aspect-ratio: 1;
   min-height: unset;
   border-width: 1.5px;
   border-radius: 6px;
   pointer-events: auto;
   cursor: pointer;
-  padding: 0;
+  padding: 1px 2px;
+  box-sizing: border-box;
+}
+
+.mini-bingo-card .card-cell .cell-num {
+  font-size: 1.18rem;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.4px;
+  transform: scale(0.96, 1.22);
 }
 
 .mini-bingo-card .card-cell.free {
   font-size: 0.66rem;
   font-weight: 900;
+}
+
+.mini-bingo-card .card-cell.free .cell-free {
+  font-size: 0.68rem;
+  font-weight: 950;
+  letter-spacing: 0.3px;
 }
 
 .mini-card.card-locked .mini-bingo-card .card-cell {
@@ -1350,19 +1386,32 @@ body {
 .card-list.two-cards .mini-bingo-card .card-cell {
   aspect-ratio: unset;
   height: 24px;
-  font-size: 0.82rem;
-  font-weight: 800;
   border-radius: 5px;
   border-width: 1px;
-  padding: 0;
+  padding: 0 2px;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
+.card-list.two-cards .mini-bingo-card .card-cell .cell-num {
+  font-size: 0.92rem;
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: -0.25px;
+  transform: scale(0.96, 1.16);
+}
+
 .card-list.two-cards .mini-bingo-card .card-cell.free {
   font-size: 0.56rem;
   font-weight: 900;
+}
+
+.card-list.two-cards .mini-bingo-card .card-cell.free .cell-free {
+  font-size: 0.56rem;
+  font-weight: 900;
+  letter-spacing: 0;
 }
 
 .card-list.two-cards .card-cell.marked::after {
@@ -1799,6 +1848,19 @@ body {
   border: 1px solid var(--cell-border);
   box-sizing: border-box;
   position: relative;
+}
+
+.winner-mini-grid .winner-grid-cell .cell-num {
+  font-size: 0.96rem;
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: -0.2px;
+  transform: scale(0.96, 1.18);
+}
+
+.winner-mini-grid .winner-grid-cell.free .cell-free {
+  font-size: 0.60rem;
+  font-weight: 900;
 }
 
 .winner-mini-grid .winner-grid-cell.marked {
