@@ -397,6 +397,7 @@ class GameRoom:
     winning_number: int | None = None  # the ball number on which BINGO was first claimed
     bingo_claimants: list[dict] = field(default_factory=list)  # valid claims inside the window
     available_numbers: list[int] = field(default_factory=lambda: list(range(1, 76)))
+    card_selection_times: dict[int, float] = field(default_factory=dict)  # card_id -> time.time() selection timestamp
 
     @property
     def called_set(self) -> set[int]:

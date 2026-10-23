@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import time
 import unittest
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, MagicMock
@@ -562,6 +563,16 @@ class TestSpectatorAndSchedule(unittest.TestCase):
             self.assertNotIn(7, room.taken_cards)
             self.assertEqual(room.pot, 0.0)
             self.assertEqual(len(room.taken_cards), 0)
+
+            # Select card 8, simulate >4s elapsed, and verify unselect is rejected
+            ws.send_text(json.dumps({"type": "select_card", "card_id": 8}))
+            conf8 = self._read_until(ws, "card_confirmed")
+            self.assertEqual(conf8["card_id"], 8)
+            room.card_selection_times[8] = time.time() - 5.0
+            ws.send_text(json.dumps({"type": "unselect_card", "card_id": 8}))
+            err = self._read_until(ws, "card_error")
+            self.assertIn("ተቆልፏል", err["message"])
+            self.assertIn(8, room.taken_cards)
 
     def test_false_bingo_locks_card(self):
         uid = 999444

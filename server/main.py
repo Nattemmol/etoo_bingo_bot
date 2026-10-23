@@ -387,6 +387,7 @@ def get_room_state(room: GameRoom) -> dict:
         "schedule": schedule_text,
         "seconds_until_open": seconds_until,
         "taken_cards": {str(k): v for k, v in room.taken_cards.items()},
+        "selection_times": {str(k): round(v, 2) for k, v in room.card_selection_times.items()},
     }
 
 
@@ -1476,6 +1477,8 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                         continue
 
                 # Assign card to player
+                now_ts = time.time()
+                room.card_selection_times[card_id] = now_ts
                 card = generate_card_by_id(card_id)
                 room.taken_cards[card_id] = telegram_id
 
@@ -1514,6 +1517,7 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                     {
                         "type": "card_confirmed",
                         "card_id": card_id,
+                        "selected_at": now_ts,
                         "card": card,
                         "card_ids": player.card_ids,
                         "cards": {str(cid): c for cid, c in player.cards.items()},
@@ -1590,10 +1594,23 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                     )
                     continue
 
+                # 4-second cancellation window check: cards lock after 4 seconds of selection
+                selected_at = room.card_selection_times.get(card_id)
+                if selected_at is not None and (time.time() - selected_at) > 4.5:
+                    await send(
+                        websocket,
+                        {
+                            "type": "card_error",
+                            "message": "🔒 መጫወቻው ተቆልፏል፤ መሰረዝ የሚቻለው በተመረጠ በ 4 ሰከንድ ውስጥ ብቻ ነው።",
+                        },
+                    )
+                    continue
+
                 # Remove card from player and room
                 player.card_ids.remove(card_id)
                 player.cards.pop(card_id, None)
                 room.taken_cards.pop(card_id, None)
+                room.card_selection_times.pop(card_id, None)
 
                 # Deduct pot contribution and house income
                 pot_reduction = room.entry_fee - room.house_cut

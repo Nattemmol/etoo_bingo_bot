@@ -355,16 +355,24 @@ function updatePoolChip(cardId) {
   const chip = poolChips[cardId - 1];
   if (!chip) return;
   const owner = state.takenCards[cardId];
-  chip.classList.remove("available", "mine", "taken");
+  chip.classList.remove("available", "mine", "taken", "locked", "can-cancel");
   if (owner == null) {
     chip.classList.add("available");
-    chip.title = `መጫወቻ #${cardId} — available`;
+    chip.title = `መጫወቻ #${cardId} — ክፍት`;
   } else if (Number(owner) === Number(state.myId)) {
     chip.classList.add("mine");
-    chip.title = `መጫወቻ #${cardId} — yours`;
+    const selAt = state.selectedAt ? state.selectedAt[cardId] : null;
+    const elapsed = selAt ? (Date.now() - selAt) : 99999;
+    if (elapsed < 4000) {
+      chip.classList.add("can-cancel");
+      chip.title = `መጫወቻ #${cardId} — ለመሰረዝ ይጫኑ (በ 4 ሰከንድ ውስጥ)`;
+    } else {
+      chip.classList.add("locked");
+      chip.title = `መጫወቻ #${cardId} — ተቆልፏል (Locked)`;
+    }
   } else {
     chip.classList.add("taken");
-    chip.title = `መጫወቻ #${cardId} — taken`;
+    chip.title = `መጫወቻ #${cardId} — ተይዟል`;
   }
 }
 
@@ -388,6 +396,7 @@ function buildPool() {
     chip.className = "pool-chip";
     chip.textContent = i;
     chip.dataset.cardId = String(i);
+    chip.dataset.digits = String(String(i).length);
     frag.appendChild(chip);
     poolChips.push(chip);
   }
@@ -445,8 +454,15 @@ function onPoolChipClick(cardId) {
   }
   hideCardError();
 
-  // If already selected by me -> toggle / unselect immediately
+  // If already selected by me -> check 4-second lock
   if (state.cardIds.includes(cardId)) {
+    const selTime = state.selectedAt ? state.selectedAt[cardId] : null;
+    const elapsed = selTime ? (Date.now() - selTime) : 99999;
+    if (elapsed >= 4000) {
+      tg.HapticFeedback?.notificationOccurred("warning");
+      showCardError(`🔒 መጫወቻ #${cardId} ተቆልፏል! መሰረዝ የሚቻለው በተመረጠ በ 4 ሰከንድ ውስጥ ብቻ ነው።`);
+      return;
+    }
     tg.HapticFeedback?.impactOccurred("medium");
     ws.send(JSON.stringify({ type: "unselect_card", card_id: cardId }));
     return;
@@ -888,6 +904,12 @@ function handleMessage(socket, msg) {
       state.room = msg.room;
       state.phase = msg.room.phase === "playing" ? "playing" : "lobby";
       state.takenCards = msg.room.taken_cards || {};
+      state.selectedAt = state.selectedAt || {};
+      if (msg.room.selection_times) {
+        for (const [cid, ts] of Object.entries(msg.room.selection_times)) {
+          state.selectedAt[Number(cid)] = ts * 1000;
+        }
+      }
       state.called = msg.room.called || [];
       state.calledSet = new Set(state.called);
       state.currentNumber = msg.room.latest_call ? msg.room.latest_call.number : (state.called.length ? state.called[state.called.length - 1] : null);
@@ -990,6 +1012,8 @@ function handleMessage(socket, msg) {
 
     case "card_confirmed": {
       const cid = msg.card_id;
+      state.selectedAt = state.selectedAt || {};
+      state.selectedAt[cid] = msg.selected_at ? msg.selected_at * 1000 : Date.now();
       state.cards[cid] = msg.card;
       state.cardIds = Array.isArray(msg.card_ids) ? msg.card_ids.map(Number) : [...state.cardIds, cid];
       state.takenCards[cid] = state.myId;
@@ -997,6 +1021,9 @@ function handleMessage(socket, msg) {
       updateRoleDisplay(true);
       updateBalanceDisplay(msg.balance);
       renderPool();
+      setTimeout(() => {
+        updatePoolChip(cid);
+      }, 4000);
       if (msg.pot != null) {
         els.lobbyPot.textContent = Number(msg.pot).toFixed(0);
       }
@@ -1007,6 +1034,7 @@ function handleMessage(socket, msg) {
 
     case "card_unselected": {
       const cid = msg.card_id;
+      if (state.selectedAt) delete state.selectedAt[cid];
       delete state.cards[cid];
       state.cardIds = Array.isArray(msg.card_ids)
         ? msg.card_ids.map(Number)
