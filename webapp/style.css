@@ -1255,7 +1255,7 @@ body {
   border: 1.5px solid var(--cell-border);
   background: var(--card-bg);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  cursor: pointer;
+  cursor: default;
   padding: 5px;
 }
 
@@ -1288,23 +1288,38 @@ body {
 .slot-status-badge {
   font-size: 0.54rem;
   font-weight: 850;
-  padding: 1px 4px;
+  padding: 2px 5px;
   border-radius: 4px;
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  font-family: inherit;
+  border: none;
 }
 
 .slot-status-badge.can-cancel {
-  background: rgba(255, 71, 87, 0.15);
+  background: rgba(255, 71, 87, 0.16);
   color: #ff4757;
-  border: 0.5px solid rgba(255, 71, 87, 0.4);
+  border: 0.5px solid rgba(255, 71, 87, 0.45);
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.12s ease;
+  user-select: none;
+}
+
+.slot-status-badge.can-cancel:hover {
+  background: rgba(255, 71, 87, 0.28);
+  transform: scale(1.04);
+}
+
+.slot-status-badge.can-cancel:active {
+  transform: scale(0.92);
 }
 
 .slot-status-badge.locked {
   background: rgba(0, 184, 148, 0.15);
   color: #00b894;
   border: 0.5px solid rgba(0, 184, 148, 0.4);
+  cursor: default;
 }
 
 .slot-mini-grid {

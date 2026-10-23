@@ -492,13 +492,15 @@ function renderSelectedSlots() {
         }
       }
 
+      const statusHtml = isLocked
+        ? `<span class="slot-status-badge locked" title="ተቆልፏል">🔒 ተቆልፏል</span>`
+        : `<button type="button" class="slot-status-badge can-cancel slot-cancel-btn" title="መጫወቻውን ለመሰረዝ ይጫኑ">✕ ሰርዝ</button>`;
+
       slotEl.innerHTML = `
         <div class="slot-card-content">
           <div class="slot-header">
             <span class="slot-title">መጫወቻ #${cardId}</span>
-            <span class="slot-status-badge ${isLocked ? 'locked' : 'can-cancel'}">
-              ${isLocked ? '🔒 ተቆልፏል' : '✕ መሰረዝ'}
-            </span>
+            ${statusHtml}
           </div>
           <div class="slot-mini-grid">
             ${gridHtml}
@@ -506,9 +508,17 @@ function renderSelectedSlots() {
         </div>
       `;
 
-      slotEl.onclick = () => {
-        onPoolChipClick(cardId);
-      };
+      slotEl.onclick = null;
+
+      if (!isLocked) {
+        const cancelBtn = slotEl.querySelector(".slot-cancel-btn");
+        if (cancelBtn) {
+          cancelBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            onPoolChipClick(cardId);
+          });
+        }
+      }
     }
   }
 }
