@@ -8,7 +8,7 @@ import {
   showError,
   showScreen,
   updateCalledBoard,
-} from "./game.js?v=3.2";
+} from "./game.js?v=3.6";
 
 const tg =
   window.Telegram?.WebApp || {
@@ -67,6 +67,9 @@ const els = {
   btnQuickPick: document.getElementById("btn-quick-pick"),
   btnRandomPick: document.getElementById("btn-random-pick"),
   cardPool: document.getElementById("card-pool"),
+  cardSlots: document.getElementById("selected-card-slots"),
+  cardSlot0: document.getElementById("card-slot-0"),
+  cardSlot1: document.getElementById("card-slot-1"),
   cardErrorNotice: document.getElementById("card-error-notice"),
   gameRoomName: document.getElementById("game-room-name"),
   gamePot: document.getElementById("game-pot"),
@@ -442,6 +445,72 @@ function renderPool() {
   if (!poolChips.length) return;
   for (let id = 1; id <= poolChips.length; id++) updatePoolChip(id);
   if (els.myCardsBadge) els.myCardsBadge.textContent = `የተመረጡ መጫወቻዎች: ${state.cardIds.length}`;
+  renderSelectedSlots();
+}
+
+function renderSelectedSlots() {
+  const slotEls = [els.cardSlot0, els.cardSlot1];
+  if (!slotEls[0] || !slotEls[1]) return;
+
+  const selectedIds = state.cardIds || [];
+
+  for (let slotIdx = 0; slotIdx < 2; slotIdx++) {
+    const slotEl = slotEls[slotIdx];
+    const cardId = selectedIds[slotIdx];
+
+    if (cardId == null) {
+      slotEl.className = "card-slot empty";
+      slotEl.innerHTML = `
+        <div class="slot-empty-content">
+          <div class="slot-empty-icon">🎴</div>
+          <div class="slot-empty-title">መጫወቻ #${slotIdx + 1}</div>
+          <div class="slot-empty-sub">ክፍት ቦታ</div>
+        </div>
+      `;
+      slotEl.onclick = null;
+    } else {
+      slotEl.className = "card-slot filled";
+      const cardData = state.cards[cardId] || generateCardById(cardId);
+      const selAt = state.selectedAt ? state.selectedAt[cardId] : null;
+      const elapsed = selAt ? (Date.now() - selAt) : 99999;
+      const isLocked = elapsed >= 4000;
+
+      let gridHtml = "";
+      ["B", "I", "N", "G", "O"].forEach((letter) => {
+        gridHtml += `<div class="slot-grid-hdr hdr-${letter.toLowerCase()}">${letter}</div>`;
+      });
+
+      for (let r = 0; r < 5; r++) {
+        for (let c = 0; c < 5; c++) {
+          const isFree = (r === 2 && c === 2);
+          if (isFree) {
+            gridHtml += `<div class="slot-cell free"><span class="slot-free-text">FREE</span></div>`;
+          } else {
+            const num = (cardData && cardData[r]) ? cardData[r][c] : "";
+            gridHtml += `<div class="slot-cell"><span class="slot-cell-num">${num}</span></div>`;
+          }
+        }
+      }
+
+      slotEl.innerHTML = `
+        <div class="slot-card-content">
+          <div class="slot-header">
+            <span class="slot-title">መጫወቻ #${cardId}</span>
+            <span class="slot-status-badge ${isLocked ? 'locked' : 'can-cancel'}">
+              ${isLocked ? '🔒 ተቆልፏል' : '✕ መሰረዝ'}
+            </span>
+          </div>
+          <div class="slot-mini-grid">
+            ${gridHtml}
+          </div>
+        </div>
+      `;
+
+      slotEl.onclick = () => {
+        onPoolChipClick(cardId);
+      };
+    }
+  }
 }
 function onPoolChipClick(cardId) {
   if (state.phase !== "lobby") {
@@ -1023,6 +1092,7 @@ function handleMessage(socket, msg) {
       renderPool();
       setTimeout(() => {
         updatePoolChip(cid);
+        renderSelectedSlots();
       }, 4000);
       if (msg.pot != null) {
         els.lobbyPot.textContent = Number(msg.pot).toFixed(0);
