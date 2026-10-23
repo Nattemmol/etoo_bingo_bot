@@ -49,6 +49,7 @@ const state = {
   countdownInterval: null,
   lobbyCountdownDeadline: null,
   lobbyCountdownTimer: null,
+  ballCountdownRAF: null,
 };
 
 const els = {
@@ -75,8 +76,10 @@ const els = {
   gamePot: document.getElementById("game-pot"),
   gamePlayers: document.getElementById("game-players"),
   gameBalls: document.getElementById("game-balls"),
+  lastCall: document.getElementById("last-call"),
   lastCallLetter: document.querySelector("#last-call .ball-letter"),
   lastCallNumber: document.querySelector("#last-call .ball-number"),
+  ballTimerRing: document.getElementById("ball-timer-ring"),
   calledBoard: document.getElementById("called-board"),
   gameBanner: document.getElementById("game-banner"),
   gameLayout: document.getElementById("game-layout"),
@@ -873,6 +876,102 @@ function stopWindowTimer() {
   state.windowUntil = null;
 }
 
+function getLetterForNumber(num) {
+  const n = Number(num);
+  if (!n || n < 1 || n > 75) return "-";
+  if (n <= 15) return "B";
+  if (n <= 30) return "I";
+  if (n <= 45) return "N";
+  if (n <= 60) return "G";
+  return "O";
+}
+
+function updateBallVisual(letter, number) {
+  const ball = els.lastCall;
+  if (!ball) return;
+
+  // Clear previous column color classes
+  ball.classList.remove("ball-b", "ball-i", "ball-n", "ball-g", "ball-o");
+
+  if (!number || number === "-" || Number(number) < 1) {
+    if (els.lastCallLetter) els.lastCallLetter.textContent = "-";
+    if (els.lastCallNumber) els.lastCallNumber.textContent = "-";
+    return;
+  }
+
+  const numVal = Number(number);
+  const letVal = (letter && letter !== "-") ? String(letter).toUpperCase() : getLetterForNumber(numVal);
+
+  if (["B", "I", "N", "G", "O"].includes(letVal)) {
+    ball.classList.add(`ball-${letVal.toLowerCase()}`);
+  }
+
+  if (els.lastCallLetter) els.lastCallLetter.textContent = letVal;
+  if (els.lastCallNumber) els.lastCallNumber.textContent = String(numVal);
+
+  // Subtle pop animation for instant tactile feedback when a number arrives
+  if (typeof ball.animate === "function") {
+    ball.animate(
+      [
+        { transform: "scale(0.86)" },
+        { transform: "scale(1.08)" },
+        { transform: "scale(1)" }
+      ],
+      { duration: 320, easing: "cubic-bezier(0.175, 0.885, 0.32, 1.275)" }
+    );
+  }
+}
+
+function startBallCountdown(durationSec = 8.0) {
+  stopBallCountdown();
+  const ring = els.ballTimerRing;
+  if (!ring) return;
+
+  const radius = ring.r?.baseVal?.value || 31.5;
+  const circumference = 2 * Math.PI * radius;
+  ring.style.strokeDasharray = `${circumference} ${circumference}`;
+  // The moment the timer restarts, the circle completely refills
+  ring.style.strokeDashoffset = "0";
+
+  const durationMs = Math.max(500, Number(durationSec) * 1000);
+  const startTime = performance.now();
+
+  function tick(now) {
+    const elapsed = now - startTime;
+    const remaining = Math.max(0, durationMs - elapsed);
+    const fraction = remaining / durationMs; // 1.0 down to 0.0
+    const offset = circumference * (1 - fraction);
+    ring.style.strokeDashoffset = String(offset);
+
+    if (remaining > 0) {
+      state.ballCountdownRAF = requestAnimationFrame(tick);
+    } else {
+      // Exactly at zero: circle perimeter is fully depleted (disappeared)
+      ring.style.strokeDashoffset = String(circumference);
+      state.ballCountdownRAF = null;
+    }
+  }
+
+  state.ballCountdownRAF = requestAnimationFrame(tick);
+}
+
+function stopBallCountdown() {
+  if (state.ballCountdownRAF) {
+    cancelAnimationFrame(state.ballCountdownRAF);
+    state.ballCountdownRAF = null;
+  }
+}
+
+function resetBallCountdown() {
+  stopBallCountdown();
+  const ring = els.ballTimerRing;
+  if (!ring) return;
+  const radius = ring.r?.baseVal?.value || 31.5;
+  const circumference = 2 * Math.PI * radius;
+  ring.style.strokeDasharray = `${circumference} ${circumference}`;
+  ring.style.strokeDashoffset = String(circumference);
+}
+
 function setupGameScreen() {
   const isSuper = state.room?.room_id === "room_super_50" || state.room?.id === "room_super_50" || state.room?.bingo_rule === "full";
   const hintEl = document.querySelector(".auto-bingo-hint");
@@ -1040,12 +1139,13 @@ function handleMessage(socket, msg) {
 
       if (msg.room.phase === "playing") {
         if (msg.room.latest_call) {
-          if (els.lastCallLetter) els.lastCallLetter.textContent = msg.room.latest_call.letter;
-          if (els.lastCallNumber) els.lastCallNumber.textContent = msg.room.latest_call.number;
+          updateBallVisual(msg.room.latest_call.letter, msg.room.latest_call.number);
           updateCalledBoard(els.calledBoard, state.called, msg.room.latest_call.number);
         } else {
+          updateBallVisual("-", "-");
           updateCalledBoard(els.calledBoard, state.called);
         }
+        startBallCountdown(msg.room.call_interval || 8.0);
         setupGameScreen();
         flushPendingMarks();
         showScreen("screen-game");
@@ -1186,6 +1286,8 @@ function handleMessage(socket, msg) {
       state.currentNumber = null;
       state.claimed = false;
       stopLobbyCountdown();
+      updateBallVisual("-", "-");
+      startBallCountdown(msg.call_interval || msg.interval || state.room?.call_interval || 8.0);
       els.gameRoomName.textContent = state.room?.name || "GoodBingo";
       updateGameStats(msg.pot, msg.players, 0);
       setupGameScreen();
@@ -1197,8 +1299,8 @@ function handleMessage(socket, msg) {
       state.called = msg.called;
       state.calledSet = new Set(msg.called);
       state.currentNumber = msg.number;
-      els.lastCallLetter.textContent = msg.letter;
-      els.lastCallNumber.textContent = msg.number;
+      updateBallVisual(msg.letter, msg.number);
+      startBallCountdown(msg.interval || state.room?.call_interval || 8.0);
       updateGameStats(null, null, msg.called.length);
       updateCalledBoard(els.calledBoard, msg.called, msg.number);
       if (state.isPlayer) {
@@ -1211,6 +1313,7 @@ function handleMessage(socket, msg) {
     case "bingo_result":
       // Legacy from manual BINGO presses; auto-detection is authoritative now.
       if (msg.valid && msg.status === "accepted") {
+        stopBallCountdown();
         if (state.windowUntil == null) {
           state.windowUntil = Date.now() + (msg.window_seconds || 5) * 1000;
         }
@@ -1238,6 +1341,7 @@ function handleMessage(socket, msg) {
     }
 
     case "bingo_claim": {
+      stopBallCountdown();
       if (state.windowUntil == null) {
         state.windowUntil = Date.now() + (msg.window_seconds || 5) * 1000;
         startWindowTimer();
@@ -1256,6 +1360,7 @@ function handleMessage(socket, msg) {
     case "winner":
       state.phase = "done";
       state.winners = Array.isArray(msg.winners) ? msg.winners : [];
+      stopBallCountdown();
       stopWindowTimer();
       stopLobbyCountdown();
       renderGameCards();
@@ -1268,6 +1373,7 @@ function handleMessage(socket, msg) {
     case "game_over":
       state.phase = "done";
       state.winners = [];
+      stopBallCountdown();
       stopWindowTimer();
       stopLobbyCountdown();
       renderGameCards();
@@ -1308,11 +1414,12 @@ function handleMessage(socket, msg) {
       hideBanner();
       syncUserBalance();
       setTimeout(syncUserBalance, 500);
+      stopBallCountdown();
+      resetBallCountdown();
       stopWindowTimer();
       stopLobbyCountdown();
       buildCalledBoard(els.calledBoard);
-      els.lastCallLetter.textContent = "-";
-      els.lastCallNumber.textContent = "-";
+      updateBallVisual("-", "-");
 
       els.modalWinner?.classList.add("hidden");
 

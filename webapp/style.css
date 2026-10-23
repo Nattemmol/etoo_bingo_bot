@@ -31,6 +31,8 @@
   --quick-input-bg: #f8fafc;
   --quick-input-border: #cbd5e1;
   --shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  --ball-timer-stroke: #0b132b;
+  --ball-timer-track: rgba(11, 19, 43, 0.15);
 }
 
 [data-theme="dark"] {
@@ -60,6 +62,8 @@
   --quick-input-bg: #131322;
   --quick-input-border: #323254;
   --shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  --ball-timer-stroke: #ffffff;
+  --ball-timer-track: rgba(255, 255, 255, 0.18);
 }
 
 body {
@@ -344,9 +348,9 @@ body {
   margin-bottom: 16px;
 }
 
-/* Called ball - luminous yellow for current picked number */
+/* Called ball - circular current picked number big display with countdown perimeter loop */
 .called-ball {
-  background: linear-gradient(135deg, #fff200 0%, #ffd700 100%);
+  background: linear-gradient(135deg, #2d3436 0%, #485460 100%);
   border-radius: 50%;
   width: 68px;
   height: 68px;
@@ -355,9 +359,65 @@ body {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 0 20px rgba(255, 215, 0, 0.85), inset 0 2px 4px rgba(255, 255, 255, 0.7);
-  border: 2px solid #ffffff;
+  position: relative;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3), inset 0 2px 4px rgba(255, 255, 255, 0.25);
   animation: float-ball 2.4s ease-in-out infinite alternate;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: background 0.35s ease, box-shadow 0.35s ease;
+}
+
+[data-theme="light"] .called-ball:not([class*="ball-"]) {
+  background: linear-gradient(135deg, #475569 0%, #64748b 100%);
+}
+
+/* Big display ball colors matching the B-I-N-G-O board columns */
+.called-ball.ball-b {
+  background: linear-gradient(135deg, #ff4757 0%, #ff6b81 100%);
+  box-shadow: 0 0 22px rgba(255, 71, 87, 0.8), inset 0 2px 5px rgba(255, 255, 255, 0.45);
+}
+.called-ball.ball-i {
+  background: linear-gradient(135deg, #ff9f1a 0%, #ffc048 100%);
+  box-shadow: 0 0 22px rgba(255, 159, 26, 0.8), inset 0 2px 5px rgba(255, 255, 255, 0.45);
+}
+.called-ball.ball-n {
+  background: linear-gradient(135deg, #10b981 0%, #2ed573 100%);
+  box-shadow: 0 0 22px rgba(46, 213, 115, 0.8), inset 0 2px 5px rgba(255, 255, 255, 0.45);
+}
+.called-ball.ball-g {
+  background: linear-gradient(135deg, #1e90ff 0%, #70a1ff 100%);
+  box-shadow: 0 0 22px rgba(30, 144, 255, 0.8), inset 0 2px 5px rgba(255, 255, 255, 0.45);
+}
+.called-ball.ball-o {
+  background: linear-gradient(135deg, #8e44ad 0%, #e056fd 100%);
+  box-shadow: 0 0 22px rgba(224, 86, 253, 0.8), inset 0 2px 5px rgba(255, 255, 255, 0.45);
+}
+
+/* SVG Circular Countdown Perimeter Timer */
+.ball-timer-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  transform: rotate(-90deg);
+  z-index: 1;
+  overflow: visible;
+}
+
+.ball-timer-track {
+  fill: none;
+  stroke: var(--ball-timer-track);
+  stroke-width: 3.5px;
+}
+
+.ball-timer-ring {
+  fill: none;
+  stroke: var(--ball-timer-stroke);
+  stroke-width: 3.5px;
+  stroke-linecap: round;
+  transition: stroke 0.2s ease;
 }
 
 @keyframes float-ball {
@@ -366,17 +426,24 @@ body {
 }
 
 .ball-letter {
-  font-size: 0.75rem;
-  font-weight: 900;
-  color: #1a1200;
-  opacity: 0.95;
+  font-size: 0.76rem;
+  font-weight: 950;
+  color: #ffffff;
+  letter-spacing: 0.6px;
+  line-height: 1;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  z-index: 2;
+  position: relative;
 }
 
 .ball-number {
   font-size: 1.55rem;
   font-weight: 950;
   line-height: 1;
-  color: #1a1200;
+  color: #ffffff;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75);
+  z-index: 2;
+  position: relative;
 }
 
 /* Called numbers board: 5 vertical columns (B, I, N, G, O) */

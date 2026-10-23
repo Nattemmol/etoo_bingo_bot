@@ -386,6 +386,7 @@ def get_room_state(room: GameRoom) -> dict:
         "is_open": is_open,
         "schedule": schedule_text,
         "seconds_until_open": seconds_until,
+        "call_interval": room.call_interval,
         "taken_cards": {str(k): v for k, v in room.taken_cards.items()},
         "selection_times": {str(k): round(v, 2) for k, v in room.card_selection_times.items()},
     }
@@ -531,6 +532,7 @@ async def run_lobby_countdown(room: GameRoom) -> None:
                 "type": "start",
                 "pot": room.pot,
                 "players": len(room.taken_cards),
+                "call_interval": room.call_interval,
             },
         )
     else:
@@ -590,6 +592,7 @@ async def run_lobby_countdown(room: GameRoom) -> None:
                 "type": "start",
                 "pot": room.pot,
                 "players": len(room.taken_cards),
+                "call_interval": room.call_interval,
             },
         )
 
@@ -683,6 +686,7 @@ async def run_playing_round(room: GameRoom) -> None:
                 "number": num,
                 "letter": number_to_letter(num),
                 "called": room.called_numbers,
+                "interval": room.call_interval,
             },
         )
 
