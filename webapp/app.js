@@ -493,8 +493,8 @@ function renderSelectedSlots() {
       }
 
       const statusHtml = isLocked
-        ? `<span class="slot-status-badge locked" title="ተቆልፏል">🔒 ተቆልፏል</span>`
-        : `<button type="button" class="slot-status-badge can-cancel slot-cancel-btn" title="መጫወቻውን ለመሰረዝ ይጫኑ">✕ ሰርዝ</button>`;
+        ? `<span class="slot-status-badge locked" aria-label="Locked">🔒</span>`
+        : `<button type="button" class="slot-status-badge can-cancel slot-cancel-btn" aria-label="Cancel">✕</button>`;
 
       slotEl.innerHTML = `
         <div class="slot-card-content">

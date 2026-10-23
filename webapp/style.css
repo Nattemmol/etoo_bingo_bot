@@ -1286,39 +1286,44 @@ body {
 }
 
 .slot-status-badge {
-  font-size: 0.54rem;
-  font-weight: 850;
-  padding: 2px 5px;
+  width: 17px;
+  height: 17px;
   border-radius: 4px;
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  justify-content: center;
   font-family: inherit;
   border: none;
+  line-height: 1;
+  padding: 0;
+  flex-shrink: 0;
 }
 
 .slot-status-badge.can-cancel {
-  background: rgba(255, 71, 87, 0.16);
+  background: rgba(255, 71, 87, 0.18);
   color: #ff4757;
-  border: 0.5px solid rgba(255, 71, 87, 0.45);
+  border: 1px solid rgba(255, 71, 87, 0.45);
+  font-size: 0.64rem;
+  font-weight: 900;
   cursor: pointer;
   transition: transform 0.12s ease, background 0.12s ease;
   user-select: none;
 }
 
 .slot-status-badge.can-cancel:hover {
-  background: rgba(255, 71, 87, 0.28);
-  transform: scale(1.04);
+  background: rgba(255, 71, 87, 0.3);
+  transform: scale(1.1);
 }
 
 .slot-status-badge.can-cancel:active {
-  transform: scale(0.92);
+  transform: scale(0.9);
 }
 
 .slot-status-badge.locked {
   background: rgba(0, 184, 148, 0.15);
   color: #00b894;
-  border: 0.5px solid rgba(0, 184, 148, 0.4);
+  border: 1px solid rgba(0, 184, 148, 0.4);
+  font-size: 0.56rem;
   cursor: default;
 }
 
