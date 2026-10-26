@@ -1759,57 +1759,42 @@ body {
 }
 
 /* ========================================================
-   Multi cards (2 or 3 cards) layout: compact height to level with the board
+   Multi cards (2 cards) layout: compact height to level with the board
    ======================================================== */
-.card-list.two-cards,
-.card-list.three-cards {
+.card-list.two-cards {
   display: flex;
   flex-direction: column;
   gap: 6px;
   width: 100%;
 }
 
-.card-list.three-cards {
-  gap: 4px;
-}
-
-.card-list.two-cards .mini-card,
-.card-list.three-cards .mini-card {
+.card-list.two-cards .mini-card {
   padding: 3px 4px 4px;
   border-radius: 8px;
   border-width: 1px;
 }
 
-.card-list.three-cards .mini-card {
-  padding: 2.5px 3px 3px;
-}
-
-.card-list.two-cards .mini-card-header,
-.card-list.three-cards .mini-card-header {
+.card-list.two-cards .mini-card-header {
   margin-bottom: 2px;
   padding: 0 1px;
 }
 
-.card-list.two-cards .mini-card-title,
-.card-list.three-cards .mini-card-title {
+.card-list.two-cards .mini-card-title {
   font-size: 0.72rem;
   font-weight: 800;
 }
 
-.card-list.two-cards .card-locked-badge,
-.card-list.three-cards .card-locked-badge {
+.card-list.two-cards .card-locked-badge {
   padding: 1px 4px;
   font-size: 0.56rem;
   border-radius: 4px;
 }
 
-.card-list.two-cards .mini-bingo-card,
-.card-list.three-cards .mini-bingo-card {
+.card-list.two-cards .mini-bingo-card {
   gap: 2px;
 }
 
-.card-list.two-cards .mini-bingo-card .card-header-cell,
-.card-list.three-cards .mini-bingo-card .card-header-cell {
+.card-list.two-cards .mini-bingo-card .card-header-cell {
   aspect-ratio: unset;
   height: 22px;
   padding: 0;
@@ -1818,24 +1803,13 @@ body {
   animation: none;
 }
 
-.card-list.three-cards .mini-bingo-card .card-header-cell {
-  height: 19px;
-}
-
-.card-list.two-cards .mini-bingo-card .card-header-cell .hdr-letter,
-.card-list.three-cards .mini-bingo-card .card-header-cell .hdr-letter {
+.card-list.two-cards .mini-bingo-card .card-header-cell .hdr-letter {
   font-size: 0.94rem;
   font-weight: 950;
   line-height: 22px;
 }
 
-.card-list.three-cards .mini-bingo-card .card-header-cell .hdr-letter {
-  font-size: 0.86rem;
-  line-height: 19px;
-}
-
-.card-list.two-cards .mini-bingo-card .card-cell,
-.card-list.three-cards .mini-bingo-card .card-cell {
+.card-list.two-cards .mini-bingo-card .card-cell {
   aspect-ratio: unset;
   height: 24px;
   border-radius: 5px;
@@ -1847,12 +1821,7 @@ body {
   justify-content: center;
 }
 
-.card-list.three-cards .mini-bingo-card .card-cell {
-  height: 22px;
-}
-
-.card-list.two-cards .mini-bingo-card .card-cell .cell-num,
-.card-list.three-cards .mini-bingo-card .card-cell .cell-num {
+.card-list.two-cards .mini-bingo-card .card-cell .cell-num {
   font-size: 0.92rem;
   font-weight: 850;
   line-height: 1;
@@ -1860,32 +1829,24 @@ body {
   transform: scale(0.96, 1.16);
 }
 
-.card-list.three-cards .mini-bingo-card .card-cell .cell-num {
-  font-size: 0.86rem;
-}
-
-.card-list.two-cards .mini-bingo-card .card-cell.free,
-.card-list.three-cards .mini-bingo-card .card-cell.free {
+.card-list.two-cards .mini-bingo-card .card-cell.free {
   font-size: 0.56rem;
   font-weight: 900;
 }
 
-.card-list.two-cards .mini-bingo-card .card-cell.free .cell-free,
-.card-list.three-cards .mini-bingo-card .card-cell.free .cell-free {
+.card-list.two-cards .mini-bingo-card .card-cell.free .cell-free {
   font-size: 0.56rem;
   font-weight: 900;
   letter-spacing: 0;
 }
 
-.card-list.two-cards .card-cell.marked::after,
-.card-list.three-cards .card-cell.marked::after {
+.card-list.two-cards .card-cell.marked::after {
   font-size: 0.52rem;
   top: 1px;
   right: 2px;
 }
 
-.card-list.two-cards .btn-card-bingo,
-.card-list.three-cards .btn-card-bingo {
+.card-list.two-cards .btn-card-bingo {
   margin-top: 8px;
   padding: 6px 5px;
   font-size: 0.84rem;
@@ -1893,6 +1854,150 @@ body {
   letter-spacing: 0.8px;
   border-radius: 7px;
   animation: none;
+}
+
+/* ========================================================
+   Multi cards (3 cards) layout: non-scrolling, squared-type card shape
+   Holds the whole height of the two-card section with just a little longer
+   ======================================================== */
+.game-layout.three-cards-active .board-panel {
+  flex: 0 0 calc(44% - 4px);
+  max-width: calc(44% - 4px);
+  width: calc(44% - 4px);
+}
+
+.game-layout.three-cards-active .cards-panel {
+  flex: 0 0 calc(56% - 4px);
+  max-width: calc(56% - 4px);
+  width: calc(56% - 4px);
+  overflow-y: hidden;
+  padding: 3px 4px;
+}
+
+.card-list.three-cards {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 100%;
+}
+
+.card-list.three-cards .mini-card {
+  width: 100%;
+  max-width: 156px;
+  margin: 0 auto;
+  padding: 2.5px 3px 3px;
+  border-radius: 7px;
+  border-width: 1px;
+  box-sizing: border-box;
+}
+
+.card-list.three-cards .mini-card-header {
+  margin-bottom: 2px;
+  padding: 0 1px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.card-list.three-cards .mini-card-title {
+  font-size: 0.65rem;
+  font-weight: 850;
+  line-height: 1.1;
+}
+
+.card-list.three-cards .card-locked-badge {
+  padding: 1px 3px;
+  font-size: 0.50rem;
+  font-weight: 850;
+  border-radius: 3px;
+}
+
+.card-list.three-cards .mini-bingo-card {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1.5px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.card-list.three-cards .mini-bingo-card .card-header-cell {
+  aspect-ratio: unset;
+  height: 15.5px;
+  padding: 0;
+  border-radius: 3px;
+  animation: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card-list.three-cards .mini-bingo-card .card-header-cell .hdr-letter {
+  font-size: 0.74rem;
+  font-weight: 950;
+  line-height: 15.5px;
+}
+
+.card-list.three-cards .mini-bingo-card .card-cell {
+  aspect-ratio: unset;
+  height: 16px;
+  border-radius: 4px;
+  border-width: 1px;
+  padding: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card-list.three-cards .mini-bingo-card .card-cell .cell-num {
+  font-size: 0.76rem;
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: -0.2px;
+  transform: scale(0.95, 1.12);
+}
+
+.card-list.three-cards .mini-bingo-card .card-cell.free {
+  font-size: 0.44rem;
+  font-weight: 900;
+}
+
+.card-list.three-cards .mini-bingo-card .card-cell.free .cell-free {
+  font-size: 0.44rem;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.card-list.three-cards .card-cell.marked::after {
+  font-size: 0.46rem;
+  top: 0px;
+  right: 1px;
+}
+
+.card-list.three-cards .btn-card-bingo {
+  margin-top: 3px;
+  padding: 3px 4px;
+  height: 21px;
+  font-size: 0.74rem;
+  font-weight: 950;
+  letter-spacing: 0.6px;
+  border-radius: 5px;
+  animation: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card-list.three-cards .mini-card.card-locked .btn-card-bingo {
+  font-size: 0.60rem;
+}
+
+.card-list.three-cards ~ .auto-bingo-hint {
+  font-size: 0.52rem;
+  line-height: 1.15;
+  padding: 2px 2px 0;
+  margin-top: 2px;
 }
 
 .btn-card-bingo:hover:not(:disabled) {

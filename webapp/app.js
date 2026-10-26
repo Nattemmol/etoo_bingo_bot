@@ -884,9 +884,14 @@ if (els.btnAutoMode) {
 
 function renderGameCards() {
   if (!state.cardIds.length) return;
-  els.cardList.className = state.cardIds.length >= 3
-    ? "card-list two-cards three-cards"
-    : (state.cardIds.length === 2 ? "card-list two-cards" : "card-list");
+  const isThreeCards = state.cardIds.length >= 3;
+  const isTwoCards = state.cardIds.length === 2;
+  els.cardList.className = isThreeCards
+    ? "card-list three-cards"
+    : (isTwoCards ? "card-list two-cards" : "card-list");
+  if (els.gameLayout) {
+    els.gameLayout.classList.toggle("three-cards-active", isThreeCards);
+  }
   els.cardList.innerHTML = "";
 
   state.cardIds.forEach((id) => {
@@ -1177,6 +1182,7 @@ function setupGameScreen() {
     renderGameCards();
   } else {
     els.gameLayout.classList.add("spectator");
+    els.gameLayout.classList.remove("three-cards-active");
     els.gameSpectatorSection.classList.remove("hidden");
     els.cardsPanelTitle.textContent = "ተመልካች";
     els.cardList.innerHTML = "";
