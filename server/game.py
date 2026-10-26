@@ -289,7 +289,7 @@ def number_to_letter(n: int) -> str:
 
 def generate_card() -> list[list[int | None]]:
     """Generate a random 5x5 bingo card. Center is FREE (None)."""
-    return generate_card_by_id(random.randint(1, 450))
+    return generate_card_by_id(random.randint(1, 600))
 
 
 PM_MOD = 2147483647
@@ -379,7 +379,7 @@ class GameRoom:
     name: str
     entry_fee: float
     house_cut: float = 0.0
-    max_cards: int = 450
+    max_cards: int = 600
     call_interval: float = 8.0
     lobby_seconds: int = 30  # 30-second intermission between rounds
     bingo_rule: str = "line"  # passed to check_bingo: line / line_corners / corners / full
@@ -425,7 +425,7 @@ ROOM_CONFIG = {
         "name": "PLAY",
         "entry_fee": 10.0,
         "house_cut": 2.0,
-        "max_cards": 450,
+        "max_cards": 600,
         "call_interval": 8.0,
         "lobby_seconds": 30,
         "bingo_rule": "line_corners",  # one line OR all four corners

@@ -399,7 +399,7 @@ function updatePoolChip(cardId) {
 }
 
 function buildPool() {
-  const maxCards = state.room?.max_cards || (roomId === "room_super_50" ? 1500 : 450);
+  const maxCards = state.room?.max_cards || (roomId === "room_super_50" ? 1500 : 600);
   if (els.cardActionTitle) els.cardActionTitle.textContent = `የመጫወቻ ምርጫ (1-${maxCards})`;
   if (els.quickCardInput) {
     els.quickCardInput.max = maxCards;
@@ -433,7 +433,7 @@ els.cardPool?.addEventListener("click", (event) => {
 if (els.btnQuickPick) {
   els.btnQuickPick.addEventListener("click", () => {
     const val = parseInt(els.quickCardInput?.value, 10);
-    const maxCards = state.room?.max_cards || (roomId === "room_super_50" ? 1500 : 450);
+    const maxCards = state.room?.max_cards || (roomId === "room_super_50" ? 1500 : 600);
     if (!val || val < 1 || val > maxCards) {
       showCardError(`እባክዎ ከ 1 እስከ ${maxCards} ውስጥ ቁጥር ያስገቡ`);
       return;
@@ -444,7 +444,7 @@ if (els.btnQuickPick) {
 
 if (els.btnRandomPick) {
   els.btnRandomPick.addEventListener("click", () => {
-    const maxCards = state.room?.max_cards || (roomId === "room_super_50" ? 1500 : 450);
+    const maxCards = state.room?.max_cards || (roomId === "room_super_50" ? 1500 : 600);
     const available = [];
     for (let i = 1; i <= maxCards; i++) {
       if (state.takenCards[i] == null && !state.cardIds.includes(i)) {

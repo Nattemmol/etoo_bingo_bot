@@ -340,13 +340,13 @@ app.add_middleware(
 
 def get_room(room_id: str) -> GameRoom:
     if room_id not in rooms:
-        cfg = ROOM_CONFIG.get(room_id, {"name": room_id, "entry_fee": 10.0, "house_cut": 2.0, "max_cards": 450, "lobby_seconds": 30})
+        cfg = ROOM_CONFIG.get(room_id, {"name": room_id, "entry_fee": 10.0, "house_cut": 2.0, "max_cards": 600, "lobby_seconds": 30})
         rooms[room_id] = GameRoom(
             room_id=room_id,
             name=cfg["name"],
             entry_fee=cfg["entry_fee"],
             house_cut=cfg.get("house_cut", 0.0),
-            max_cards=cfg.get("max_cards", 450),
+            max_cards=cfg.get("max_cards", 600),
             call_interval=cfg.get("call_interval", 8.0),
             lobby_seconds=cfg.get("lobby_seconds", 30),
             bingo_rule=cfg.get("bingo_rule", "line"),
@@ -736,14 +736,14 @@ def reset_room(room_id: str) -> None:
     if task and task is not current_task:
         task.cancel()
 
-    cfg = ROOM_CONFIG.get(room_id, {"name": room_id, "entry_fee": 10.0, "house_cut": 2.0, "max_cards": 450, "lobby_seconds": 30})
+    cfg = ROOM_CONFIG.get(room_id, {"name": room_id, "entry_fee": 10.0, "house_cut": 2.0, "max_cards": 600, "lobby_seconds": 30})
     existing_conns = set(rooms[room_id].connections) if room_id in rooms else set()
     rooms[room_id] = GameRoom(
         room_id=room_id,
         name=cfg["name"],
         entry_fee=cfg["entry_fee"],
         house_cut=cfg.get("house_cut", 0.0),
-        max_cards=cfg.get("max_cards", 450),
+        max_cards=cfg.get("max_cards", 600),
         call_interval=cfg.get("call_interval", 8.0),
         lobby_seconds=cfg.get("lobby_seconds", 30),
         bingo_rule=cfg.get("bingo_rule", "line"),
