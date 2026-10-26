@@ -16,15 +16,22 @@
   </script>
   <link rel="preconnect" href="https://etoobingobot.fly.dev" />
   <link rel="dns-prefetch" href="https://etoobingobot.fly.dev" />
-  <link rel="stylesheet" href="/style.css?v=4.0" />
+  <link rel="stylesheet" href="/style.css?v=4.1" />
 </head>
 <body>
   <div id="app">
     <!-- Top Balance & Role Bar -->
     <div class="user-bar">
-      <div class="balance-pill" id="balance-pill-display" title="Balance">
-        <span class="wallet-icon">💰</span>
-        <span id="user-balance">0.00</span> <span class="currency">ETB</span>
+      <div class="user-bar-left">
+        <div class="balance-pill" id="balance-pill-display" title="Balance">
+          <span class="wallet-icon">💰</span>
+          <span id="user-balance">0.00</span> <span class="currency">ETB</span>
+        </div>
+        <button type="button" class="btn-top-auto active" id="btn-auto-mode" title="Toggle Auto Mark & Bingo" aria-pressed="true">
+          <span class="auto-indicator-dot"></span>
+          <span class="auto-btn-text">AUTO</span>
+          <span class="auto-btn-state">ON</span>
+        </button>
       </div>
       <div class="user-bar-right">
         <div id="role-pill" class="role-pill role-spectator">
@@ -106,10 +113,6 @@
               <span class="h-stat-label">ደራሽ</span>
               <span class="h-stat-value" id="game-pot">0 ETB</span>
             </div>
-            <button type="button" class="h-stat stat-auto-btn active" id="btn-auto-mode" title="ራስ-ሰር ምልክት እና ቢንጎ (Auto Mark & Bingo)">
-              <span class="h-stat-label auto-status-label">AUTO</span>
-              <span class="h-stat-value auto-status-val">ON</span>
-            </button>
             <div class="h-stat stat-players">
               <span class="h-stat-label">ተጫዋች</span>
               <span class="h-stat-value" id="game-players">0</span>
@@ -223,6 +226,6 @@
     </div>
   </div>
 
-  <script type="module" src="/app.js?v=4.0"></script>
+  <script type="module" src="/app.js?v=4.1"></script>
 </body>
 </html>

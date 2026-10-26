@@ -82,8 +82,7 @@ const els = {
   gameRoomName: document.getElementById("game-room-name"),
   gamePot: document.getElementById("game-pot"),
   btnAutoMode: document.getElementById("btn-auto-mode"),
-  autoStatusVal: document.querySelector("#btn-auto-mode .auto-status-val"),
-  autoStatusLabel: document.querySelector("#btn-auto-mode .auto-status-label"),
+  autoStatusVal: document.querySelector("#btn-auto-mode .auto-btn-state"),
   gamePlayers: document.getElementById("game-players"),
   gameBalls: document.getElementById("game-balls"),
   lastCall: document.getElementById("last-call"),
@@ -748,13 +747,14 @@ if (els.btnBingo) {
 
 function updateAutoButtonUI() {
   if (!els.btnAutoMode) return;
+  const statusEl = els.autoStatusVal || document.querySelector("#btn-auto-mode .auto-btn-state");
   if (state.autoMode) {
     els.btnAutoMode.classList.add("active");
-    if (els.autoStatusVal) els.autoStatusVal.textContent = "ON";
+    if (statusEl) statusEl.textContent = "ON";
     els.btnAutoMode.setAttribute("aria-pressed", "true");
   } else {
     els.btnAutoMode.classList.remove("active");
-    if (els.autoStatusVal) els.autoStatusVal.textContent = "OFF";
+    if (statusEl) statusEl.textContent = "OFF";
     els.btnAutoMode.setAttribute("aria-pressed", "false");
   }
 

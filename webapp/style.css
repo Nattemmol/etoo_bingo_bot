@@ -147,6 +147,93 @@ body {
   font-weight: 600;
 }
 
+.user-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-top-auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 14px;
+  border: 1.5px solid var(--border-light);
+  background: var(--secondary-hover);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  line-height: 1.2;
+}
+
+.btn-top-auto:active {
+  transform: scale(0.92);
+}
+
+.btn-top-auto .auto-indicator-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.btn-top-auto .auto-btn-text {
+  letter-spacing: 0.5px;
+}
+
+.btn-top-auto .auto-btn-state {
+  font-size: 0.65rem;
+  font-weight: 900;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.08);
+  transition: all 0.2s ease;
+}
+
+/* Active / ON State */
+.btn-top-auto.active {
+  border-color: rgba(0, 230, 118, 0.65);
+  background: rgba(0, 230, 118, 0.12);
+  color: #00e676;
+  box-shadow: 0 0 10px rgba(0, 230, 118, 0.25);
+}
+
+.btn-top-auto.active .auto-indicator-dot {
+  background: #00e676;
+  box-shadow: 0 0 6px #00e676;
+}
+
+.btn-top-auto.active .auto-btn-state {
+  background: rgba(0, 230, 118, 0.22);
+  color: #00e676;
+}
+
+[data-theme="light"] .btn-top-auto.active {
+  border-color: rgba(0, 184, 148, 0.65);
+  background: rgba(0, 184, 148, 0.12);
+  color: #00966d;
+  box-shadow: 0 0 8px rgba(0, 184, 148, 0.2);
+}
+
+[data-theme="light"] .btn-top-auto.active .auto-indicator-dot {
+  background: #00966d;
+  box-shadow: 0 0 6px #00966d;
+}
+
+[data-theme="light"] .btn-top-auto.active .auto-btn-state {
+  background: rgba(0, 184, 148, 0.2);
+  color: #00966d;
+}
+
 .user-bar-right {
   display: flex;
   align-items: center;
@@ -294,67 +381,6 @@ body {
   color: #f1c40f;
 }
 
-/* Auto button next to amount display in header */
-button.stat-auto-btn {
-  font-family: inherit;
-  cursor: pointer;
-  outline: none;
-  border: 1px solid var(--border-light);
-  background: var(--secondary-hover);
-  transition: all 0.2s ease;
-  user-select: none;
-  -webkit-user-select: none;
-  touch-action: manipulation;
-  min-width: 44px;
-  text-align: center;
-  align-items: center;
-  justify-content: center;
-}
-
-button.stat-auto-btn:active {
-  transform: scale(0.92);
-}
-
-button.stat-auto-btn .auto-status-val {
-  font-size: 0.8rem;
-  font-weight: 900;
-  color: var(--text-muted);
-  transition: color 0.2s ease, text-shadow 0.2s ease;
-}
-
-button.stat-auto-btn .auto-status-label {
-  font-size: 0.58rem;
-  letter-spacing: 0.4px;
-  color: var(--hint);
-  transition: color 0.2s ease;
-}
-
-button.stat-auto-btn.active {
-  border-color: rgba(0, 230, 118, 0.55);
-  background: rgba(0, 230, 118, 0.12);
-  box-shadow: 0 0 8px rgba(0, 230, 118, 0.2);
-}
-
-button.stat-auto-btn.active .auto-status-val {
-  color: #00e676;
-  text-shadow: 0 0 6px rgba(0, 230, 118, 0.45);
-}
-
-button.stat-auto-btn.active .auto-status-label {
-  color: #00e676;
-}
-
-[data-theme="light"] button.stat-auto-btn.active {
-  background: rgba(0, 184, 148, 0.12);
-  border-color: rgba(0, 184, 148, 0.6);
-  box-shadow: 0 0 8px rgba(0, 184, 148, 0.22);
-}
-
-[data-theme="light"] button.stat-auto-btn.active .auto-status-val,
-[data-theme="light"] button.stat-auto-btn.active .auto-status-label {
-  color: #00966d;
-  text-shadow: none;
-}
 
 /* Stats */
 .stats-row {
