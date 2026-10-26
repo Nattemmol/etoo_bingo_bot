@@ -294,6 +294,68 @@ body {
   color: #f1c40f;
 }
 
+/* Auto button next to amount display in header */
+button.stat-auto-btn {
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  border: 1px solid var(--border-light);
+  background: var(--secondary-hover);
+  transition: all 0.2s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  min-width: 44px;
+  text-align: center;
+  align-items: center;
+  justify-content: center;
+}
+
+button.stat-auto-btn:active {
+  transform: scale(0.92);
+}
+
+button.stat-auto-btn .auto-status-val {
+  font-size: 0.8rem;
+  font-weight: 900;
+  color: var(--text-muted);
+  transition: color 0.2s ease, text-shadow 0.2s ease;
+}
+
+button.stat-auto-btn .auto-status-label {
+  font-size: 0.58rem;
+  letter-spacing: 0.4px;
+  color: var(--hint);
+  transition: color 0.2s ease;
+}
+
+button.stat-auto-btn.active {
+  border-color: rgba(0, 230, 118, 0.55);
+  background: rgba(0, 230, 118, 0.12);
+  box-shadow: 0 0 8px rgba(0, 230, 118, 0.2);
+}
+
+button.stat-auto-btn.active .auto-status-val {
+  color: #00e676;
+  text-shadow: 0 0 6px rgba(0, 230, 118, 0.45);
+}
+
+button.stat-auto-btn.active .auto-status-label {
+  color: #00e676;
+}
+
+[data-theme="light"] button.stat-auto-btn.active {
+  background: rgba(0, 184, 148, 0.12);
+  border-color: rgba(0, 184, 148, 0.6);
+  box-shadow: 0 0 8px rgba(0, 184, 148, 0.22);
+}
+
+[data-theme="light"] button.stat-auto-btn.active .auto-status-val,
+[data-theme="light"] button.stat-auto-btn.active .auto-status-label {
+  color: #00966d;
+  text-shadow: none;
+}
+
 /* Stats */
 .stats-row {
   display: flex;

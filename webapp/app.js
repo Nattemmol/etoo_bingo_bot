@@ -50,6 +50,13 @@ const state = {
   lobbyCountdownDeadline: null,
   lobbyCountdownTimer: null,
   ballCountdownRAF: null,
+  autoMode: (() => {
+    try {
+      return localStorage.getItem("etoo_auto_mode") !== "false";
+    } catch (_) {
+      return true;
+    }
+  })(),
 };
 
 const els = {
@@ -74,6 +81,9 @@ const els = {
   cardErrorNotice: document.getElementById("card-error-notice"),
   gameRoomName: document.getElementById("game-room-name"),
   gamePot: document.getElementById("game-pot"),
+  btnAutoMode: document.getElementById("btn-auto-mode"),
+  autoStatusVal: document.querySelector("#btn-auto-mode .auto-status-val"),
+  autoStatusLabel: document.querySelector("#btn-auto-mode .auto-status-label"),
   gamePlayers: document.getElementById("game-players"),
   gameBalls: document.getElementById("game-balls"),
   lastCall: document.getElementById("last-call"),
@@ -736,6 +746,134 @@ if (els.btnBingo) {
   });
 }
 
+function updateAutoButtonUI() {
+  if (!els.btnAutoMode) return;
+  if (state.autoMode) {
+    els.btnAutoMode.classList.add("active");
+    if (els.autoStatusVal) els.autoStatusVal.textContent = "ON";
+    els.btnAutoMode.setAttribute("aria-pressed", "true");
+  } else {
+    els.btnAutoMode.classList.remove("active");
+    if (els.autoStatusVal) els.autoStatusVal.textContent = "OFF";
+    els.btnAutoMode.setAttribute("aria-pressed", "false");
+  }
+
+  const hintEl = document.querySelector(".auto-bingo-hint");
+  if (hintEl) {
+    if (state.autoMode) {
+      hintEl.textContent = "⚡ AUTO በርቷል: ቁጥሮች በራስ-ሰር ምልክት ይደረጋሉ፤ ሲሟላም BINGO በራስ-ሰር ይባላል።";
+    } else {
+      hintEl.textContent = '👆 ማኑዋል: የተጠሩትን ቁጥሮች ምልክት ያድርጉ፤ ሲሟላ "BINGO!" ይጫኑ።';
+    }
+  }
+}
+
+function autoMarkNumber(val) {
+  if (!val || state.phase !== "playing") return;
+  const numVal = Number(val);
+  const rule = state.room?.bingo_rule || "line_corners";
+
+  (state.cardIds || []).forEach((cid) => {
+    const cardData = state.cards[cid];
+    if (!cardData) return;
+    const isLocked = state.lockedCards && state.lockedCards.has(cid);
+    if (isLocked) return;
+
+    let cardModified = false;
+    const cMarks = state.marked[cid] || new Set();
+
+    for (let r = 0; r < 5; r++) {
+      for (let c = 0; c < 5; c++) {
+        if (cardData[r][c] === numVal) {
+          const cellFlat = flatIndex(r, c);
+          if (cellFlat === 12) continue; // FREE index
+
+          if (!cMarks.has(cellFlat)) {
+            cMarks.add(cellFlat);
+            cardModified = true;
+            sendMark(cid, r, c, true);
+
+            // Update DOM cell directly
+            if (els.cardList) {
+              const cardBlock = els.cardList.querySelector(`.mini-card[data-card-id="${cid}"]`);
+              if (cardBlock) {
+                const domCell = cardBlock.querySelector(`.card-cell[data-idx="${cellFlat}"]`);
+                if (domCell) {
+                  domCell.classList.add("marked");
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (cardModified) {
+      state.marked[cid] = cMarks;
+      if (els.cardList) {
+        const cardBlock = els.cardList.querySelector(`.mini-card[data-card-id="${cid}"]`);
+        if (cardBlock) {
+          if (!isLocked && hasAnyWin(cardData, cMarks, state.calledSet, rule, state.currentNumber)) {
+            cardBlock.classList.add("has-bingo");
+          } else {
+            cardBlock.classList.remove("has-bingo");
+          }
+        }
+      }
+    }
+  });
+}
+
+function autoMarkAllCalledNumbers() {
+  if (state.phase !== "playing" || !state.isPlayer) return;
+  if (!state.calledSet || state.calledSet.size === 0) return;
+
+  state.calledSet.forEach((num) => {
+    autoMarkNumber(num);
+  });
+  refreshCardBingoHighlights();
+  if (state.autoMode) {
+    checkAndAutoClaimBingo();
+  }
+}
+
+function checkAndAutoClaimBingo() {
+  if (!state.autoMode || state.phase !== "playing" || !state.isPlayer || state.claimed) return;
+  const rule = state.room?.bingo_rule || "line_corners";
+
+  for (const cid of (state.cardIds || [])) {
+    const cardData = state.cards[cid];
+    if (!cardData) continue;
+    const isLocked = state.lockedCards && state.lockedCards.has(cid);
+    if (isLocked) continue;
+
+    const cMarks = state.marked[cid] || new Set();
+    if (hasAnyWin(cardData, cMarks, state.calledSet, rule, state.currentNumber)) {
+      claimBingo(cid);
+      break;
+    }
+  }
+}
+
+if (els.btnAutoMode) {
+  els.btnAutoMode.addEventListener("click", () => {
+    state.autoMode = !state.autoMode;
+    try {
+      localStorage.setItem("etoo_auto_mode", state.autoMode ? "true" : "false");
+    } catch (_) {}
+    updateAutoButtonUI();
+    tg.HapticFeedback?.selectionChanged();
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "set_auto", auto: state.autoMode }));
+    }
+
+    if (state.autoMode && state.phase === "playing" && state.isPlayer) {
+      autoMarkAllCalledNumbers();
+    }
+  });
+}
+
 function renderGameCards() {
   if (!state.cardIds.length) return;
   els.cardList.className = state.cardIds.length === 2 ? "card-list two-cards" : "card-list";
@@ -973,13 +1111,13 @@ function resetBallCountdown() {
 }
 
 function setupGameScreen() {
-  const isSuper = state.room?.room_id === "room_super_50" || state.room?.id === "room_super_50" || state.room?.bingo_rule === "full";
+  updateAutoButtonUI();
   const hintEl = document.querySelector(".auto-bingo-hint");
   if (hintEl) {
-    if (isSuper) {
-      hintEl.textContent = "👆 የተጠሩትን ቁጥሮች ምልክት ያድርጉ፤ ካርዱ ሙሉ ሲሆን ስርዓቱ በራስ-ሰር BINGO ይላል (Auto-Bingo)!";
+    if (state.autoMode) {
+      hintEl.textContent = "⚡ AUTO በርቷል: ቁጥሮች በራስ-ሰር ምልክት ይደረጋሉ፤ ሲሟላም BINGO በራስ-ሰር ይባላል።";
     } else {
-      hintEl.textContent = '👆 የተጠሩትን ቁጥሮች ምልክት ያድርጉ፤ ሲሟላ "BINGO!" ይጫኑ። ሳያሸንፉ BINGO ከተባለ ያ መጫወቻ ይቆለፋል!';
+      hintEl.textContent = '👆 ማኑዋል: የተጠሩትን ቁጥሮች ምልክት ያድርጉ፤ ሲሟላ "BINGO!" ይጫኑ። ሳያሸንፉ BINGO ከተባለ ያ መጫወቻ ይቆለፋል!';
     }
   }
 
@@ -1031,6 +1169,7 @@ function connect() {
     console.log("WebSocket connected!");
     reconnectDelay = 1000;
     socket.send(JSON.stringify({ type: "join", initData: tg.initData || "" }));
+    socket.send(JSON.stringify({ type: "set_auto", auto: state.autoMode }));
     flushPendingMarks();
   };
 
@@ -1060,7 +1199,9 @@ function connect() {
 }
 
 function updateCalledCell(number) {
-  // Completely manual marking: called numbers are shown on the game board; card cells are not auto-colored
+  if (state.autoMode && state.isPlayer) {
+    autoMarkNumber(number);
+  }
 }
 
 function handleMessage(socket, msg) {
@@ -1148,6 +1289,9 @@ function handleMessage(socket, msg) {
         startBallCountdown(msg.room.call_interval || 8.0);
         setupGameScreen();
         flushPendingMarks();
+        if (state.autoMode && state.isPlayer) {
+          autoMarkAllCalledNumbers();
+        }
         showScreen("screen-game");
       } else {
         showScreen("screen-lobby");
@@ -1306,6 +1450,9 @@ function handleMessage(socket, msg) {
       if (state.isPlayer) {
         updateCalledCell(msg.number);
         refreshCardBingoHighlights();
+        if (state.autoMode) {
+          checkAndAutoClaimBingo();
+        }
       }
       tg.HapticFeedback?.impactOccurred("light");
       break;
@@ -1677,8 +1824,9 @@ window.addEventListener?.("focus", () => {
   ensureConnected();
 });
 
-// Initial balance sync on startup
+// Initial balance sync and auto button setup on startup
 syncUserBalance();
+updateAutoButtonUI();
 
 // Keep-alive ping every 30s
 setInterval(() => {

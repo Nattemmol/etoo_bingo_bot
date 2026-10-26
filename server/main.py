@@ -953,7 +953,8 @@ async def check_all_wins(room: GameRoom) -> None:
         return
 
     for player in list(room.players.values()):
-        await check_player_win(room, player)
+        if getattr(player, "auto_mode", True):
+            await check_player_win(room, player)
 
 
 async def _delayed_locked_reset(room_id: str) -> None:
@@ -1713,7 +1714,7 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                         websocket,
                         {"type": "mark_ack", "card_id": card_id, "flat": flat, "marked": desired},
                     )
-                    if desired and (room.room_id == "room_super_50" or room.bingo_rule == "full"):
+                    if desired and (room.room_id == "room_super_50" or room.bingo_rule == "full") and getattr(player, "auto_mode", True):
                         await check_player_win(room, player)
                 continue
 
@@ -1739,8 +1740,19 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                         except Exception:
                             pass
                     queue_room_snapshot(room_id)
-                    if room.room_id == "room_super_50" or room.bingo_rule == "full":
+                    if (room.room_id == "room_super_50" or room.bingo_rule == "full") and getattr(player, "auto_mode", True):
                         await check_player_win(room, player)
+                continue
+
+            if msg_type == "set_auto":
+                player = room.players.get(ws_id)
+                if not player and telegram_id:
+                    for p in room.players.values():
+                        if p.telegram_id == telegram_id:
+                            player = p
+                            break
+                if player:
+                    player.auto_mode = bool(msg.get("auto", True))
                 continue
 
             if msg_type == "bingo":

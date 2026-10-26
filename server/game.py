@@ -364,6 +364,7 @@ class Player:
     marks: dict[int, set[int]] = field(default_factory=dict)  # card_id -> tapped flat indexes
     locked_cards: set[int] = field(default_factory=set)  # card_ids locked due to false BINGO calls
     forfeited: bool = False  # True when all cards are locked
+    auto_mode: bool = True  # True when player has AUTO mode enabled for marking & bingo
 
     @property
     def card(self) -> list[list[int | None]] | None:
