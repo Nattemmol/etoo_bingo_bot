@@ -16,7 +16,7 @@
   </script>
   <link rel="preconnect" href="https://etoobingobot.fly.dev" />
   <link rel="dns-prefetch" href="https://etoobingobot.fly.dev" />
-  <link rel="stylesheet" href="/style.css?v=4.1" />
+  <link rel="stylesheet" href="/style.css?v=4.2" />
 </head>
 <body>
   <div id="app">
@@ -36,7 +36,7 @@
       <div class="user-bar-right">
         <div id="role-pill" class="role-pill role-spectator">
           <span class="role-dot"></span>
-          <span id="role-text">Spectating</span>
+          <span id="role-text">መስመር/ኮርነር</span>
         </div>
         <button id="theme-toggle-btn" class="theme-toggle-btn" title="Toggle Light / Dark Mode" aria-label="Toggle Theme">
           <span class="theme-icon">☀️</span>
@@ -123,13 +123,25 @@
             </div>
           </div>
         </div>
-        <div class="called-ball" id="last-call">
-          <svg class="ball-timer-svg" viewBox="0 0 68 68" aria-hidden="true">
-            <circle class="ball-timer-track" cx="34" cy="34" r="31.5" />
-            <circle class="ball-timer-ring" id="ball-timer-ring" cx="34" cy="34" r="31.5" />
-          </svg>
-          <span class="ball-letter">-</span>
-          <span class="ball-number">-</span>
+        <div class="called-balls-area" id="called-balls-area">
+          <div class="prev-balls-list" id="prev-balls-list">
+            <div class="called-ball prev-ball" id="prev-call-2" title="2nd previous call">
+              <span class="ball-letter">-</span>
+              <span class="ball-number">-</span>
+            </div>
+            <div class="called-ball prev-ball" id="prev-call-1" title="Previous call">
+              <span class="ball-letter">-</span>
+              <span class="ball-number">-</span>
+            </div>
+          </div>
+          <div class="called-ball" id="last-call" title="Current called number">
+            <svg class="ball-timer-svg" viewBox="0 0 68 68" aria-hidden="true">
+              <circle class="ball-timer-track" cx="34" cy="34" r="31.5" />
+              <circle class="ball-timer-ring" id="ball-timer-ring" cx="34" cy="34" r="31.5" />
+            </svg>
+            <span class="ball-letter">-</span>
+            <span class="ball-number">-</span>
+          </div>
         </div>
       </header>
 
@@ -226,6 +238,6 @@
     </div>
   </div>
 
-  <script type="module" src="/app.js?v=4.1"></script>
+  <script type="module" src="/app.js?v=4.2"></script>
 </body>
 </html>

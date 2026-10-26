@@ -88,6 +88,8 @@ const els = {
   lastCall: document.getElementById("last-call"),
   lastCallLetter: document.querySelector("#last-call .ball-letter"),
   lastCallNumber: document.querySelector("#last-call .ball-number"),
+  prevCall1: document.getElementById("prev-call-1"),
+  prevCall2: document.getElementById("prev-call-2"),
   ballTimerRing: document.getElementById("ball-timer-ring"),
   calledBoard: document.getElementById("called-board"),
   gameBanner: document.getElementById("game-banner"),
@@ -223,17 +225,22 @@ function onDepositSuccess(creditedAmount, newBalance) {
   }, 3500);
 }
 
+function getRoomRuleText() {
+  const isSuper = (
+    roomId === "room_super_50" ||
+    state.room?.id === "room_super_50" ||
+    state.room?.room_id === "room_super_50" ||
+    state.room?.bingo_rule === "full"
+  );
+  return isSuper ? "ሙሉ ዝግ" : "መስመር/ኮርነር";
+}
+
 function updateRoleDisplay(isPlayer) {
-  state.isPlayer = isPlayer;
+  state.isPlayer = Boolean(isPlayer);
   if (!els.rolePill || !els.roleText) return;
 
-  if (isPlayer) {
-    els.rolePill.className = "role-pill role-player";
-    els.roleText.textContent = "Player";
-  } else {
-    els.rolePill.className = "role-pill role-spectator";
-    els.roleText.textContent = "Spectating";
-  }
+  els.roleText.textContent = getRoomRuleText();
+  els.rolePill.className = state.isPlayer ? "role-pill role-player" : "role-pill role-spectator";
 }
 
 function updateGameStats(pot, players, ballsCount) {
@@ -1024,16 +1031,18 @@ function getLetterForNumber(num) {
   return "O";
 }
 
-function updateBallVisual(letter, number) {
-  const ball = els.lastCall;
+function setBallVisual(ball, letter, number, animate = false) {
   if (!ball) return;
 
   // Clear previous column color classes
   ball.classList.remove("ball-b", "ball-i", "ball-n", "ball-g", "ball-o");
 
+  const letEl = ball.querySelector(".ball-letter");
+  const numEl = ball.querySelector(".ball-number");
+
   if (!number || number === "-" || Number(number) < 1) {
-    if (els.lastCallLetter) els.lastCallLetter.textContent = "-";
-    if (els.lastCallNumber) els.lastCallNumber.textContent = "-";
+    if (letEl) letEl.textContent = "-";
+    if (numEl) numEl.textContent = "-";
     return;
   }
 
@@ -1044,11 +1053,11 @@ function updateBallVisual(letter, number) {
     ball.classList.add(`ball-${letVal.toLowerCase()}`);
   }
 
-  if (els.lastCallLetter) els.lastCallLetter.textContent = letVal;
-  if (els.lastCallNumber) els.lastCallNumber.textContent = String(numVal);
+  if (letEl) letEl.textContent = letVal;
+  if (numEl) numEl.textContent = String(numVal);
 
   // Subtle pop animation for instant tactile feedback when a number arrives
-  if (typeof ball.animate === "function") {
+  if (animate && typeof ball.animate === "function") {
     ball.animate(
       [
         { transform: "scale(0.86)" },
@@ -1058,6 +1067,43 @@ function updateBallVisual(letter, number) {
       { duration: 320, easing: "cubic-bezier(0.175, 0.885, 0.32, 1.275)" }
     );
   }
+}
+
+function updateBallVisual(letter, number) {
+  setBallVisual(els.lastCall, letter, number, true);
+}
+
+function updateCalledBallsHistory(calledList = [], currentNumber = null) {
+  const list = Array.isArray(calledList) ? calledList : [];
+  const len = list.length;
+
+  let curNum = currentNumber;
+  if ((!curNum || curNum === "-") && len > 0) {
+    curNum = list[len - 1];
+  }
+
+  if (!curNum || curNum === "-" || Number(curNum) < 1) {
+    setBallVisual(els.lastCall, "-", "-", false);
+    setBallVisual(els.prevCall1, "-", "-", false);
+    setBallVisual(els.prevCall2, "-", "-", false);
+    return;
+  }
+
+  const curLetter = getLetterForNumber(curNum);
+  setBallVisual(els.lastCall, curLetter, curNum, true);
+
+  let curIdx = list.lastIndexOf(Number(curNum));
+  if (curIdx === -1) {
+    curIdx = len - 1;
+  }
+
+  const prev1Num = curIdx >= 1 ? list[curIdx - 1] : null;
+  const prev1Letter = prev1Num ? getLetterForNumber(prev1Num) : "-";
+  setBallVisual(els.prevCall1, prev1Letter, prev1Num, false);
+
+  const prev2Num = curIdx >= 2 ? list[curIdx - 2] : null;
+  const prev2Letter = prev2Num ? getLetterForNumber(prev2Num) : "-";
+  setBallVisual(els.prevCall2, prev2Letter, prev2Num, false);
 }
 
 function startBallCountdown(durationSec = 8.0) {
@@ -1280,10 +1326,10 @@ function handleMessage(socket, msg) {
 
       if (msg.room.phase === "playing") {
         if (msg.room.latest_call) {
-          updateBallVisual(msg.room.latest_call.letter, msg.room.latest_call.number);
+          updateCalledBallsHistory(state.called, msg.room.latest_call.number);
           updateCalledBoard(els.calledBoard, state.called, msg.room.latest_call.number);
         } else {
-          updateBallVisual("-", "-");
+          updateCalledBallsHistory(state.called, null);
           updateCalledBoard(els.calledBoard, state.called);
         }
         startBallCountdown(msg.room.call_interval || 8.0);
@@ -1430,7 +1476,7 @@ function handleMessage(socket, msg) {
       state.currentNumber = null;
       state.claimed = false;
       stopLobbyCountdown();
-      updateBallVisual("-", "-");
+      updateCalledBallsHistory([], null);
       startBallCountdown(msg.call_interval || msg.interval || state.room?.call_interval || 8.0);
       els.gameRoomName.textContent = state.room?.name || "GoodBingo";
       updateGameStats(msg.pot, msg.players, 0);
@@ -1443,7 +1489,7 @@ function handleMessage(socket, msg) {
       state.called = msg.called;
       state.calledSet = new Set(msg.called);
       state.currentNumber = msg.number;
-      updateBallVisual(msg.letter, msg.number);
+      updateCalledBallsHistory(msg.called, msg.number);
       startBallCountdown(msg.interval || state.room?.call_interval || 8.0);
       updateGameStats(null, null, msg.called.length);
       updateCalledBoard(els.calledBoard, msg.called, msg.number);
@@ -1566,7 +1612,7 @@ function handleMessage(socket, msg) {
       stopWindowTimer();
       stopLobbyCountdown();
       buildCalledBoard(els.calledBoard);
-      updateBallVisual("-", "-");
+      updateCalledBallsHistory([], null);
 
       els.modalWinner?.classList.add("hidden");
 
@@ -1824,9 +1870,10 @@ window.addEventListener?.("focus", () => {
   ensureConnected();
 });
 
-// Initial balance sync and auto button setup on startup
+// Initial balance sync, auto button, and room rule pill setup on startup
 syncUserBalance();
 updateAutoButtonUI();
+updateRoleDisplay(state.isPlayer);
 
 // Keep-alive ping every 30s
 setInterval(() => {
