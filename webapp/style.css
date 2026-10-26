@@ -617,12 +617,11 @@ body {
   border: 1px solid transparent;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
   margin-bottom: 2px;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  animation: pulse-glow-board 3.2s infinite ease-in-out;
+  animation: none;
 }
 
 .called-col-label .c-letter {
-  font-size: 0.88rem;
+  font-size: 1.05rem;
   font-weight: 950;
   line-height: 1.1;
   letter-spacing: 0.5px;
@@ -640,28 +639,24 @@ body {
   color: #ffffff;
   border-color: rgba(255, 159, 26, 0.7);
   box-shadow: 0 0 8px rgba(255, 159, 26, 0.45);
-  animation-delay: 0.3s;
 }
 .col-n .called-col-label {
   background: linear-gradient(135deg, #2ed573 0%, #7bed9f 100%);
   color: #0b381b;
   border-color: rgba(46, 213, 115, 0.7);
   box-shadow: 0 0 8px rgba(46, 213, 115, 0.45);
-  animation-delay: 0.6s;
 }
 .col-g .called-col-label {
   background: linear-gradient(135deg, #2f3542 0%, #1e90ff 100%);
   color: #ffffff;
   border-color: rgba(30, 144, 255, 0.7);
   box-shadow: 0 0 8px rgba(30, 144, 255, 0.45);
-  animation-delay: 0.9s;
 }
 .col-o .called-col-label {
   background: linear-gradient(135deg, #8e44ad 0%, #e056fd 100%);
   color: #ffffff;
   border-color: rgba(224, 86, 253, 0.7);
   box-shadow: 0 0 8px rgba(224, 86, 253, 0.45);
-  animation-delay: 1.2s;
 }
 
 @keyframes pulse-glow-board {
@@ -757,31 +752,17 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28), inset 0 1px 1px rgba(255, 255, 255, 0.45);
   position: relative;
   overflow: hidden;
-  animation: float-shimmer-header 3.5s infinite ease-in-out;
+  animation: none;
   border: 1px solid rgba(255, 255, 255, 0.25);
   user-select: none;
 }
 
 .card-header-cell::after {
-  content: "";
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: linear-gradient(
-    60deg,
-    transparent 35%,
-    rgba(255, 255, 255, 0.25) 50%,
-    transparent 65%
-  );
-  transform: translateX(-100%);
-  animation: shine-sweep 4s infinite ease-in-out;
-  pointer-events: none;
+  display: none;
 }
 
 .card-header-cell .hdr-letter {
-  font-size: 1.35rem;
+  font-size: 1.62rem;
   font-weight: 950;
   letter-spacing: 0.8px;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5), 0 0 10px rgba(255, 255, 255, 0.4);
@@ -796,27 +777,19 @@ body {
 .hdr-i {
   background: linear-gradient(145deg, #ff8c00 0%, #ffb142 100%);
   box-shadow: 0 3px 12px rgba(255, 140, 0, 0.45), inset 0 1px 1px rgba(255, 255, 255, 0.5);
-  animation-delay: 0.4s;
 }
-.hdr-i::after { animation-delay: 0.8s; }
 .hdr-n {
   background: linear-gradient(145deg, #05c46b 0%, #2ed573 100%);
   box-shadow: 0 3px 12px rgba(5, 196, 107, 0.45), inset 0 1px 1px rgba(255, 255, 255, 0.5);
-  animation-delay: 0.8s;
 }
-.hdr-n::after { animation-delay: 1.6s; }
 .hdr-g {
   background: linear-gradient(145deg, #3742fa 0%, #5352ed 100%);
   box-shadow: 0 3px 12px rgba(55, 66, 250, 0.45), inset 0 1px 1px rgba(255, 255, 255, 0.5);
-  animation-delay: 1.2s;
 }
-.hdr-g::after { animation-delay: 2.4s; }
 .hdr-o {
   background: linear-gradient(145deg, #9b59b6 0%, #d980fa 100%);
   box-shadow: 0 3px 12px rgba(155, 89, 182, 0.45), inset 0 1px 1px rgba(255, 255, 255, 0.5);
-  animation-delay: 1.6s;
 }
-.hdr-o::after { animation-delay: 3.2s; }
 
 @keyframes float-shimmer-header {
   0%, 100% {
@@ -989,36 +962,21 @@ body {
   position: relative;
   overflow: hidden;
   border: 2px solid rgba(255, 255, 255, 0.4);
-  box-shadow: 0 0 25px rgba(255, 23, 68, 0.65), 0 6px 20px rgba(0, 0, 0, 0.35), inset 0 2px 4px rgba(255, 255, 255, 0.6);
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5), 0 0 12px rgba(255, 255, 255, 0.7);
-  animation: pulse-bingo-btn 1.8s infinite ease-in-out;
+  box-shadow: 0 4px 18px rgba(255, 23, 68, 0.5), 0 4px 12px rgba(0, 0, 0, 0.3), inset 0 2px 4px rgba(255, 255, 255, 0.6);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  animation: none;
 }
 
 .btn-bingo::after {
-  content: "";
-  position: absolute;
-  top: -50%;
-  left: -60%;
-  width: 200%;
-  height: 200%;
-  background: linear-gradient(
-    60deg,
-    transparent 35%,
-    rgba(255, 255, 255, 0.45) 50%,
-    transparent 65%
-  );
-  transform: translateX(-100%);
-  animation: shine-sweep 3s infinite ease-in-out;
-  pointer-events: none;
+  display: none;
 }
 
 .btn-bingo:hover:not(:disabled) {
-  filter: brightness(1.1);
-  transform: scale(1.02);
+  filter: brightness(1.08);
 }
 
 .btn-bingo:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: scale(0.98);
 }
 
 .btn-bingo:disabled {
@@ -1721,10 +1679,11 @@ body {
   padding: 2.5px 0;
   border-radius: 6px;
   aspect-ratio: 1;
+  animation: none;
 }
 
 .mini-bingo-card .card-header-cell .hdr-letter {
-  font-size: 0.95rem;
+  font-size: 1.15rem;
   font-weight: 950;
 }
 
@@ -1773,34 +1732,19 @@ body {
   letter-spacing: 1.2px;
   text-transform: uppercase;
   background: linear-gradient(135deg, #ff0844 0%, #ff4e50 48%, #f9d423 100%);
-  background-size: 200% 200%;
   color: #ffffff;
   border: 1.5px solid rgba(255, 255, 255, 0.4);
   cursor: pointer;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 4px 16px rgba(255, 8, 68, 0.55), 0 0 10px rgba(249, 212, 35, 0.4), inset 0 1px 2px rgba(255, 255, 255, 0.6);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6), 0 0 8px rgba(255, 255, 255, 0.6);
-  transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  animation: pulse-bingo-btn 1.7s infinite ease-in-out, gradient-shift 4s infinite linear;
+  box-shadow: 0 4px 14px rgba(255, 8, 68, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.6);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  transition: transform 0.1s ease, filter 0.1s ease;
+  animation: none;
 }
 
 .btn-card-bingo::after {
-  content: "";
-  position: absolute;
-  top: -50%;
-  left: -60%;
-  width: 200%;
-  height: 200%;
-  background: linear-gradient(
-    60deg,
-    transparent 35%,
-    rgba(255, 255, 255, 0.45) 50%,
-    transparent 65%
-  );
-  transform: translateX(-100%);
-  animation: shine-sweep 2.8s infinite ease-in-out;
-  pointer-events: none;
+  display: none;
 }
 
 /* ========================================================
@@ -1842,16 +1786,17 @@ body {
 
 .card-list.two-cards .mini-bingo-card .card-header-cell {
   aspect-ratio: unset;
-  height: 18px;
+  height: 22px;
   padding: 0;
   border-radius: 4px;
-  font-size: 0.74rem;
+  font-size: 0.82rem;
+  animation: none;
 }
 
 .card-list.two-cards .mini-bingo-card .card-header-cell .hdr-letter {
-  font-size: 0.78rem;
+  font-size: 0.94rem;
   font-weight: 950;
-  line-height: 18px;
+  line-height: 22px;
 }
 
 .card-list.two-cards .mini-bingo-card .card-cell {
@@ -1898,12 +1843,11 @@ body {
   font-weight: 950;
   letter-spacing: 0.8px;
   border-radius: 7px;
+  animation: none;
 }
 
 .btn-card-bingo:hover:not(:disabled) {
-  transform: translateY(-2px) scale(1.02);
-  filter: brightness(1.12);
-  box-shadow: 0 6px 20px rgba(255, 8, 68, 0.75), 0 0 16px rgba(249, 212, 35, 0.6);
+  filter: brightness(1.08);
 }
 
 .btn-card-bingo:active:not(:disabled) {
