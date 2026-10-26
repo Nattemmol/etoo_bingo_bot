@@ -889,6 +889,67 @@ async def get_house_revenue_summary() -> dict:
     return {"total_revenue": total, "by_room": by_room}
 
 
+async def get_revenue_report_data(start_time, end_time) -> dict:
+    """Aggregate house revenue metrics within the [start_time, end_time) window."""
+    from datetime import datetime, timezone
+    pool = await _get_pool()
+    if getattr(start_time, "tzinfo", None) is None:
+        start_utc = start_time.replace(tzinfo=timezone.utc)
+    else:
+        start_utc = start_time.astimezone(timezone.utc)
+    if getattr(end_time, "tzinfo", None) is None:
+        end_utc = end_time.replace(tzinfo=timezone.utc)
+    else:
+        end_utc = end_time.astimezone(timezone.utc)
+
+    query = """
+    SELECT
+        room_id,
+        COUNT(*) as games_count,
+        COALESCE(SUM(cards_count), 0) as total_cards,
+        COALESCE(SUM(total_revenue), 0.0) as total_revenue
+    FROM house_revenue
+    WHERE created_at >= $1 AND created_at < $2
+    GROUP BY room_id
+    """
+    rows = await pool.fetch(query, start_utc, end_utc)
+
+    res = {
+        "games_10": 0,
+        "cards_10": 0,
+        "cut_10": 0.0,
+        "games_50": 0,
+        "cards_50": 0,
+        "cut_50": 0.0,
+        "total_games": 0,
+        "total_cards": 0,
+        "grand_total": 0.0,
+    }
+    for row in rows:
+        rid = row["room_id"]
+        g_cnt = int(row["games_count"] or 0)
+        c_cnt = int(row["total_cards"] or 0)
+        t_rev = float(row["total_revenue"] or 0.0)
+
+        if rid in ("room_play_10", "room_10"):
+            res["games_10"] += g_cnt
+            res["cards_10"] += c_cnt
+            res["cut_10"] += t_rev
+        elif rid in ("room_super_50", "super_50"):
+            res["games_50"] += g_cnt
+            res["cards_50"] += c_cnt
+            res["cut_50"] += t_rev
+
+        res["total_games"] += g_cnt
+        res["total_cards"] += c_cnt
+        res["grand_total"] += t_rev
+
+    res["cut_10"] = round(res["cut_10"], 2)
+    res["cut_50"] = round(res["cut_50"], 2)
+    res["grand_total"] = round(res["grand_total"], 2)
+    return res
+
+
 # ---------------------------------------------------------------------------
 # Active round persistence (crash recovery)
 # ---------------------------------------------------------------------------

@@ -24,6 +24,13 @@ from bot.handlers.deposit import (
 from bot.handlers.menu import balance_command, history_command, instructions_callback, instructions_command
 from bot.handlers.play import action_button_callback, play_command, play_room_callback
 from bot.handlers.start import contact_handler, start_command
+from bot.reports import (
+    add_report_recipient_command,
+    daily_report_command,
+    report_command,
+    run_revenue_report_scheduler,
+    weekly_report_command,
+)
 from bot.handlers.withdraw import (
     WD_AWAITING_ACCOUNT,
     WD_AWAITING_AMOUNT,
@@ -106,6 +113,10 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("play", play_command))
     app.add_handler(CommandHandler("deposit", deposit_command))
     app.add_handler(CommandHandler("test_reminder", test_reminder_command))
+    app.add_handler(CommandHandler(["report", "reports"], report_command))
+    app.add_handler(CommandHandler("daily_report", daily_report_command))
+    app.add_handler(CommandHandler("weekly_report", weekly_report_command))
+    app.add_handler(CommandHandler("add_report_recipient", add_report_recipient_command))
 
     app.add_handler(withdraw_conv)
     app.add_handler(CallbackQueryHandler(play_room_callback, pattern=r"^room_"))
@@ -280,6 +291,8 @@ async def post_init(application: Application) -> None:
     from bot.reminders import run_super_bingo_scheduler
     _scheduler_task = asyncio.create_task(run_super_bingo_scheduler(application.bot))
     logger.info("Super Bingo reminder scheduler background task registered.")
+    _report_task = asyncio.create_task(run_revenue_report_scheduler(application.bot))
+    logger.info("Revenue report scheduler background task registered.")
 
 
 def main() -> None:

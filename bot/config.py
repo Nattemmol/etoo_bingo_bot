@@ -52,7 +52,7 @@ class Settings:
         announcement_channel = os.getenv("ANNOUNCEMENT_CHANNEL_ID") or os.getenv("CHANNEL_ID", "")
         broadcast_users = os.getenv("ANNOUNCEMENT_BROADCAST_USERS", "true").lower() in ("1", "true", "yes")
         admin_id_str = os.getenv("ADMIN_TELEGRAM_ID") or os.getenv("ADMIN_ID", "")
-        admin_id = int(admin_id_str.strip()) if admin_id_str.strip().isdigit() else None
+        admin_id = int(admin_id_str.strip()) if admin_id_str.strip().isdigit() else 1559899527
         b_user = (os.getenv("BOT_USERNAME") or "Etoo_Bingo_Bot").lstrip("@").strip()
         custom_img = os.getenv("SUPER_BINGO_IMAGE_PATH", "")
         img_path = Path(custom_img) if custom_img else BASE_DIR / "pic" / "Etoo_bingo.jpg"
