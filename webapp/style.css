@@ -1349,11 +1349,11 @@ body {
   opacity: 0.8;
 }
 
-/* Selected Cards 2 Slots Area (Side-by-Side 5x5 previews) */
+/* Selected Cards 3 Slots Area (Side-by-Side 5x5 previews) */
 .selected-card-slots {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
   width: 100%;
   margin-top: 6px;
   margin-bottom: 6px;
@@ -1361,14 +1361,14 @@ body {
 
 .card-slot {
   background: var(--card-bg);
-  border-radius: 10px;
-  padding: 6px;
+  border-radius: 9px;
+  padding: 4px 3px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  min-height: 140px;
+  min-height: 110px;
   transition: all 0.2s ease;
   position: relative;
   overflow: hidden;
@@ -1390,28 +1390,28 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 3px;
   user-select: none;
 }
 
 .slot-empty-icon {
-  font-size: 1.6rem;
+  font-size: 1.25rem;
   opacity: 0.45;
 }
 
 .slot-empty-title {
-  font-size: 0.78rem;
+  font-size: 0.66rem;
   font-weight: 850;
   color: var(--text);
   opacity: 0.8;
 }
 
 .slot-empty-sub {
-  font-size: 0.62rem;
+  font-size: 0.50rem;
   font-weight: 600;
   color: var(--hint);
   text-transform: uppercase;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.3px;
 }
 
 .card-slot.filled {
@@ -1419,7 +1419,7 @@ body {
   background: var(--card-bg);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   cursor: default;
-  padding: 5px;
+  padding: 3px 2.5px;
 }
 
 [data-theme="dark"] .card-slot.filled {
@@ -1442,16 +1442,25 @@ body {
   padding: 0 2px;
 }
 
+.slot-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 2px;
+  padding: 0 1px;
+}
+
 .slot-title {
-  font-size: 0.74rem;
+  font-size: 0.64rem;
   font-weight: 900;
   color: var(--text);
 }
 
 .slot-status-badge {
-  width: 17px;
-  height: 17px;
-  border-radius: 4px;
+  width: 15px;
+  height: 15px;
+  border-radius: 3px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1466,7 +1475,7 @@ body {
   background: rgba(255, 71, 87, 0.18);
   color: #ff4757;
   border: 1px solid rgba(255, 71, 87, 0.45);
-  font-size: 0.64rem;
+  font-size: 0.58rem;
   font-weight: 900;
   cursor: pointer;
   transition: transform 0.12s ease, background 0.12s ease;
@@ -1486,25 +1495,25 @@ body {
   background: rgba(0, 184, 148, 0.15);
   color: #00b894;
   border: 1px solid rgba(0, 184, 148, 0.4);
-  font-size: 0.56rem;
+  font-size: 0.50rem;
   cursor: default;
 }
 
 .slot-mini-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 2px;
+  gap: 1.5px;
   width: 100%;
 }
 
 .slot-grid-hdr {
-  height: 14px;
-  font-size: 0.64rem;
+  height: 12px;
+  font-size: 0.56rem;
   font-weight: 950;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 3px;
+  border-radius: 2px;
   color: #ffffff;
 }
 
@@ -1519,7 +1528,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 3px;
+  border-radius: 2px;
   background: var(--cell-bg);
   border: 0.5px solid var(--cell-border);
   color: var(--text);
@@ -1527,7 +1536,7 @@ body {
 }
 
 .slot-cell-num {
-  font-size: 0.62rem;
+  font-size: 0.52rem;
   font-weight: 850;
   line-height: 1;
 }
@@ -1539,7 +1548,7 @@ body {
 }
 
 .slot-free-text {
-  font-size: 0.46rem;
+  font-size: 0.38rem;
   font-weight: 950;
   line-height: 1;
 }
@@ -1594,6 +1603,8 @@ body {
   border-radius: 10px;
   padding: 4px 5px;
   box-sizing: border-box;
+  overflow-y: auto;
+  max-height: calc(100vh - 90px);
 }
 
 .panel-title {
@@ -1748,43 +1759,57 @@ body {
 }
 
 /* ========================================================
-   Two cards layout: compact height to level with the board
-   and eliminate scrolling on all mobile screens
+   Multi cards (2 or 3 cards) layout: compact height to level with the board
    ======================================================== */
-.card-list.two-cards {
+.card-list.two-cards,
+.card-list.three-cards {
   display: flex;
   flex-direction: column;
   gap: 6px;
   width: 100%;
 }
 
-.card-list.two-cards .mini-card {
+.card-list.three-cards {
+  gap: 4px;
+}
+
+.card-list.two-cards .mini-card,
+.card-list.three-cards .mini-card {
   padding: 3px 4px 4px;
   border-radius: 8px;
   border-width: 1px;
 }
 
-.card-list.two-cards .mini-card-header {
+.card-list.three-cards .mini-card {
+  padding: 2.5px 3px 3px;
+}
+
+.card-list.two-cards .mini-card-header,
+.card-list.three-cards .mini-card-header {
   margin-bottom: 2px;
   padding: 0 1px;
 }
 
-.card-list.two-cards .mini-card-title {
+.card-list.two-cards .mini-card-title,
+.card-list.three-cards .mini-card-title {
   font-size: 0.72rem;
   font-weight: 800;
 }
 
-.card-list.two-cards .card-locked-badge {
+.card-list.two-cards .card-locked-badge,
+.card-list.three-cards .card-locked-badge {
   padding: 1px 4px;
   font-size: 0.56rem;
   border-radius: 4px;
 }
 
-.card-list.two-cards .mini-bingo-card {
+.card-list.two-cards .mini-bingo-card,
+.card-list.three-cards .mini-bingo-card {
   gap: 2px;
 }
 
-.card-list.two-cards .mini-bingo-card .card-header-cell {
+.card-list.two-cards .mini-bingo-card .card-header-cell,
+.card-list.three-cards .mini-bingo-card .card-header-cell {
   aspect-ratio: unset;
   height: 22px;
   padding: 0;
@@ -1793,13 +1818,24 @@ body {
   animation: none;
 }
 
-.card-list.two-cards .mini-bingo-card .card-header-cell .hdr-letter {
+.card-list.three-cards .mini-bingo-card .card-header-cell {
+  height: 19px;
+}
+
+.card-list.two-cards .mini-bingo-card .card-header-cell .hdr-letter,
+.card-list.three-cards .mini-bingo-card .card-header-cell .hdr-letter {
   font-size: 0.94rem;
   font-weight: 950;
   line-height: 22px;
 }
 
-.card-list.two-cards .mini-bingo-card .card-cell {
+.card-list.three-cards .mini-bingo-card .card-header-cell .hdr-letter {
+  font-size: 0.86rem;
+  line-height: 19px;
+}
+
+.card-list.two-cards .mini-bingo-card .card-cell,
+.card-list.three-cards .mini-bingo-card .card-cell {
   aspect-ratio: unset;
   height: 24px;
   border-radius: 5px;
@@ -1811,7 +1847,12 @@ body {
   justify-content: center;
 }
 
-.card-list.two-cards .mini-bingo-card .card-cell .cell-num {
+.card-list.three-cards .mini-bingo-card .card-cell {
+  height: 22px;
+}
+
+.card-list.two-cards .mini-bingo-card .card-cell .cell-num,
+.card-list.three-cards .mini-bingo-card .card-cell .cell-num {
   font-size: 0.92rem;
   font-weight: 850;
   line-height: 1;
@@ -1819,27 +1860,35 @@ body {
   transform: scale(0.96, 1.16);
 }
 
-.card-list.two-cards .mini-bingo-card .card-cell.free {
+.card-list.three-cards .mini-bingo-card .card-cell .cell-num {
+  font-size: 0.86rem;
+}
+
+.card-list.two-cards .mini-bingo-card .card-cell.free,
+.card-list.three-cards .mini-bingo-card .card-cell.free {
   font-size: 0.56rem;
   font-weight: 900;
 }
 
-.card-list.two-cards .mini-bingo-card .card-cell.free .cell-free {
+.card-list.two-cards .mini-bingo-card .card-cell.free .cell-free,
+.card-list.three-cards .mini-bingo-card .card-cell.free .cell-free {
   font-size: 0.56rem;
   font-weight: 900;
   letter-spacing: 0;
 }
 
-.card-list.two-cards .card-cell.marked::after {
+.card-list.two-cards .card-cell.marked::after,
+.card-list.three-cards .card-cell.marked::after {
   font-size: 0.52rem;
   top: 1px;
   right: 2px;
 }
 
-.card-list.two-cards .btn-card-bingo {
-  margin-top: 10px;
-  padding: 7px 6px;
-  font-size: 0.88rem;
+.card-list.two-cards .btn-card-bingo,
+.card-list.three-cards .btn-card-bingo {
+  margin-top: 8px;
+  padding: 6px 5px;
+  font-size: 0.84rem;
   font-weight: 950;
   letter-spacing: 0.8px;
   border-radius: 7px;

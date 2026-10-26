@@ -26,7 +26,7 @@ tg.expand();
 const params = new URLSearchParams(window.location.search);
 const roomId = params.get("room") || "room_play_10";
 
-const MAX_CARDS = 2; // 1 user can have up to 2 cartela (cards) per round
+const MAX_CARDS = 3; // 1 user can have up to 3 cartela (cards) per round
 
 const state = {
   room: null,
@@ -78,6 +78,7 @@ const els = {
   cardSlots: document.getElementById("selected-card-slots"),
   cardSlot0: document.getElementById("card-slot-0"),
   cardSlot1: document.getElementById("card-slot-1"),
+  cardSlot2: document.getElementById("card-slot-2"),
   cardErrorNotice: document.getElementById("card-error-notice"),
   gameRoomName: document.getElementById("game-room-name"),
   gamePot: document.getElementById("game-pot"),
@@ -468,12 +469,12 @@ function renderPool() {
 }
 
 function renderSelectedSlots() {
-  const slotEls = [els.cardSlot0, els.cardSlot1];
-  if (!slotEls[0] || !slotEls[1]) return;
+  const slotEls = [els.cardSlot0, els.cardSlot1, els.cardSlot2];
+  if (!slotEls[0] || !slotEls[1] || !slotEls[2]) return;
 
   const selectedIds = state.cardIds || [];
 
-  for (let slotIdx = 0; slotIdx < 2; slotIdx++) {
+  for (let slotIdx = 0; slotIdx < 3; slotIdx++) {
     const slotEl = slotEls[slotIdx];
     const cardId = selectedIds[slotIdx];
 
@@ -883,7 +884,9 @@ if (els.btnAutoMode) {
 
 function renderGameCards() {
   if (!state.cardIds.length) return;
-  els.cardList.className = state.cardIds.length === 2 ? "card-list two-cards" : "card-list";
+  els.cardList.className = state.cardIds.length >= 3
+    ? "card-list two-cards three-cards"
+    : (state.cardIds.length === 2 ? "card-list two-cards" : "card-list");
   els.cardList.innerHTML = "";
 
   state.cardIds.forEach((id) => {

@@ -1438,7 +1438,7 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                             "type": "card_error",
                             "message": (
                                 f"ከፍተኛ {MAX_CARDS_PER_PLAYER} መጫወቻዎች ብቻ በአንድ ዙር "
-                                "(Maximum 2 cards per round)."
+                                f"(Maximum {MAX_CARDS_PER_PLAYER} cards per round)."
                             ),
                         },
                     )

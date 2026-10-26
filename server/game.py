@@ -93,7 +93,7 @@ COLUMNS = {
 LETTERS = ["B", "I", "N", "G", "O"]
 FREE_INDEX = 12  # center cell in row-major 5x5 grid
 
-MAX_CARDS_PER_PLAYER = 2
+MAX_CARDS_PER_PLAYER = 3
 
 CORNERS = (0, 4, 20, 24)  # row-major flat indexes of the four card corners
 
