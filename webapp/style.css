@@ -1733,25 +1733,46 @@ body {
   opacity: 0.65;
 }
 
+/* Card separator between 5x5 numbers grid and BINGO button */
+.card-bingo-separator {
+  width: 100%;
+  height: 2px;
+  margin: 8px 0 5px;
+  background: transparent;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.14), 0 1px 2px rgba(0, 0, 0, 0.08);
+  border-radius: 1px;
+}
+
+[data-theme="dark"] .card-bingo-separator {
+  background: rgba(255, 255, 255, 0.22);
+  height: 1.5px;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.12);
+}
+
 .btn-card-bingo {
   width: 100%;
-  margin-top: 14px;
+  margin-top: 7px;
   padding: 11px 10px;
   border-radius: 9px;
   font-size: 1.02rem;
   font-weight: 950;
   letter-spacing: 1.2px;
   text-transform: uppercase;
-  background: linear-gradient(135deg, #ff0844 0%, #ff4e50 48%, #f9d423 100%);
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 55%, #4f46e5 100%);
   color: #ffffff;
-  border: 1.5px solid rgba(255, 255, 255, 0.4);
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
   cursor: pointer;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 4px 14px rgba(255, 8, 68, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.6);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.45), inset 0 1px 2px rgba(255, 255, 255, 0.5);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   transition: transform 0.1s ease, filter 0.1s ease;
   animation: none;
+}
+
+.btn-card-bingo:active {
+  transform: scale(0.98);
+  filter: brightness(1.08);
 }
 
 .btn-card-bingo::after {
@@ -1846,12 +1867,18 @@ body {
   right: 2px;
 }
 
+.card-list.two-cards .card-bingo-separator {
+  margin: 4px 0 3px;
+}
+
 .card-list.two-cards .btn-card-bingo {
-  margin-top: 8px;
-  padding: 6px 5px;
-  font-size: 0.84rem;
+  margin-top: 4px;
+  padding: 8px 5px;
+  min-height: 35px;
+  font-size: 1.01rem;
+  line-height: 1.15;
   font-weight: 950;
-  letter-spacing: 0.8px;
+  letter-spacing: 1px;
   border-radius: 7px;
   animation: none;
 }
@@ -1975,8 +2002,13 @@ body {
   right: 1px;
 }
 
+.card-list.three-cards .card-bingo-separator {
+  margin: 1.5px 0 1px;
+  height: 1px;
+}
+
 .card-list.three-cards .btn-card-bingo {
-  margin-top: 3px;
+  margin-top: 2px;
   padding: 3px 4px;
   height: 21px;
   font-size: 0.74rem;
@@ -2457,18 +2489,37 @@ body {
 }
 
 .winner-mini-grid .winner-grid-cell.winning-cell {
-  background: linear-gradient(135deg, #FF007A 0%, #7000FF 100%) !important;
+  background: linear-gradient(135deg, #0284c7 0%, #38bdf8 100%) !important;
   color: #ffffff !important;
   font-weight: 900 !important;
   border: 1.5px solid #ffffff !important;
-  box-shadow: 0 0 10px rgba(255, 0, 122, 0.8) !important;
-  animation: winGlowPulse 1s ease-in-out infinite alternate !important;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.85) !important;
+  animation: winGlowPulseBlue 1s ease-in-out infinite alternate !important;
   z-index: 2;
 }
 
-@keyframes winGlowPulse {
-  0% { transform: scale(1); filter: brightness(1); box-shadow: 0 0 8px rgba(255, 0, 122, 0.6); }
-  100% { transform: scale(1.06); filter: brightness(1.25); box-shadow: 0 0 16px rgba(255, 0, 122, 0.95); }
+.winner-mini-grid .winner-grid-cell.winning-last-cell {
+  background: linear-gradient(135deg, #fef08a 0%, #facc15 50%, #eab308 100%) !important;
+  color: #1a1200 !important;
+  font-weight: 950 !important;
+  border: 2px solid #ffffff !important;
+  box-shadow: 0 0 16px rgba(250, 204, 21, 0.95) !important;
+  animation: winGlowPulseYellow 0.9s ease-in-out infinite alternate !important;
+  z-index: 4;
+}
+
+.winner-mini-grid .winner-grid-cell.winning-last-cell::after {
+  color: #1a1200 !important;
+}
+
+@keyframes winGlowPulseBlue {
+  0% { transform: scale(1); filter: brightness(1); box-shadow: 0 0 8px rgba(56, 189, 248, 0.6); }
+  100% { transform: scale(1.04); filter: brightness(1.15); box-shadow: 0 0 16px rgba(56, 189, 248, 0.95); }
+}
+
+@keyframes winGlowPulseYellow {
+  0% { transform: scale(1.02); filter: brightness(1); box-shadow: 0 0 10px rgba(250, 204, 21, 0.8); }
+  100% { transform: scale(1.08); filter: brightness(1.2); box-shadow: 0 0 20px rgba(250, 204, 21, 1); }
 }
 
 /* Pagination indicator dots for multi-winner carousel */

@@ -244,7 +244,7 @@ export function renderCard(container, card, marked, calledSet, onMark, interacti
   }
 }
 
-export function renderWinnerCard(container, card, calledSet, rule = "line_corners", winningIndexesList = null, pattern = null) {
+export function renderWinnerCard(container, card, calledSet, rule = "line_corners", winningIndexesList = null, pattern = null, lastCalledNumber = null) {
   container.innerHTML = "";
   let winningIndexes;
   if (Array.isArray(winningIndexesList) && winningIndexesList.length > 0) {
@@ -298,8 +298,14 @@ export function renderWinnerCard(container, card, calledSet, rule = "line_corner
           cell.classList.add("marked");
         }
       }
-      if (winningIndexes.has(idx)) {
+      const isWinning = winningIndexes.has(idx);
+      const isLastCalled = !isFree && lastCalledNumber != null && Number(value) === Number(lastCalledNumber);
+
+      if (isWinning) {
         cell.classList.add("winning-cell");
+      }
+      if (isLastCalled) {
+        cell.classList.add("winning-last-cell");
       }
       container.appendChild(cell);
     }

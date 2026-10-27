@@ -816,18 +816,20 @@ def add_claim(
     if any(c["telegram_id"] == player.telegram_id for c in room.bingo_claimants):
         return False
 
+    trigger_num = room.winning_number or (room.called_numbers[-1] if room.called_numbers else None)
     claim = {
         "telegram_id": player.telegram_id,
         "name": player.name,
         "card_id": card_id,
         "pattern": pattern,
         "winning_indexes": winning_indexes or [],
+        "trigger_number": trigger_num,
     }
 
     if room.bingo_window_until is None:
         # First win opens the 5s multi-winner window and freezes the board.
         room.bingo_window_until = now + BINGO_CLAIM_WINDOW_SECONDS
-        room.winning_number = room.called_numbers[-1] if room.called_numbers else None
+        room.winning_number = trigger_num
         room.bingo_claimants = [claim]
         task = room_tasks.get(room.room_id)
         try:
@@ -1188,6 +1190,7 @@ async def finalize_bingo(room_id: str) -> None:
             except Exception as e:
                 logger.warning("Could not record house revenue: %s", e)
 
+        win_num = room.winning_number or (room.called_numbers[-1] if room.called_numbers else None)
         await broadcast(
             room,
             {
@@ -1195,6 +1198,7 @@ async def finalize_bingo(room_id: str) -> None:
                 "winners": winners,
                 "pot": prize,
                 "called": room.called_numbers,
+                "winning_number": win_num,
                 "wait_seconds": int(WINNER_RESET_WAIT_SECONDS),
             },
         )

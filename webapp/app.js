@@ -952,6 +952,11 @@ function renderGameCards() {
       block.classList.add("has-bingo");
     }
 
+    // Separator between 5x5 numbers grid and BINGO button
+    const separator = document.createElement("div");
+    separator.className = "card-bingo-separator";
+    block.appendChild(separator);
+
     // BINGO Button per card — ALWAYS OPEN & ACTIVE from the start of the game
     const bingoBtn = document.createElement("button");
     bingoBtn.className = "btn btn-card-bingo";
@@ -959,7 +964,7 @@ function renderGameCards() {
       bingoBtn.disabled = true;
       bingoBtn.textContent = "🔒 መጫወቻው ተቆልፏል (Locked)";
     } else {
-      bingoBtn.textContent = "🎉 BINGO!";
+      bingoBtn.textContent = "BINGO";
       bingoBtn.addEventListener("click", () => {
         claimBingo(id);
       });
@@ -1745,7 +1750,17 @@ function openWinnerModal(msg) {
 
       const gridEl = cardItem.querySelector(".winner-mini-grid");
       const rule = state.room?.bingo_rule || "line_corners";
-      renderWinnerCard(gridEl, cardGrid, calledSet, rule, w.winning_indexes, w.pattern);
+      const lastCalled =
+        w.trigger_number != null
+          ? w.trigger_number
+          : (msg.winning_number != null
+              ? msg.winning_number
+              : (msg.called && msg.called.length
+                  ? msg.called[msg.called.length - 1]
+                  : (state.called && state.called.length
+                      ? state.called[state.called.length - 1]
+                      : state.currentNumber)));
+      renderWinnerCard(gridEl, cardGrid, calledSet, rule, w.winning_indexes, w.pattern, lastCalled);
       els.winnerCardsScroll.appendChild(cardItem);
     });
 
