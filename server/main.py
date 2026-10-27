@@ -1179,27 +1179,6 @@ async def finalize_bingo(room_id: str) -> None:
             await broadcast_user_balance(w["telegram_id"], new_bal)
             w["prize"] = share
             w["card"] = generate_card_by_id(w["card_id"])
-            try:
-                pattern_amharic = {
-                    "row": "መስመር (Row)",
-                    "column": "አምድ (Column)",
-                    "diagonal": "ሰያፍ (Diagonal)",
-                    "corners": "4 መአዘን (Corners)",
-                    "line_corners": "መስመር / መአዘን",
-                    "line": "መስመር (Line)",
-                    "full": "ሙሉ ካርድ (Full)",
-                }.get(w.get("pattern"), w.get("pattern", "BINGO"))
-                win_text = (
-                    f"🎉 *እንኳን ደስ አለዎት! አሸንፈዋል!*\n\n"
-                    f"🏆 ጨዋታ: *{room.name}*\n"
-                    f"🎫 መጫወቻ: *#{w['card_id']}*\n"
-                    f"✨ ድል: *{pattern_amharic}*\n"
-                    f"💰 ሽልማት: *+{share:.2f} ETB*\n"
-                    f"💳 አዲስ ሂሳብዎ: *{new_bal:.2f} ETB*"
-                )
-                asyncio.create_task(_notify_telegram(w["telegram_id"], win_text))
-            except Exception as _e:
-                logger.info("Could not dispatch winner notification: %s", _e)
 
         unique_players = set(room.taken_cards.values())
         if len(unique_players) > 1 and room.house_cut > 0 and room.taken_cards:
