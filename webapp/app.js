@@ -583,7 +583,7 @@ function onPoolChipClick(cardId) {
 
   // Instant 1-tap selection!
   tg.HapticFeedback?.impactOccurred("medium");
-  ws.send(JSON.stringify({ type: "select_card", card_id: cardId }));
+  ws.send(JSON.stringify({ type: "select_card", card_id: cardId, auto: state.autoMode }));
 }
 
 function closeModals() {

@@ -399,6 +399,76 @@ class TestAutoDeclareWins(unittest.TestCase):
         self.assertIn(flat1, player.marks[1])
         self.assertNotIn(flat2, player.marks[2])
 
+    @patch("server.main.broadcast", new=AsyncMock())
+    @patch("server.main.finalize_bingo", new=AsyncMock())
+    def test_offline_player_auto_marks_and_wins_in_10_birr_game(self):
+        """Players who selected cards and closed the room/offline are auto-marked and win if auto_mode is True."""
+        card = generate_card_by_id(3)
+        flat = _card_flat(card)
+        row_0_idxs = _card_row_indexes(0)
+        row_0_numbers = [flat[i] for i in row_0_idxs if flat[i] is not None]
+
+        # Player is offline (not in room.connections) with empty initial marks
+        player = Player(
+            telegram_id=98765,
+            name="OfflineAlice",
+            ws_id="ws-offline-alice",
+            card_ids=[3],
+            cards={3: card},
+            marks={3: set()},
+            auto_mode=True,
+        )
+        self.room.players["ws-offline-alice"] = player
+        # Make sure they are NOT in connections (they closed Telegram)
+        self.assertNotIn("ws-offline-alice", self.room.connections)
+
+        # Call numbers in row 0
+        for num in row_0_numbers:
+            self.room.called_numbers.append(num)
+            self.room.called_set.add(num)
+
+        # Simulate the ball loop server behavior: mark player and check wins
+        server_main.mark_called_numbers_for_player(self.room, player)
+        self._run(server_main.check_all_wins(self.room))
+
+        # Alice's card must be marked for all called numbers
+        for idx in row_0_idxs:
+            self.assertIn(idx, player.marks[3])
+
+        # Alice must be declared as a valid BINGO winner!
+        self.assertEqual(len(self.room.bingo_claimants), 1)
+        self.assertEqual(self.room.bingo_claimants[0]["telegram_id"], 98765)
+        self.assertEqual(self.room.bingo_claimants[0]["card_id"], 3)
+
+    @patch("server.main.broadcast", new=AsyncMock())
+    @patch("server.main.finalize_bingo", new=AsyncMock())
+    def test_player_with_auto_mode_false_does_not_auto_claim(self):
+        """When player explicitly turns off AUTO mode, the system does not auto-claim BINGO."""
+        card = generate_card_by_id(5)
+        flat = _card_flat(card)
+        row_0_idxs = _card_row_indexes(0)
+        row_0_numbers = [flat[i] for i in row_0_idxs if flat[i] is not None]
+
+        player = Player(
+            telegram_id=54321,
+            name="ManualBob",
+            ws_id="ws-manual-bob",
+            card_ids=[5],
+            cards={5: card},
+            marks={5: set(row_0_idxs)},  # Bob manually marked
+            auto_mode=False,  # AUTO IS OFF
+        )
+        self.room.players["ws-manual-bob"] = player
+
+        for num in row_0_numbers:
+            self.room.called_numbers.append(num)
+            self.room.called_set.add(num)
+
+        self._run(server_main.check_all_wins(self.room))
+
+        # Because auto_mode is False, check_all_wins must NOT claim BINGO
+        self.assertEqual(len(self.room.bingo_claimants), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

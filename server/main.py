@@ -93,6 +93,7 @@ room_tasks: dict[str, asyncio.Task] = {}
 connections: dict[str, WebSocket] = {}  # ws_id -> websocket
 player_ws: dict[str, str] = {}  # ws_id -> room_id
 user_ws: dict[int, set[str]] = {}  # telegram_id -> set of ws_ids
+user_auto_preferences: dict[int, bool] = {}  # telegram_id -> auto_mode setting
 snapshot_tasks: dict[str, asyncio.Task] = {}
 
 
@@ -107,6 +108,7 @@ async def _persist_room_snapshot(room: GameRoom) -> None:
                 "marks": {str(cid): list(m) for cid, m in p.marks.items()},
                 "locked_cards": list(p.locked_cards),
                 "forfeited": p.forfeited,
+                "auto_mode": getattr(p, "auto_mode", True),
             }
         await db.save_active_round(
             room_id=room.room_id,
@@ -295,7 +297,9 @@ async def lifespan(app: FastAPI):
                         marks=marks,
                         locked_cards=locked,
                         forfeited=pdata.get("forfeited", False),
+                        auto_mode=pdata.get("auto_mode", True),
                     )
+                    user_auto_preferences[tid] = player.auto_mode
                     room.players[dummy_ws] = player
                 await schedule_lobby(room_id)
                 continue
@@ -690,21 +694,17 @@ async def run_playing_round(room: GameRoom) -> None:
             },
         )
 
-        # Auto-mark for any players who are disconnected/not currently connected in the room
-        active_tids = {
-            p.telegram_id
-            for wid, p in list(room.players.items())
-            if wid in room.connections and wid in connections
-        }
+        # Auto-mark and auto-claim for players who have auto_mode enabled
+        # (regardless of whether they have the game open, closed Telegram, or went offline)
         for p in list(room.players.values()):
-            if p.telegram_id not in active_tids:
-                mark_called_numbers_for_offline_player(room, p)
+            if getattr(p, "auto_mode", True):
+                mark_called_numbers_for_player(room, p)
 
-        # In Super Bingo (50 Birr / full card), automatically claim BINGO for valid winners
-        if room.room_id == "room_super_50" or room.bingo_rule == "full":
-            await check_all_wins(room)
-            if room.bingo_window_until is not None:
-                break
+        # Automatically claim BINGO for all players with auto_mode enabled in ANY game room
+        # (both 10 Birr and Super Bingo)
+        await check_all_wins(room)
+        if room.bingo_window_until is not None:
+            break
 
         # Snapshot every 5 ball calls for crash recovery
         if len(room.called_numbers) % 5 == 0:
@@ -893,8 +893,8 @@ def process_player_mark(room: GameRoom, player: Player, card_id: int, row: int, 
     return True
 
 
-def mark_called_numbers_for_offline_player(room: GameRoom, player: Player) -> bool:
-    """Automatically mark all currently called numbers on player's cards for the time they were away from the room."""
+def mark_called_numbers_for_player(room: GameRoom, player: Player) -> bool:
+    """Automatically mark all currently called numbers on player's cards when auto_mode is enabled."""
     if not player or not player.cards or not room.called_set:
         return False
     changed = False
@@ -914,6 +914,9 @@ def mark_called_numbers_for_offline_player(room: GameRoom, player: Player) -> bo
                         changed = True
         player.marks[cid] = c_marks
     return changed
+
+
+mark_called_numbers_for_offline_player = mark_called_numbers_for_player
 
 
 async def check_player_win(room: GameRoom, player: Player) -> bool:
@@ -1176,6 +1179,27 @@ async def finalize_bingo(room_id: str) -> None:
             await broadcast_user_balance(w["telegram_id"], new_bal)
             w["prize"] = share
             w["card"] = generate_card_by_id(w["card_id"])
+            try:
+                pattern_amharic = {
+                    "row": "መስመር (Row)",
+                    "column": "አምድ (Column)",
+                    "diagonal": "ሰያፍ (Diagonal)",
+                    "corners": "4 መአዘን (Corners)",
+                    "line_corners": "መስመር / መአዘን",
+                    "line": "መስመር (Line)",
+                    "full": "ሙሉ ካርድ (Full)",
+                }.get(w.get("pattern"), w.get("pattern", "BINGO"))
+                win_text = (
+                    f"🎉 *እንኳን ደስ አለዎት! አሸንፈዋል!*\n\n"
+                    f"🏆 ጨዋታ: *{room.name}*\n"
+                    f"🎫 መጫወቻ: *#{w['card_id']}*\n"
+                    f"✨ ድል: *{pattern_amharic}*\n"
+                    f"💰 ሽልማት: *+{share:.2f} ETB*\n"
+                    f"💳 አዲስ ሂሳብዎ: *{new_bal:.2f} ETB*"
+                )
+                asyncio.create_task(_notify_telegram(w["telegram_id"], win_text))
+            except Exception as _e:
+                logger.info("Could not dispatch winner notification: %s", _e)
 
         unique_players = set(room.taken_cards.values())
         if len(unique_players) > 1 and room.house_cut > 0 and room.taken_cards:
@@ -1323,6 +1347,7 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
         if not player and telegram_id and telegram_id in room.taken_cards.values():
             my_cids = [cid for cid, tid in room.taken_cards.items() if tid == telegram_id]
             if my_cids:
+                auto_val = user_auto_preferences.get(telegram_id, True) if telegram_id else True
                 player = Player(
                     telegram_id=telegram_id,
                     name=display_name,
@@ -1330,13 +1355,16 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                     card_ids=my_cids,
                     cards={cid: generate_card_by_id(cid) for cid in my_cids},
                     marks={},
+                    auto_mode=auto_val,
                 )
                 room.players[ws_id] = player
 
         if player:
+            if telegram_id and telegram_id in user_auto_preferences:
+                player.auto_mode = user_auto_preferences[telegram_id]
             # Player is returning/reconnecting: auto-mark any numbers that were selected while away from the room
-            if room.phase == GamePhase.PLAYING and room.called_set:
-                mark_called_numbers_for_offline_player(room, player)
+            if room.phase == GamePhase.PLAYING and room.called_set and getattr(player, "auto_mode", True):
+                mark_called_numbers_for_player(room, player)
             old_ws = player.ws_id
             player.ws_id = ws_id
             room.players[ws_id] = player
@@ -1503,14 +1531,21 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                         room.players[ws_id] = player
                         room.players.pop(old_ws, None)
                     else:
+                        auto_val = bool(msg["auto"]) if "auto" in msg else (user_auto_preferences.get(telegram_id, True) if telegram_id else True)
                         player = Player(
                             telegram_id=telegram_id,
                             name=display_name,
                             ws_id=ws_id,
                             card_ids=[],
                             cards={},
+                            auto_mode=auto_val,
                         )
                         room.players[ws_id] = player
+
+                if "auto" in msg:
+                    player.auto_mode = bool(msg["auto"])
+                if telegram_id:
+                    user_auto_preferences[telegram_id] = getattr(player, "auto_mode", True)
 
                 player.card_ids.append(card_id)
                 player.cards[card_id] = card
@@ -1718,7 +1753,7 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                         websocket,
                         {"type": "mark_ack", "card_id": card_id, "flat": flat, "marked": desired},
                     )
-                    if desired and (room.room_id == "room_super_50" or room.bingo_rule == "full") and getattr(player, "auto_mode", True):
+                    if desired and getattr(player, "auto_mode", True):
                         await check_player_win(room, player)
                 continue
 
@@ -1744,7 +1779,7 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                         except Exception:
                             pass
                     queue_room_snapshot(room_id)
-                    if (room.room_id == "room_super_50" or room.bingo_rule == "full") and getattr(player, "auto_mode", True):
+                    if getattr(player, "auto_mode", True):
                         await check_player_win(room, player)
                 continue
 
@@ -1755,8 +1790,14 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                         if p.telegram_id == telegram_id:
                             player = p
                             break
+                auto_val = bool(msg.get("auto", True))
+                if telegram_id:
+                    user_auto_preferences[telegram_id] = auto_val
                 if player:
-                    player.auto_mode = bool(msg.get("auto", True))
+                    player.auto_mode = auto_val
+                    if auto_val and room.phase == GamePhase.PLAYING and room.called_set:
+                        mark_called_numbers_for_player(room, player)
+                        await check_player_win(room, player)
                 continue
 
             if msg_type == "bingo":
