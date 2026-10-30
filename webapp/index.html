@@ -16,7 +16,7 @@
   </script>
   <link rel="preconnect" href="https://etoobingobot.fly.dev" />
   <link rel="dns-prefetch" href="https://etoobingobot.fly.dev" />
-  <link rel="stylesheet" href="/style.css?v=4.8" />
+  <link rel="stylesheet" href="/style.css?v=4.9" />
 </head>
 <body>
   <div id="app">
@@ -85,9 +85,11 @@
           <span id="my-cards-badge" class="my-cards-badge">የተመረጡ መጫወቻዎች: 0</span>
         </div>
 
-        <div class="quick-pick-row">
-          <input type="number" id="quick-card-input" placeholder="መጫወቻ ቁጥር" min="1" max="1500" class="quick-input" />
-          <button id="btn-quick-pick" class="btn-sm btn-quick">ይምረጡ</button>
+        <div class="quick-pick-row swap-pick-row">
+          <input type="number" id="swap-card-current" placeholder="የአሁኑ" min="1" max="1500" class="quick-input swap-input" title="የአሁኑ መጫወቻ" />
+          <span class="swap-arrow">⇄</span>
+          <input type="number" id="swap-card-new" placeholder="አዲሱ" min="1" max="1500" class="quick-input swap-input" title="አዲሱ መጫወቻ" />
+          <button id="btn-quick-pick" class="btn-sm btn-quick btn-swap">ይቀይሩ</button>
           <button id="btn-random-pick" class="btn-sm btn-random">🎲 በዘፈቀደ</button>
         </div>
 
@@ -239,6 +241,6 @@
     </div>
   </div>
 
-  <script type="module" src="/app.js?v=4.8"></script>
+  <script type="module" src="/app.js?v=4.9"></script>
 </body>
 </html>

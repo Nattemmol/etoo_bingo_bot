@@ -71,7 +71,8 @@ const els = {
   lobbyRoomName: document.getElementById("lobby-room-name"),
   cardActionTitle: document.getElementById("card-action-title"),
   myCardsBadge: document.getElementById("my-cards-badge"),
-  quickCardInput: document.getElementById("quick-card-input"),
+  swapCardCurrent: document.getElementById("swap-card-current"),
+  swapCardNew: document.getElementById("swap-card-new"),
   btnQuickPick: document.getElementById("btn-quick-pick"),
   btnRandomPick: document.getElementById("btn-random-pick"),
   cardPool: document.getElementById("card-pool"),
@@ -399,12 +400,48 @@ function updatePoolChip(cardId) {
   }
 }
 
+function updateSwapHighlights() {
+  const currentVal = parseInt(els.swapCardCurrent?.value, 10);
+  const newVal = parseInt(els.swapCardNew?.value, 10);
+
+  poolChips.forEach((chip) => {
+    chip.classList.remove("swap-from-active", "swap-to-active");
+  });
+  if (els.cardSlots) {
+    els.cardSlots.querySelectorAll(".card-slot").forEach((slot) => {
+      slot.classList.remove("swap-from-active");
+    });
+  }
+
+  if (currentVal && poolChips[currentVal - 1]) {
+    poolChips[currentVal - 1].classList.add("swap-from-active");
+  }
+  if (currentVal && els.cardSlots) {
+    const slotEl = els.cardSlots.querySelector(`.card-slot[data-card-id="${currentVal}"]`);
+    if (slotEl) slotEl.classList.add("swap-from-active");
+  }
+
+  if (newVal && poolChips[newVal - 1]) {
+    poolChips[newVal - 1].classList.add("swap-to-active");
+  }
+}
+
+function clearSwapInputs() {
+  if (els.swapCardCurrent) els.swapCardCurrent.value = "";
+  if (els.swapCardNew) els.swapCardNew.value = "";
+  updateSwapHighlights();
+}
+
 function buildPool() {
   const maxCards = state.room?.max_cards || (roomId === "room_super_50" ? 1500 : 600);
   if (els.cardActionTitle) els.cardActionTitle.textContent = `የመጫወቻ ምርጫ (1-${maxCards})`;
-  if (els.quickCardInput) {
-    els.quickCardInput.max = maxCards;
-    els.quickCardInput.placeholder = `መጫወቻ ቁጥር (1-${maxCards})`;
+  if (els.swapCardCurrent) {
+    els.swapCardCurrent.max = maxCards;
+    els.swapCardCurrent.placeholder = "የአሁኑ";
+  }
+  if (els.swapCardNew) {
+    els.swapCardNew.max = maxCards;
+    els.swapCardNew.placeholder = `አዲሱ (1-${maxCards})`;
   }
   // Preserve the existing pool nodes across reconnects if size matches.
   if (poolChips.length === maxCards) {
@@ -433,15 +470,68 @@ els.cardPool?.addEventListener("click", (event) => {
 });
 if (els.btnQuickPick) {
   els.btnQuickPick.addEventListener("click", () => {
-    const val = parseInt(els.quickCardInput?.value, 10);
+    const currentVal = parseInt(els.swapCardCurrent?.value, 10);
+    const newVal = parseInt(els.swapCardNew?.value, 10);
     const maxCards = state.room?.max_cards || (roomId === "room_super_50" ? 1500 : 600);
-    if (!val || val < 1 || val > maxCards) {
-      showCardError(`እባክዎ ከ 1 እስከ ${maxCards} ውስጥ ቁጥር ያስገቡ`);
+
+    // Swap flow: both current card and new card are provided
+    if (currentVal && newVal) {
+      if (!state.cardIds.includes(currentVal)) {
+        showCardError(`መጫወቻ #${currentVal} የእርስዎ አይደለም።`);
+        return;
+      }
+      if (newVal < 1 || newVal > maxCards) {
+        showCardError(`እባክዎ ከ 1 እስከ ${maxCards} ውስጥ ቁጥር ያስገቡ`);
+        return;
+      }
+      if (currentVal === newVal) {
+        showCardError("የተመረጡት ሁለቱም መጫወቻዎች አንድ አይነት ናቸው።");
+        return;
+      }
+      if (state.cardIds.includes(newVal)) {
+        showCardError(`መጫወቻ #${newVal} ቀድሞውኑ በእርስዎ ተመርጧል`);
+        return;
+      }
+      if (state.takenCards[newVal] != null && state.takenCards[newVal] !== state.myId) {
+        showCardError(`መጫወቻ #${newVal} በሌላ ተጫዋች ተይዟል`);
+        return;
+      }
+
+      tg.HapticFeedback?.impactOccurred("medium");
+      ws.send(JSON.stringify({
+        type: "swap_card",
+        old_card_id: currentVal,
+        new_card_id: newVal,
+      }));
       return;
     }
-    onPoolChipClick(val);
+
+    // Only new card is provided
+    if (!currentVal && newVal) {
+      if (newVal < 1 || newVal > maxCards) {
+        showCardError(`እባክዎ ከ 1 እስከ ${maxCards} ውስጥ ቁጥር ያስገቡ`);
+        return;
+      }
+      if (state.cardIds.length >= MAX_CARDS) {
+        showCardError(`ከፍተኛ ${MAX_CARDS} መጫወቻዎች ተመርጠዋል። ለመቀየር እባክዎ የመጀመሪያውን መጫወቻ (የአሁኑ) ይጫኑ ወይም ያስገቡ።`);
+        return;
+      }
+      onPoolChipClick(newVal);
+      return;
+    }
+
+    // Only current card is provided
+    if (currentVal && !newVal) {
+      showCardError("እባክዎ የሚቀይሩበትን አዲሱን መጫወቻ ይምረጡ ወይም ያስገቡ (አዲሱ)");
+      return;
+    }
+
+    showCardError("እባክዎ የሚቀይሩትን እና አዲሱን መጫወቻ ቁጥር ያስገቡ ወይም ይጫኑ");
   });
 }
+
+els.swapCardCurrent?.addEventListener("input", updateSwapHighlights);
+els.swapCardNew?.addEventListener("input", updateSwapHighlights);
 
 if (els.btnRandomPick) {
   els.btnRandomPick.addEventListener("click", () => {
@@ -457,6 +547,17 @@ if (els.btnRandomPick) {
       return;
     }
     const picked = available[Math.floor(Math.random() * available.length)];
+    const currentStaged = parseInt(els.swapCardCurrent?.value, 10);
+    if (currentStaged && state.cardIds.includes(currentStaged)) {
+      if (els.swapCardNew) {
+        els.swapCardNew.value = picked;
+        updateSwapHighlights();
+        tg.HapticFeedback?.selectionChanged();
+        showBanner(`መጫወቻ #${currentStaged} በ #${picked} ለመቀየር 'ይቀይሩ' የሚለውን ይጫኑ`);
+        setTimeout(hideBanner, 4000);
+      }
+      return;
+    }
     onPoolChipClick(picked);
   });
 }
@@ -466,6 +567,7 @@ function renderPool() {
   for (let id = 1; id <= poolChips.length; id++) updatePoolChip(id);
   if (els.myCardsBadge) els.myCardsBadge.textContent = `የተመረጡ መጫወቻዎች: ${state.cardIds.length}`;
   renderSelectedSlots();
+  updateSwapHighlights();
 }
 
 function renderSelectedSlots() {
@@ -528,14 +630,23 @@ function renderSelectedSlots() {
         </div>
       `;
 
-      slotEl.onclick = null;
+      slotEl.dataset.cardId = String(cardId);
+      slotEl.style.cursor = "pointer";
+      slotEl.onclick = () => {
+        onPoolChipClick(cardId);
+      };
+
+      if (parseInt(els.swapCardCurrent?.value, 10) === cardId) {
+        slotEl.classList.add("swap-from-active");
+      }
 
       if (!isLocked) {
         const cancelBtn = slotEl.querySelector(".slot-cancel-btn");
         if (cancelBtn) {
           cancelBtn.addEventListener("click", (e) => {
             e.stopPropagation();
-            onPoolChipClick(cardId);
+            tg.HapticFeedback?.impactOccurred("medium");
+            ws.send(JSON.stringify({ type: "unselect_card", card_id: cardId }));
           });
         }
       }
@@ -553,31 +664,45 @@ function onPoolChipClick(cardId) {
   }
   hideCardError();
 
-  // If already selected by me -> check 4-second lock
+  // 1. If already selected by me -> insert into first field (የአሁኑ) to stage for swap
   if (state.cardIds.includes(cardId)) {
-    const selTime = state.selectedAt ? state.selectedAt[cardId] : null;
-    const elapsed = selTime ? (Date.now() - selTime) : 99999;
-    if (elapsed >= 4000) {
-      tg.HapticFeedback?.notificationOccurred("warning");
-      showCardError(`🔒 መጫወቻ #${cardId} ተቆልፏል! መሰረዝ የሚቻለው በተመረጠ በ 4 ሰከንድ ውስጥ ብቻ ነው።`);
-      return;
+    if (els.swapCardCurrent) {
+      els.swapCardCurrent.value = cardId;
+      if (els.swapCardNew && Number(els.swapCardNew.value) === cardId) {
+        els.swapCardNew.value = "";
+      }
+      updateSwapHighlights();
+      tg.HapticFeedback?.selectionChanged();
+      showBanner(`መጫወቻ #${cardId} ተመርጧል፤ የሚቀይሩበትን አዲሱን መጫወቻ ይምረጡ`);
+      setTimeout(hideBanner, 3500);
     }
-    tg.HapticFeedback?.impactOccurred("medium");
-    ws.send(JSON.stringify({ type: "unselect_card", card_id: cardId }));
     return;
   }
 
-  // If taken by another person -> disabled
+  // 2. If taken by another person -> disabled
   if (state.takenCards[cardId] != null && state.takenCards[cardId] !== state.myId) {
     tg.HapticFeedback?.notificationOccurred("warning");
     showCardError(`መጫወቻ #${cardId} በሌላ ተጫዋች ተይዟል (Card #${cardId} is already taken)`);
     return;
   }
 
-  // Check card limit (max 2)
+  // 3. Unselected card: if first field has a card staged for swap -> stage into second field (አዲሱ)
+  const currentStaged = parseInt(els.swapCardCurrent?.value, 10);
+  if (currentStaged && state.cardIds.includes(currentStaged)) {
+    if (els.swapCardNew) {
+      els.swapCardNew.value = cardId;
+      updateSwapHighlights();
+      tg.HapticFeedback?.selectionChanged();
+      showBanner(`መጫወቻ #${currentStaged} በ #${cardId} ለመቀየር 'ይቀይሩ' የሚለውን ይጫኑ`);
+      setTimeout(hideBanner, 4000);
+    }
+    return;
+  }
+
+  // 4. First field is empty: normal selection if not at max
   if (state.cardIds.length >= MAX_CARDS) {
-    showCardError(`ከፍተኛ ${MAX_CARDS} መጫወቻዎች ብቻ በአንድ ዙር (Maximum ${MAX_CARDS} cards per round)`);
-    tg.HapticFeedback?.notificationOccurred("error");
+    showCardError(`ከፍተኛ ${MAX_CARDS} መጫወቻዎች ተመርጠዋል። ለመቀየር እባክዎ መጀመሪያ ከእርስዎ መጫወቻዎች አንዱን ይጫኑ።`);
+    tg.HapticFeedback?.notificationOccurred("warning");
     return;
   }
 
@@ -1424,6 +1549,7 @@ function handleMessage(socket, msg) {
         ? msg.card_ids.map(Number)
         : state.cardIds.filter((id) => id !== cid);
       delete state.takenCards[cid];
+      clearSwapInputs();
       updatePoolChip(cid);
       state.isPlayer = Boolean(msg.is_player);
       updateRoleDisplay(state.isPlayer);
@@ -1437,6 +1563,34 @@ function handleMessage(socket, msg) {
       }
       updateGameStats(msg.pot, msg.players, state.called.length);
       showBanner(`✅ መጫወቻ #${cid} ተሰርዟል። ${msg.refund_amount || 10} ETB ተመላሽ ተደርጓል።`);
+      setTimeout(hideBanner, 3000);
+      tg.HapticFeedback?.notificationOccurred("success");
+      break;
+    }
+
+    case "card_swapped": {
+      const oldCid = msg.old_card_id;
+      const newCid = msg.new_card_id;
+      if (state.selectedAt) {
+        delete state.selectedAt[oldCid];
+        state.selectedAt[newCid] = msg.selected_at ? msg.selected_at * 1000 : Date.now();
+      }
+      delete state.cards[oldCid];
+      state.cards[newCid] = msg.card;
+      state.cardIds = Array.isArray(msg.card_ids)
+        ? msg.card_ids.map(Number)
+        : state.cardIds.map((id) => (id === oldCid ? newCid : id));
+      delete state.takenCards[oldCid];
+      state.takenCards[newCid] = state.myId;
+      clearSwapInputs();
+      updatePoolChip(oldCid);
+      updatePoolChip(newCid);
+      renderPool();
+      setTimeout(() => {
+        updatePoolChip(newCid);
+        renderSelectedSlots();
+      }, 4000);
+      showBanner(`✅ መጫወቻ #${oldCid} ወደ መጫወቻ #${newCid} በተሳካ ሁኔታ ተቀይሯል!`);
       setTimeout(hideBanner, 3000);
       tg.HapticFeedback?.notificationOccurred("success");
       break;
@@ -1610,6 +1764,7 @@ function handleMessage(socket, msg) {
       state.winners = [];
       state.phase = "lobby";
       state.claimed = false;
+      clearSwapInputs();
 
       if (state.winnerTimer) {
         clearInterval(state.winnerTimer);

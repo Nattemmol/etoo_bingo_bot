@@ -21,7 +21,7 @@ def _is_valid_postgres_url(url: str) -> bool:
     u = url.strip().lower()
     if not (u.startswith("postgresql://") or u.startswith("postgres://")):
         return False
-    if "user:password@host" in u or "@host:" in u or "example.com" in u:
+    if "user:password@host" in u or "@host:" in u or "example.com" in u or "[" in u or "<" in u:
         logger.warning(
             "DATABASE_URL contains a placeholder host ('%s'). "
             "Falling back to SQLite until a real PostgreSQL connection string is provided.",

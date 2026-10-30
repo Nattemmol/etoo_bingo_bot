@@ -1122,6 +1122,94 @@ body {
   margin-bottom: 8px;
 }
 
+.quick-pick-row.swap-pick-row {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  margin-bottom: 8px;
+  width: 100%;
+}
+
+.swap-input {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 7px 6px;
+  font-size: 0.80rem;
+  text-align: center;
+  border-radius: 9px;
+  background: var(--quick-input-bg);
+  border: 1.5px solid var(--quick-input-border);
+  color: var(--text);
+  outline: none;
+  font-weight: 700;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.swap-input::placeholder {
+  font-size: 0.74rem;
+  font-weight: 600;
+  opacity: 0.65;
+}
+
+.swap-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 10px rgba(108, 92, 231, 0.25);
+}
+
+.swap-arrow {
+  color: var(--hint);
+  font-size: 0.95rem;
+  font-weight: 800;
+  user-select: none;
+  flex: 0 0 auto;
+}
+
+.btn-swap {
+  flex: 0 0 auto;
+  padding: 7px 11px;
+  font-size: 0.82rem;
+  font-weight: 850;
+  letter-spacing: 0.5px;
+  background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
+  border-radius: 9px;
+  color: #fff;
+  border: none;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+  cursor: pointer;
+  transition: transform 0.15s, filter 0.15s;
+}
+
+.btn-swap:active {
+  transform: scale(0.96);
+}
+
+.pool-chip.swap-from-active {
+  border: 2px solid #3b82f6 !important;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.8) !important;
+  animation: swapPulseFrom 1s infinite alternate !important;
+}
+
+.pool-chip.swap-to-active {
+  border: 2px solid #10b981 !important;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.8) !important;
+  animation: swapPulseTo 1s infinite alternate !important;
+}
+
+.card-slot.swap-from-active {
+  border: 2px solid #3b82f6 !important;
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.6) !important;
+}
+
+@keyframes swapPulseFrom {
+  from { transform: scale(1); box-shadow: 0 0 6px rgba(59, 130, 246, 0.5); }
+  to { transform: scale(1.08); box-shadow: 0 0 14px rgba(59, 130, 246, 0.95); }
+}
+
+@keyframes swapPulseTo {
+  from { transform: scale(1); box-shadow: 0 0 6px rgba(16, 185, 129, 0.5); }
+  to { transform: scale(1.08); box-shadow: 0 0 14px rgba(16, 185, 129, 0.95); }
+}
+
 .quick-input {
   flex: 1;
   background: var(--quick-input-bg);

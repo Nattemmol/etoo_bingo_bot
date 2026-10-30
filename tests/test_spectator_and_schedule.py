@@ -574,6 +574,28 @@ class TestSpectatorAndSchedule(unittest.TestCase):
             self.assertIn("ተቆልፏል", err["message"])
             self.assertIn(8, room.taken_cards)
 
+            # Card 8 is locked after 5s. Now test card swap: swap locked card 8 for card 9
+            ws.send_text(json.dumps({"type": "swap_card", "old_card_id": 8, "new_card_id": 9}))
+            swapped = self._read_until(ws, "card_swapped")
+            self.assertEqual(swapped["type"], "card_swapped")
+            self.assertEqual(swapped["old_card_id"], 8)
+            self.assertEqual(swapped["new_card_id"], 9)
+            self.assertEqual(swapped["card_ids"], [9])
+            self.assertNotIn(8, room.taken_cards)
+            self.assertIn(9, room.taken_cards)
+            self.assertEqual(room.taken_cards[9], uid)
+            self.assertEqual(room.pot, 8.0)  # Pot remains unchanged on swap!
+
+            # Test invalid swap: swapping a card not owned by player
+            ws.send_text(json.dumps({"type": "swap_card", "old_card_id": 99, "new_card_id": 10}))
+            err_swap1 = self._read_until(ws, "card_error")
+            self.assertIn("የእርስዎ አይደለም", err_swap1["message"])
+
+            # Test invalid swap: swapping to same card
+            ws.send_text(json.dumps({"type": "swap_card", "old_card_id": 9, "new_card_id": 9}))
+            err_swap2 = self._read_until(ws, "card_error")
+            self.assertIn("አንድ አይነት", err_swap2["message"])
+
     def test_false_bingo_locks_card(self):
         uid = 999444
         asyncio.run(ensure_user(uid, "+251911000013", "falser", "FalseUser", 50.0))

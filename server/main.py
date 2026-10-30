@@ -1684,6 +1684,153 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                 )
                 continue
 
+            # User swaps an already selected card for a new, available card during lobby
+            if msg_type == "swap_card":
+                if room.phase != GamePhase.LOBBY:
+                    await send(
+                        websocket,
+                        {
+                            "type": "card_error",
+                            "message": "መጫወቻ መቀየር የሚቻለው በመጠባበቂያ ጊዜ (lobby) ብቻ ነው።",
+                        },
+                    )
+                    continue
+
+                old_card_id = msg.get("old_card_id")
+                new_card_id = msg.get("new_card_id")
+                if not isinstance(old_card_id, int) or not isinstance(new_card_id, int):
+                    await send(
+                        websocket,
+                        {
+                            "type": "card_error",
+                            "message": "ትክክለኛ ያልሆነ የመጫወቻ ቁጥር።",
+                        },
+                    )
+                    continue
+
+                if old_card_id < 1 or old_card_id > room.max_cards or new_card_id < 1 or new_card_id > room.max_cards:
+                    await send(
+                        websocket,
+                        {
+                            "type": "card_error",
+                            "message": f"መጫወቻ ቁጥር ከ 1 እስከ {room.max_cards} ውስጥ መሆን አለበት።",
+                        },
+                    )
+                    continue
+
+                if old_card_id == new_card_id:
+                    await send(
+                        websocket,
+                        {
+                            "type": "card_error",
+                            "message": "የተመረጡት ሁለቱም መጫወቻዎች አንድ አይነት ናቸው።",
+                        },
+                    )
+                    continue
+
+                if room.taken_cards.get(old_card_id) != telegram_id:
+                    await send(
+                        websocket,
+                        {
+                            "type": "card_error",
+                            "message": f"መጫወቻ #{old_card_id} የእርስዎ አይደለም።",
+                        },
+                    )
+                    continue
+
+                player = room.players.get(ws_id)
+                if not player:
+                    for p in room.players.values():
+                        if p.telegram_id == telegram_id:
+                            player = p
+                            break
+
+                if not player or old_card_id not in player.card_ids:
+                    await send(
+                        websocket,
+                        {
+                            "type": "card_error",
+                            "message": f"መጫወቻ #{old_card_id} በእርስዎ ስም አልተመዘገበም።",
+                        },
+                    )
+                    continue
+
+                if new_card_id in room.taken_cards:
+                    await send(
+                        websocket,
+                        {
+                            "type": "card_error",
+                            "message": f"አዲሱ መጫወቻ #{new_card_id} በሌላ ተጫዋች ተይዟል (አይገኝም)።",
+                        },
+                    )
+                    continue
+
+                now_ts = time.time()
+                new_card = generate_card_by_id(new_card_id)
+
+                # 1. Release old card
+                room.taken_cards.pop(old_card_id, None)
+                room.card_selection_times.pop(old_card_id, None)
+                player.cards.pop(old_card_id, None)
+                player.marks.pop(old_card_id, None)
+                player.locked_cards.discard(old_card_id)
+
+                # Replace old_card_id with new_card_id in player.card_ids (preserving slot index)
+                try:
+                    slot_i = player.card_ids.index(old_card_id)
+                    player.card_ids[slot_i] = new_card_id
+                except ValueError:
+                    player.card_ids.append(new_card_id)
+
+                # 2. Assign new card
+                room.taken_cards[new_card_id] = telegram_id
+                room.card_selection_times[new_card_id] = now_ts
+                player.cards[new_card_id] = new_card
+                player.marks[new_card_id] = set()
+
+                queue_room_snapshot(room_id)
+
+                await send(
+                    websocket,
+                    {
+                        "type": "card_swapped",
+                        "old_card_id": old_card_id,
+                        "new_card_id": new_card_id,
+                        "selected_at": now_ts,
+                        "card": new_card,
+                        "card_ids": player.card_ids,
+                        "cards": {str(cid): c for cid, c in player.cards.items()},
+                        "pot": room.pot,
+                        "players": len(room.taken_cards),
+                    },
+                )
+
+                await broadcast(
+                    room,
+                    {
+                        "type": "card_released",
+                        "card_id": old_card_id,
+                        "players": len(room.taken_cards),
+                        "spectators": max(0, len(room.connections) - len(room.players)),
+                        "pot": room.pot,
+                    },
+                    exclude=ws_id,
+                )
+                await broadcast(
+                    room,
+                    {
+                        "type": "card_taken",
+                        "card_id": new_card_id,
+                        "telegram_id": telegram_id,
+                        "players": len(room.taken_cards),
+                        "spectators": max(0, len(room.connections) - len(room.players)),
+                        "pot": room.pot,
+                        "name": display_name,
+                    },
+                    exclude=ws_id,
+                )
+                continue
+
             # User taps a cell on one of their cards (manual marking).
             # The system automatically declares BINGO when marks fulfill the rule.
             if msg_type == "mark":
