@@ -967,79 +967,107 @@ async def get_revenue_report_data(start_time, end_time) -> dict:
     res["cut_50"] = round(res["cut_50"], 2)
     res["grand_total"] = round(res["grand_total"], 2)
 
-    # 2. Deposits by Account / Method
-    dep_query = """
-    SELECT
-        payment_method,
-        account_identifier,
-        COUNT(*) as dep_count,
-        COALESCE(SUM(amount), 0.0) as total_amount
-    FROM peerpay_deposits
-    WHERE credited = TRUE
-      AND updated_at >= $1 AND updated_at < $2
-    GROUP BY payment_method, account_identifier
-    """
-    dep_rows = await pool.fetch(dep_query, start_utc, end_utc)
-
-    deposits_map = {}
+    # 2. Deposits by Account / Method (Always ensure Telebirr, CBE Birr, CBE Mobile Banking are shown)
+    deposits_map = {
+        "Telebirr": {"label": "Telebirr", "amount": 0.0, "count": 0},
+        "CBE Birr": {"label": "CBE Birr", "amount": 0.0, "count": 0},
+        "CBE Mobile Banking": {"label": "CBE Mobile Banking", "amount": 0.0, "count": 0},
+    }
     tot_dep_amt = 0.0
     tot_dep_cnt = 0
 
-    for r in dep_rows:
-        method = (r["payment_method"] or "telebirr").lower()
-        acc_id = (r["account_identifier"] or "").strip()
-        cnt = int(r["dep_count"] or 0)
-        amt = float(r["total_amount"] or 0.0)
+    try:
+        dep_query = """
+        SELECT
+            payment_method,
+            account_identifier,
+            COUNT(*) as dep_count,
+            COALESCE(SUM(amount), 0.0) as total_amount
+        FROM peerpay_deposits
+        WHERE credited = TRUE
+          AND updated_at >= $1 AND updated_at < $2
+        GROUP BY payment_method, account_identifier
+        """
+        dep_rows = await pool.fetch(dep_query, start_utc, end_utc)
 
-        if method == "telebirr":
-            label = f"Telebirr ({acc_id})" if acc_id else "Telebirr"
-        elif method == "cbebirr":
-            label = f"CBE Birr ({acc_id})" if acc_id else "CBE Birr"
-        elif method in ("cbe", "cbe_bank", "mobile_banking"):
-            label = f"CBE Mobile Banking ({acc_id})" if acc_id else "CBE Mobile Banking"
-        else:
-            label = f"{method.capitalize()} ({acc_id})" if acc_id else method.capitalize()
+        has_specific_telebirr = False
+        for r in dep_rows:
+            method = (r["payment_method"] or "telebirr").lower()
+            acc_id = (r["account_identifier"] or "").strip()
+            cnt = int(r["dep_count"] or 0)
+            amt = float(r["total_amount"] or 0.0)
 
-        if label not in deposits_map:
-            deposits_map[label] = {"label": label, "amount": 0.0, "count": 0}
-        deposits_map[label]["amount"] += amt
-        deposits_map[label]["count"] += cnt
-        tot_dep_amt += amt
-        tot_dep_cnt += cnt
+            if method == "telebirr":
+                if acc_id:
+                    label = f"Telebirr ({acc_id})"
+                    has_specific_telebirr = True
+                else:
+                    label = "Telebirr"
+            elif method in ("cbebirr", "cbe birr"):
+                label = f"CBE Birr ({acc_id})" if acc_id else "CBE Birr"
+            elif method in ("cbe", "cbe_bank", "mobile_banking"):
+                label = f"CBE Mobile Banking ({acc_id})" if acc_id else "CBE Mobile Banking"
+            else:
+                label = f"{method.capitalize()} ({acc_id})" if acc_id else method.capitalize()
 
-    tx_dep_query = """
-    SELECT description, amount
-    FROM transactions
-    WHERE type = 'deposit' AND status = 'completed'
-      AND created_at >= $1 AND created_at < $2
-      AND (fingerprint IS NULL OR NOT fingerprint LIKE 'peerpay_dep:%')
-    """
-    tx_rows = await pool.fetch(tx_dep_query, start_utc, end_utc)
+            if label not in deposits_map:
+                deposits_map[label] = {"label": label, "amount": 0.0, "count": 0}
+            deposits_map[label]["amount"] += amt
+            deposits_map[label]["count"] += cnt
+            tot_dep_amt += amt
+            tot_dep_cnt += cnt
 
-    for r in tx_rows:
-        desc = (r["description"] or "").lower()
-        amt = float(r["amount"] or 0.0)
-        if "telebirr" in desc:
-            label = "Telebirr (Direct)"
-        elif "cbebirr" in desc:
-            label = "CBE Birr (Direct)"
-        elif "cbe" in desc:
-            label = "CBE Mobile Banking (Direct)"
-        else:
-            label = "Other Deposit"
+        if has_specific_telebirr and deposits_map.get("Telebirr", {}).get("amount", 0.0) == 0.0 and deposits_map.get("Telebirr", {}).get("count", 0) == 0:
+            deposits_map.pop("Telebirr", None)
+    except Exception as e:
+        logger.warning("Could not query peerpay_deposits for report: %s", e)
 
-        if label not in deposits_map:
-            deposits_map[label] = {"label": label, "amount": 0.0, "count": 0}
-        deposits_map[label]["amount"] += amt
-        deposits_map[label]["count"] += 1
-        tot_dep_amt += amt
-        tot_dep_cnt += 1
+    try:
+        tx_dep_query = """
+        SELECT description, amount
+        FROM transactions
+        WHERE type = 'deposit' AND status = 'completed'
+          AND created_at >= $1 AND created_at < $2
+          AND (fingerprint IS NULL OR NOT fingerprint LIKE 'peerpay_dep:%')
+        """
+        tx_rows = await pool.fetch(tx_dep_query, start_utc, end_utc)
+
+        for r in tx_rows:
+            desc = (r["description"] or "").lower()
+            amt = float(r["amount"] or 0.0)
+            if "cbebirr" in desc or "cbe birr" in desc:
+                label = "CBE Birr"
+            elif "cbe" in desc or "mobile banking" in desc or "ንግድ ባንክ" in desc:
+                label = "CBE Mobile Banking"
+            elif "telebirr" in desc or "ቴሌብር" in desc:
+                label = "Telebirr"
+            else:
+                label = "Other Deposit"
+
+            if label not in deposits_map:
+                deposits_map[label] = {"label": label, "amount": 0.0, "count": 0}
+            deposits_map[label]["amount"] += amt
+            deposits_map[label]["count"] += 1
+            tot_dep_amt += amt
+            tot_dep_cnt += 1
+    except Exception as e:
+        logger.warning("Could not query transactions for deposits: %s", e)
+
+    def dep_sort_key(item):
+        lbl = item["label"].lower()
+        if "telebirr" in lbl:
+            return (0, lbl)
+        if "cbe birr" in lbl or "cbebirr" in lbl:
+            return (1, lbl)
+        if "cbe" in lbl or "mobile banking" in lbl:
+            return (2, lbl)
+        return (3, lbl)
 
     dep_list = []
     for k, v in deposits_map.items():
         v["amount"] = round(v["amount"], 2)
         dep_list.append(v)
-    dep_list.sort(key=lambda x: x["label"])
+    dep_list.sort(key=dep_sort_key)
 
     res["deposits"] = {
         "total_amount": round(tot_dep_amt, 2),
@@ -1047,49 +1075,97 @@ async def get_revenue_report_data(start_time, end_time) -> dict:
         "by_account": dep_list,
     }
 
-    # 3. Withdrawals by Account / Method
-    wd_query = """
-    SELECT
-        bank_code,
-        COUNT(*) as wd_count,
-        COALESCE(SUM(amount), 0.0) as total_amount
-    FROM peerpay_withdrawals
-    WHERE captured = TRUE
-      AND updated_at >= $1 AND updated_at < $2
-    GROUP BY bank_code
-    """
-    wd_rows = await pool.fetch(wd_query, start_utc, end_utc)
-
-    withdrawals_map = {}
+    # 3. Withdrawals by Account / Method (Always ensure Telebirr, CBE Birr, CBE Mobile Banking are shown)
+    withdrawals_map = {
+        "Telebirr": {"label": "Telebirr", "amount": 0.0, "count": 0},
+        "CBE Birr": {"label": "CBE Birr", "amount": 0.0, "count": 0},
+        "CBE Mobile Banking": {"label": "CBE Mobile Banking", "amount": 0.0, "count": 0},
+    }
     tot_wd_amt = 0.0
     tot_wd_cnt = 0
 
-    for r in wd_rows:
-        bcode = (r["bank_code"] or "telebirr").lower()
-        cnt = int(r["wd_count"] or 0)
-        amt = float(r["total_amount"] or 0.0)
+    try:
+        wd_query = """
+        SELECT
+            bank_code,
+            COUNT(*) as wd_count,
+            COALESCE(SUM(amount), 0.0) as total_amount
+        FROM peerpay_withdrawals
+        WHERE captured = TRUE
+          AND updated_at >= $1 AND updated_at < $2
+        GROUP BY bank_code
+        """
+        wd_rows = await pool.fetch(wd_query, start_utc, end_utc)
 
-        if bcode == "telebirr":
-            label = "Telebirr"
-        elif bcode == "cbebirr":
-            label = "CBE Birr"
-        elif bcode in ("cbe", "cbe_bank", "mobile_banking"):
-            label = "CBE Mobile Banking"
-        else:
-            label = bcode.capitalize()
+        for r in wd_rows:
+            bcode = (r["bank_code"] or "telebirr").lower()
+            cnt = int(r["wd_count"] or 0)
+            amt = float(r["total_amount"] or 0.0)
 
-        if label not in withdrawals_map:
-            withdrawals_map[label] = {"label": label, "amount": 0.0, "count": 0}
-        withdrawals_map[label]["amount"] += amt
-        withdrawals_map[label]["count"] += cnt
-        tot_wd_amt += amt
-        tot_wd_cnt += cnt
+            if bcode == "telebirr":
+                label = "Telebirr"
+            elif bcode in ("cbebirr", "cbe birr"):
+                label = "CBE Birr"
+            elif bcode in ("cbe", "cbe_bank", "mobile_banking"):
+                label = "CBE Mobile Banking"
+            else:
+                label = bcode.capitalize()
+
+            if label not in withdrawals_map:
+                withdrawals_map[label] = {"label": label, "amount": 0.0, "count": 0}
+            withdrawals_map[label]["amount"] += amt
+            withdrawals_map[label]["count"] += cnt
+            tot_wd_amt += amt
+            tot_wd_cnt += cnt
+    except Exception as e:
+        logger.warning("Could not query peerpay_withdrawals for report: %s", e)
+
+    try:
+        tx_wd_query = """
+        SELECT description, amount
+        FROM transactions
+        WHERE type IN ('withdraw', 'withdrawal')
+          AND created_at >= $1 AND created_at < $2
+        """
+        tx_wd_rows = await pool.fetch(tx_wd_query, start_utc, end_utc)
+
+        if tot_wd_cnt == 0 and tx_wd_rows:
+            for r in tx_wd_rows:
+                desc = (r["description"] or "").lower()
+                amt = abs(float(r["amount"] or 0.0))
+                if "mobile banking" in desc or "ንግድ ባንክ" in desc or "(cbe:" in desc:
+                    label = "CBE Mobile Banking"
+                elif "cbebirr" in desc or "cbe birr" in desc or "(cbebirr:" in desc:
+                    label = "CBE Birr"
+                elif "telebirr" in desc or "ቴሌብር" in desc or "(telebirr:" in desc:
+                    label = "Telebirr"
+                else:
+                    label = "Other Withdrawal"
+
+                if label not in withdrawals_map:
+                    withdrawals_map[label] = {"label": label, "amount": 0.0, "count": 0}
+                withdrawals_map[label]["amount"] += amt
+                withdrawals_map[label]["count"] += 1
+                tot_wd_amt += amt
+                tot_wd_cnt += 1
+    except Exception as e:
+        logger.warning("Could not query transactions for withdrawals: %s", e)
+
+    def wd_sort_key(item):
+        lbl = item["label"].lower()
+        if "telebirr" in lbl:
+            return (0, lbl)
+        if "cbe birr" in lbl or "cbebirr" in lbl:
+            return (1, lbl)
+        if "cbe" in lbl or "mobile banking" in lbl:
+            return (2, lbl)
+        return (3, lbl)
 
     wd_list = []
     for k, v in withdrawals_map.items():
         v["amount"] = round(v["amount"], 2)
         wd_list.append(v)
-    wd_list.sort(key=lambda x: x["label"])
+    wd_list.sort(key=wd_sort_key)
 
     res["withdrawals"] = {
         "total_amount": round(tot_wd_amt, 2),

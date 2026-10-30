@@ -2562,13 +2562,18 @@ async def _apply_peerpay_withdrawal(event_type: str, obj: dict) -> None:
     admin_tid = getattr(settings, "admin_telegram_id", None)
 
     if event_type == "withdrawal.created":
+        dest = obj.get("destination") or {}
+        dest_bank = (dest.get("bank") or "telebirr").lower()
+        dest_acct = dest.get("account_number", "")
         await db.create_peerpay_withdrawal_hold(
-            payment_id, telegram_id or 0, amount, status=obj.get("status", "created")
+            payment_id=payment_id,
+            telegram_id=telegram_id or 0,
+            amount=amount,
+            status=obj.get("status", "created"),
+            bank_code=dest_bank,
+            account_number=dest_acct,
         )
         if admin_tid:
-            dest = obj.get("destination") or {}
-            dest_bank = dest.get("bank", "Telebirr")
-            dest_acct = dest.get("account_number", "")
             await _notify_telegram(
                 admin_tid,
                 (

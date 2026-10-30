@@ -344,6 +344,45 @@ class TestDatabaseRevenueQuery(unittest.TestCase):
 
         db.close()
 
+    def test_default_channels_always_present(self):
+        """Verify that Telebirr, CBE Birr, and CBE Mobile Banking are always in the report, even with 0 activity."""
+        from bot.reports import format_revenue_report
+        data = {
+            "games_10": 0, "cards_10": 0, "cut_10": 0.0,
+            "games_50": 0, "cards_50": 0, "cut_50": 0.0,
+            "grand_total": 0.0,
+            "deposits": {
+                "total_amount": 0.0,
+                "total_count": 0,
+                "by_account": [
+                    {"label": "Telebirr", "amount": 0.0, "count": 0},
+                    {"label": "CBE Birr", "amount": 0.0, "count": 0},
+                    {"label": "CBE Mobile Banking", "amount": 0.0, "count": 0},
+                ]
+            },
+            "withdrawals": {
+                "total_amount": 0.0,
+                "total_count": 0,
+                "by_account": [
+                    {"label": "Telebirr", "amount": 0.0, "count": 0},
+                    {"label": "CBE Birr", "amount": 0.0, "count": 0},
+                    {"label": "CBE Mobile Banking", "amount": 0.0, "count": 0},
+                ]
+            }
+        }
+        start = datetime(2026, 10, 26, 21, 0, tzinfo=EAT)
+        end = datetime(2026, 10, 27, 21, 0, tzinfo=EAT)
+        label = "ከትላንት ማታ 3:00 እስከ ዛሬ ማታ 3:00 (24 ሰዓት)"
+        text = format_revenue_report(data, start, end, label, report_type="daily", is_live=False)
+
+        # Confirm all 3 accounts appear under both Deposits and Withdrawals
+        self.assertIn("• Telebirr: *0.00 ETB* (0 ተቀማጭ)", text)
+        self.assertIn("• CBE Birr: *0.00 ETB* (0 ተቀማጭ)", text)
+        self.assertIn("• CBE Mobile Banking: *0.00 ETB* (0 ተቀማጭ)", text)
+        self.assertIn("• Telebirr: *0.00 ETB* (0 ወጪ)", text)
+        self.assertIn("• CBE Birr: *0.00 ETB* (0 ወጪ)", text)
+        self.assertIn("• CBE Mobile Banking: *0.00 ETB* (0 ወጪ)", text)
+
 
 if __name__ == "__main__":
     unittest.main()
