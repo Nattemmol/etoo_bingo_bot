@@ -138,7 +138,9 @@ CREATE TABLE IF NOT EXISTS peerpay_deposits (
     currency          TEXT NOT NULL DEFAULT 'ETB',
     credited          INTEGER NOT NULL DEFAULT 0,
     created_at        TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    payment_method    TEXT NOT NULL DEFAULT 'telebirr',
+    account_identifier TEXT NOT NULL DEFAULT ''
 );
 """
 
@@ -153,7 +155,9 @@ CREATE TABLE IF NOT EXISTS peerpay_withdrawals (
     released      INTEGER NOT NULL DEFAULT 0,
     decision_code TEXT,
     created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    bank_code     TEXT NOT NULL DEFAULT 'telebirr',
+    account_number TEXT NOT NULL DEFAULT ''
 );
 """
 
@@ -261,6 +265,24 @@ async def _ensure_transaction_fingerprint(db: aiosqlite.Connection) -> None:
         await db.commit()
 
 
+async def _ensure_peerpay_account_columns(db: aiosqlite.Connection) -> None:
+    """Non-destructive migration to add account tracking columns if missing."""
+    async with db.execute("PRAGMA table_info(peerpay_deposits)") as cursor:
+        dep_cols = {row[1] for row in await cursor.fetchall()}
+    if "payment_method" not in dep_cols:
+        await db.execute("ALTER TABLE peerpay_deposits ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'telebirr'")
+    if "account_identifier" not in dep_cols:
+        await db.execute("ALTER TABLE peerpay_deposits ADD COLUMN account_identifier TEXT NOT NULL DEFAULT ''")
+
+    async with db.execute("PRAGMA table_info(peerpay_withdrawals)") as cursor:
+        wd_cols = {row[1] for row in await cursor.fetchall()}
+    if "bank_code" not in wd_cols:
+        await db.execute("ALTER TABLE peerpay_withdrawals ADD COLUMN bank_code TEXT NOT NULL DEFAULT 'telebirr'")
+    if "account_number" not in wd_cols:
+        await db.execute("ALTER TABLE peerpay_withdrawals ADD COLUMN account_number TEXT NOT NULL DEFAULT ''")
+    await db.commit()
+
+
 async def init_db() -> None:
     settings.database_path.parent.mkdir(parents=True, exist_ok=True)
     db = await get_db()
@@ -276,6 +298,7 @@ async def init_db() -> None:
         await db.execute(CREATE_ACTIVE_ROUNDS)
         await db.execute(CREATE_GAME_METADATA)
         await _ensure_transaction_fingerprint(db)
+        await _ensure_peerpay_account_columns(db)
         for idx_sql in CREATE_INDEXES:
             await db.execute(idx_sql)
         await db.commit()
@@ -668,8 +691,10 @@ async def upsert_peerpay_deposit(
     currency: str = "ETB",
     merchant_order_id: str | None = None,
     status: str = "created",
+    payment_method: str = "telebirr",
+    account_identifier: str = "",
 ) -> None:
-    """Record/refresh a PeerPay deposit row from a status event."""
+    """Record/refresh a PeerPay deposit row from a status event with account tracking."""
     db = await get_db()
     async with _write_lock:
         # Ensure user exists in users table
@@ -683,15 +708,17 @@ async def upsert_peerpay_deposit(
         await db.execute(
             """
             INSERT INTO peerpay_deposits
-                (payment_id, telegram_id, merchant_order_id, status, amount, currency)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (payment_id, telegram_id, merchant_order_id, status, amount, currency, payment_method, account_identifier)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(payment_id) DO UPDATE SET
                 status = excluded.status,
                 amount = CASE WHEN excluded.amount > 0 THEN excluded.amount ELSE peerpay_deposits.amount END,
                 merchant_order_id = COALESCE(excluded.merchant_order_id, peerpay_deposits.merchant_order_id),
+                payment_method = CASE WHEN excluded.payment_method != '' THEN excluded.payment_method ELSE peerpay_deposits.payment_method END,
+                account_identifier = CASE WHEN excluded.account_identifier != '' THEN excluded.account_identifier ELSE peerpay_deposits.account_identifier END,
                 updated_at = datetime('now')
             """,
-            (payment_id, telegram_id, merchant_order_id, status, amount, currency),
+            (payment_id, telegram_id, merchant_order_id, status, amount, currency, payment_method, account_identifier),
         )
         await db.commit()
 
@@ -744,8 +771,10 @@ async def credit_peerpay_deposit_once(
     telegram_id: int,
     amount: float,
     merchant_order_id: str | None = None,
+    payment_method: str = "telebirr",
+    account_identifier: str = "",
 ) -> tuple[bool, float, bool]:
-    """Idempotently credit a confirmed PeerPay deposit."""
+    """Idempotently credit a confirmed PeerPay deposit with account tracking."""
     db = await get_db()
     async with _write_lock:
         # Ensure user exists in users table
@@ -759,10 +788,10 @@ async def credit_peerpay_deposit_once(
         await db.execute(
             """
             INSERT OR IGNORE INTO peerpay_deposits
-                (payment_id, telegram_id, merchant_order_id, status, amount)
-            VALUES (?, ?, ?, 'succeeded', ?)
+                (payment_id, telegram_id, merchant_order_id, status, amount, payment_method, account_identifier)
+            VALUES (?, ?, ?, 'succeeded', ?, ?, ?)
             """,
-            (payment_id, telegram_id, merchant_order_id, amount),
+            (payment_id, telegram_id, merchant_order_id, amount, payment_method, account_identifier),
         )
 
         async with db.execute(
@@ -807,10 +836,13 @@ async def credit_peerpay_deposit_once(
         await db.execute(
             """
             UPDATE peerpay_deposits
-            SET credited = 1, status = 'succeeded', amount = ?, updated_at = datetime('now')
+            SET credited = 1, status = 'succeeded', amount = ?,
+                payment_method = CASE WHEN ? != '' THEN ? ELSE payment_method END,
+                account_identifier = CASE WHEN ? != '' THEN ? ELSE account_identifier END,
+                updated_at = datetime('now')
             WHERE payment_id = ?
             """,
-            (effective_amount, payment_id),
+            (effective_amount, payment_method, payment_method, account_identifier, account_identifier, payment_id),
         )
         await db.commit()
         return True, new_balance, False
@@ -822,17 +854,19 @@ async def create_peerpay_withdrawal_hold(
     amount: float,
     status: str = "created",
     decision_code: str | None = None,
+    bank_code: str = "telebirr",
+    account_number: str = "",
 ) -> None:
-    """Record a PeerPay withdrawal hold after withdrawal creation."""
+    """Record a PeerPay withdrawal hold after withdrawal creation with account tracking."""
     db = await get_db()
     async with _write_lock:
         await db.execute(
             """
             INSERT OR IGNORE INTO peerpay_withdrawals
-                (payment_id, telegram_id, amount, status, decision_code)
-            VALUES (?, ?, ?, ?, ?)
+                (payment_id, telegram_id, amount, status, decision_code, bank_code, account_number)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (payment_id, telegram_id, amount, status, decision_code),
+            (payment_id, telegram_id, amount, status, decision_code, bank_code, account_number),
         )
         await db.commit()
 
@@ -1045,6 +1079,141 @@ async def get_revenue_report_data(start_time, end_time) -> dict:
     res["cut_10"] = round(res["cut_10"], 2)
     res["cut_50"] = round(res["cut_50"], 2)
     res["grand_total"] = round(res["grand_total"], 2)
+
+    # 2. Deposits by Account / Method
+    dep_query = """
+    SELECT
+        payment_method,
+        account_identifier,
+        COUNT(*) as dep_count,
+        COALESCE(SUM(amount), 0.0) as total_amount
+    FROM peerpay_deposits
+    WHERE credited = 1
+      AND updated_at >= ? AND updated_at < ?
+    GROUP BY payment_method, account_identifier
+    """
+    async with db.execute(dep_query, (start_str, end_str)) as cursor:
+        dep_rows = await cursor.fetchall()
+
+    deposits_map = {}
+    tot_dep_amt = 0.0
+    tot_dep_cnt = 0
+
+    for r in dep_rows:
+        method = (r["payment_method"] or "telebirr").lower()
+        acc_id = (r["account_identifier"] or "").strip()
+        cnt = int(r["dep_count"] or 0)
+        amt = float(r["total_amount"] or 0.0)
+
+        if method == "telebirr":
+            label = f"Telebirr ({acc_id})" if acc_id else "Telebirr"
+        elif method == "cbebirr":
+            label = f"CBE Birr ({acc_id})" if acc_id else "CBE Birr"
+        elif method in ("cbe", "cbe_bank", "mobile_banking"):
+            label = f"CBE Mobile Banking ({acc_id})" if acc_id else "CBE Mobile Banking"
+        else:
+            label = f"{method.capitalize()} ({acc_id})" if acc_id else method.capitalize()
+
+        if label not in deposits_map:
+            deposits_map[label] = {"label": label, "amount": 0.0, "count": 0}
+        deposits_map[label]["amount"] += amt
+        deposits_map[label]["count"] += cnt
+        tot_dep_amt += amt
+        tot_dep_cnt += cnt
+
+    # Check transactions table for any non-PeerPay deposits in the window
+    tx_dep_query = """
+    SELECT description, amount
+    FROM transactions
+    WHERE type = 'deposit' AND status = 'completed'
+      AND created_at >= ? AND created_at < ?
+      AND (fingerprint IS NULL OR NOT fingerprint LIKE 'peerpay_dep:%')
+    """
+    async with db.execute(tx_dep_query, (start_str, end_str)) as cursor:
+        tx_rows = await cursor.fetchall()
+
+    for r in tx_rows:
+        desc = (r["description"] or "").lower()
+        amt = float(r["amount"] or 0.0)
+        if "telebirr" in desc:
+            label = "Telebirr (Direct)"
+        elif "cbebirr" in desc:
+            label = "CBE Birr (Direct)"
+        elif "cbe" in desc:
+            label = "CBE Mobile Banking (Direct)"
+        else:
+            label = "Other Deposit"
+
+        if label not in deposits_map:
+            deposits_map[label] = {"label": label, "amount": 0.0, "count": 0}
+        deposits_map[label]["amount"] += amt
+        deposits_map[label]["count"] += 1
+        tot_dep_amt += amt
+        tot_dep_cnt += 1
+
+    dep_list = []
+    for k, v in deposits_map.items():
+        v["amount"] = round(v["amount"], 2)
+        dep_list.append(v)
+    dep_list.sort(key=lambda x: x["label"])
+
+    res["deposits"] = {
+        "total_amount": round(tot_dep_amt, 2),
+        "total_count": tot_dep_cnt,
+        "by_account": dep_list,
+    }
+
+    # 3. Withdrawals by Account / Method
+    wd_query = """
+    SELECT
+        bank_code,
+        COUNT(*) as wd_count,
+        COALESCE(SUM(amount), 0.0) as total_amount
+    FROM peerpay_withdrawals
+    WHERE captured = 1
+      AND updated_at >= ? AND updated_at < ?
+    GROUP BY bank_code
+    """
+    async with db.execute(wd_query, (start_str, end_str)) as cursor:
+        wd_rows = await cursor.fetchall()
+
+    withdrawals_map = {}
+    tot_wd_amt = 0.0
+    tot_wd_cnt = 0
+
+    for r in wd_rows:
+        bcode = (r["bank_code"] or "telebirr").lower()
+        cnt = int(r["wd_count"] or 0)
+        amt = float(r["total_amount"] or 0.0)
+
+        if bcode == "telebirr":
+            label = "Telebirr"
+        elif bcode == "cbebirr":
+            label = "CBE Birr"
+        elif bcode in ("cbe", "cbe_bank", "mobile_banking"):
+            label = "CBE Mobile Banking"
+        else:
+            label = bcode.capitalize()
+
+        if label not in withdrawals_map:
+            withdrawals_map[label] = {"label": label, "amount": 0.0, "count": 0}
+        withdrawals_map[label]["amount"] += amt
+        withdrawals_map[label]["count"] += cnt
+        tot_wd_amt += amt
+        tot_wd_cnt += cnt
+
+    wd_list = []
+    for k, v in withdrawals_map.items():
+        v["amount"] = round(v["amount"], 2)
+        wd_list.append(v)
+    wd_list.sort(key=lambda x: x["label"])
+
+    res["withdrawals"] = {
+        "total_amount": round(tot_wd_amt, 2),
+        "total_count": tot_wd_cnt,
+        "by_account": wd_list,
+    }
+
     return res
 
 

@@ -158,9 +158,47 @@ def format_revenue_report(
         f"• የተቆረጠ የቤት ኮሚሽን (በካርድ 10 ብር): *{cut_50:,.2f} ETB*",
         "",
         "━━━━━━━━━━━━━━━━━━━━",
-        f"💰 *አጠቃላይ የተጣራ ገቢ (Grand Total):* *{grand_total:,.2f} ETB*",
+        f"💰 *አጠቃላይ የተጣራ የቤት ገቢ (Grand Total):* *{grand_total:,.2f} ETB*",
         "━━━━━━━━━━━━━━━━━━━━",
     ]
+
+    # Deposits Section
+    deposits = data.get("deposits") or {}
+    dep_accounts = deposits.get("by_account") or []
+    tot_dep_amt = float(deposits.get("total_amount") or 0.0)
+    tot_dep_cnt = int(deposits.get("total_count") or 0)
+
+    lines.append("")
+    lines.append("📥 *ጠቅላላ ገቢ በየአካውንቱ (Deposits by Account):*")
+    if dep_accounts:
+        for acc in dep_accounts:
+            lbl = acc.get("label", "Telebirr")
+            amt = float(acc.get("amount") or 0.0)
+            cnt = int(acc.get("count") or 0)
+            lines.append(f"• {lbl}: *{amt:,.2f} ETB* ({cnt} ተቀማጭ)")
+        lines.append(f"➡️ *አጠቃላይ የተቀማጭ ገንዘብ:* *{tot_dep_amt:,.2f} ETB* ({tot_dep_cnt} ተቀማጮች)")
+    else:
+        lines.append("• ምንም የተቀማጭ ገንዘብ እንቅስቃሴ አልነበረም (0.00 ETB)")
+
+    # Withdrawals Section
+    withdrawals = data.get("withdrawals") or {}
+    wd_accounts = withdrawals.get("by_account") or []
+    tot_wd_amt = float(withdrawals.get("total_amount") or 0.0)
+    tot_wd_cnt = int(withdrawals.get("total_count") or 0)
+
+    lines.append("")
+    lines.append("📤 *ጠቅላላ ወጪ በየአካውንቱ (Withdrawals by Account):*")
+    if wd_accounts:
+        for acc in wd_accounts:
+            lbl = acc.get("label", "Telebirr")
+            amt = float(acc.get("amount") or 0.0)
+            cnt = int(acc.get("count") or 0)
+            lines.append(f"• {lbl}: *{amt:,.2f} ETB* ({cnt} ወጪ)")
+        lines.append(f"➡️ *አጠቃላይ የተከፈለ ገንዘብ:* *{tot_wd_amt:,.2f} ETB* ({tot_wd_cnt} ክፍያዎች)")
+    else:
+        lines.append("• ምንም የወጪ ገንዘብ እንቅስቃሴ አልነበረም (0.00 ETB)")
+
+    lines.append("━━━━━━━━━━━━━━━━━━━━")
     return "\n".join(lines)
 
 

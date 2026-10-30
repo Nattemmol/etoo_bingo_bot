@@ -216,11 +216,19 @@ async def _peerpay_reconciliation_loop() -> None:
                         status = dep_data.get("status", "")
                         if status in ("succeeded", "manually_succeeded"):
                             amt = float(dep_data.get("amount") or dep.get("amount") or 0.0)
+                            rec_method = (dep_data.get("payment_method") or dep.get("payment_method") or "telebirr").lower()
+                            rec_assigned = dep_data.get("assigned_account") or dep_data.get("receiving_account") or {}
+                            rec_acc_id = (
+                                rec_assigned.get("masked_identifier") or rec_assigned.get("account_number") or rec_assigned.get("id") or ""
+                                if isinstance(rec_assigned, dict) else str(rec_assigned or "")
+                            )
                             credited, new_bal, is_dup = await db.credit_peerpay_deposit_once(
                                 payment_id=payment_id,
                                 telegram_id=int(tg_id),
                                 amount=amt,
                                 merchant_order_id=dep_data.get("merchant_order_id") or dep.get("merchant_order_id"),
+                                payment_method=rec_method,
+                                account_identifier=rec_acc_id,
                             )
                             if credited:
                                 logger.info(
@@ -2463,6 +2471,22 @@ async def _apply_peerpay_deposit(event_type: str, obj: dict) -> None:
         or status in ("succeeded", "manually_succeeded")
     )
 
+    # Extract payment method and assigned receiving account for multi-account reporting
+    payment_method = (obj.get("payment_method") or "telebirr").lower()
+    assigned_acc = obj.get("assigned_account") or obj.get("receiving_account") or {}
+    if isinstance(assigned_acc, dict):
+        acc_identifier = (
+            assigned_acc.get("masked_identifier")
+            or assigned_acc.get("account_number")
+            or assigned_acc.get("phone")
+            or assigned_acc.get("id")
+            or ""
+        )
+    elif assigned_acc:
+        acc_identifier = str(assigned_acc).strip()
+    else:
+        acc_identifier = ""
+
     if is_succeeded:
         telegram_id = await _resolve_deposit_telegram_id(
             payment_id, obj.get("merchant_customer_id")
@@ -2475,7 +2499,12 @@ async def _apply_peerpay_deposit(event_type: str, obj: dict) -> None:
             return
 
         credited, new_balance, is_dup = await db.credit_peerpay_deposit_once(
-            payment_id, telegram_id, amount, merchant_order_id
+            payment_id=payment_id,
+            telegram_id=telegram_id,
+            amount=amount,
+            merchant_order_id=merchant_order_id,
+            payment_method=payment_method,
+            account_identifier=acc_identifier,
         )
         if credited:
             logger.info(
@@ -2506,12 +2535,14 @@ async def _apply_peerpay_deposit(event_type: str, obj: dict) -> None:
     )
     if telegram_id is not None:
         await db.upsert_peerpay_deposit(
-            payment_id,
-            telegram_id,
-            amount,
-            currency,
-            merchant_order_id,
-            event_type.replace("deposit.", ""),
+            payment_id=payment_id,
+            telegram_id=telegram_id,
+            amount=amount,
+            currency=currency,
+            merchant_order_id=merchant_order_id,
+            status=event_type.replace("deposit.", ""),
+            payment_method=payment_method,
+            account_identifier=acc_identifier,
         )
     elif event_type in _TERMINAL_DEPOSIT_EVENTS:
         logger.info(
@@ -2707,6 +2738,7 @@ async def api_deposit_create(request: Request):
                 currency="ETB",
                 merchant_order_id=dep_data.get("merchant_order_id"),
                 status=dep_data.get("status", "awaiting_transfer"),
+                payment_method=peerpay_method,
             )
         return JSONResponse({
             "ok": True,
@@ -3026,6 +3058,8 @@ async def api_withdraw_create(request: Request):
         telegram_id=tg_id,
         amount=amount,
         status="created",
+        bank_code=peerpay_bank_code,
+        account_number=clean_account,
     )
     await db.add_transaction(
         telegram_id=tg_id,

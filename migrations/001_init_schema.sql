@@ -77,7 +77,9 @@ CREATE TABLE IF NOT EXISTS peerpay_deposits (
     currency          TEXT          NOT NULL DEFAULT 'ETB',
     credited          BOOLEAN       NOT NULL DEFAULT FALSE,
     created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
-    updated_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+    updated_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    payment_method    TEXT          NOT NULL DEFAULT 'telebirr',
+    account_identifier TEXT         NOT NULL DEFAULT ''
 );
 
 -- ---------------------------------------------------------------------------
@@ -94,7 +96,9 @@ CREATE TABLE IF NOT EXISTS peerpay_withdrawals (
     released          BOOLEAN       NOT NULL DEFAULT FALSE,
     decision_code     TEXT,
     created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
-    updated_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+    updated_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    bank_code         TEXT          NOT NULL DEFAULT 'telebirr',
+    account_number    TEXT          NOT NULL DEFAULT ''
 );
 
 -- ---------------------------------------------------------------------------
