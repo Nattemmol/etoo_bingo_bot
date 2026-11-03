@@ -1572,8 +1572,11 @@ function handleMessage(socket, msg) {
       const oldCid = msg.old_card_id;
       const newCid = msg.new_card_id;
       if (state.selectedAt) {
+        const origTime = (msg.selected_at != null)
+          ? msg.selected_at * 1000
+          : (state.selectedAt[oldCid] || Date.now());
         delete state.selectedAt[oldCid];
-        state.selectedAt[newCid] = msg.selected_at ? msg.selected_at * 1000 : Date.now();
+        state.selectedAt[newCid] = origTime;
       }
       delete state.cards[oldCid];
       state.cards[newCid] = msg.card;
@@ -1586,10 +1589,19 @@ function handleMessage(socket, msg) {
       updatePoolChip(oldCid);
       updatePoolChip(newCid);
       renderPool();
-      setTimeout(() => {
-        updatePoolChip(newCid);
-        renderSelectedSlots();
-      }, 4000);
+      renderSelectedSlots();
+
+      // Recalculate remaining lock time based on original selection instance
+      const elapsed = state.selectedAt && state.selectedAt[newCid]
+        ? (Date.now() - state.selectedAt[newCid])
+        : 99999;
+      const remainingMs = Math.max(0, 4000 - elapsed);
+      if (remainingMs > 0) {
+        setTimeout(() => {
+          updatePoolChip(newCid);
+          renderSelectedSlots();
+        }, remainingMs);
+      }
       showBanner(`✅ መጫወቻ #${oldCid} ወደ መጫወቻ #${newCid} በተሳካ ሁኔታ ተቀይሯል!`);
       setTimeout(hideBanner, 3000);
       tg.HapticFeedback?.notificationOccurred("success");

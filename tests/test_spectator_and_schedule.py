@@ -586,6 +586,14 @@ class TestSpectatorAndSchedule(unittest.TestCase):
             self.assertEqual(room.taken_cards[9], uid)
             self.assertEqual(room.pot, 8.0)  # Pot remains unchanged on swap!
 
+            # Verify that card 9 inherited card 8's locked timestamp and CANNOT be unselected/cancelled
+            self.assertEqual(room.card_selection_times[9], swapped['selected_at'])
+            self.assertLess(swapped['selected_at'], time.time() - 4.0)
+            ws.send_text(json.dumps({"type": "unselect_card", "card_id": 9}))
+            err_unsel_locked = self._read_until(ws, "card_error")
+            self.assertIn("ተቆልፏል", err_unsel_locked["message"])
+            self.assertIn(9, room.taken_cards)
+
             # Test invalid swap: swapping a card not owned by player
             ws.send_text(json.dumps({"type": "swap_card", "old_card_id": 99, "new_card_id": 10}))
             err_swap1 = self._read_until(ws, "card_error")

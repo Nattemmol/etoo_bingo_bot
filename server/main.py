@@ -1776,6 +1776,9 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                 now_ts = time.time()
                 new_card = generate_card_by_id(new_card_id)
 
+                # Preserve the original selection time from the old card instance so swapping never resets the 4s lock timer
+                orig_selected_at = room.card_selection_times.get(old_card_id, now_ts)
+
                 # 1. Release old card
                 room.taken_cards.pop(old_card_id, None)
                 room.card_selection_times.pop(old_card_id, None)
@@ -1790,9 +1793,9 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                 except ValueError:
                     player.card_ids.append(new_card_id)
 
-                # 2. Assign new card
+                # 2. Assign new card with the inherited original selection timestamp
                 room.taken_cards[new_card_id] = telegram_id
-                room.card_selection_times[new_card_id] = now_ts
+                room.card_selection_times[new_card_id] = orig_selected_at
                 player.cards[new_card_id] = new_card
                 player.marks[new_card_id] = set()
 
@@ -1804,7 +1807,7 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                         "type": "card_swapped",
                         "old_card_id": old_card_id,
                         "new_card_id": new_card_id,
-                        "selected_at": now_ts,
+                        "selected_at": orig_selected_at,
                         "card": new_card,
                         "card_ids": player.card_ids,
                         "cards": {str(cid): c for cid, c in player.cards.items()},
