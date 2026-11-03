@@ -111,7 +111,7 @@ def get_weekly_window(now: datetime | None = None, is_live: bool = False) -> tup
     return start_eat, end_eat, window_label
 
 
-def format_revenue_report(
+def format_game_revenue_report(
     data: dict[str, Any],
     start_eat: datetime,
     end_eat: datetime,
@@ -119,15 +119,15 @@ def format_revenue_report(
     report_type: str = "daily",
     is_live: bool = False,
 ) -> str:
-    """Format report metrics into standard Amharic message."""
+    """Format game commission metrics into separate Amharic message."""
     start_str = start_eat.strftime("%Y-%m-%d %H:%M")
     end_str = end_eat.strftime("%Y-%m-%d %H:%M")
 
     is_daily = report_type == "daily"
     header_title = (
-        "📊 *ዕለታዊ የገቢ ሪፖርት (Daily Revenue Report)*"
+        "📊 *ዕለታዊ የጨዋታ ገቢ ሪፖርት (Daily Game Revenue Report)*"
         if is_daily
-        else "📈 *ሳምንታዊ የገቢ ሪፖርት (Weekly Revenue Report)*"
+        else "📈 *ሳምንታዊ የጨዋታ ገቢ ሪፖርት (Weekly Game Revenue Report)*"
     )
     if is_live:
         header_title += " ⚡ _[የቀጥታ መረጃ]_"
@@ -161,15 +161,50 @@ def format_revenue_report(
         f"💰 *አጠቃላይ የተጣራ የቤት ገቢ (Grand Total):* *{grand_total:,.2f} ETB*",
         "━━━━━━━━━━━━━━━━━━━━",
     ]
+    return "\n".join(lines)
 
-    # Deposits Section
+
+def format_transfers_report(
+    data: dict[str, Any],
+    start_eat: datetime,
+    end_eat: datetime,
+    window_label: str,
+    report_type: str = "daily",
+    is_live: bool = False,
+) -> str:
+    """Format deposits and withdrawals into separate Amharic message."""
+    start_str = start_eat.strftime("%Y-%m-%d %H:%M")
+    end_str = end_eat.strftime("%Y-%m-%d %H:%M")
+
+    is_daily = report_type == "daily"
+    header_title = (
+        "💳 *ዕለታዊ የዝውውር ሪፖርት - ተቀማጭ እና ወጪ (Daily Transfers Report)*"
+        if is_daily
+        else "💳 *ሳምንታዊ የዝውውር ሪፖርት - ተቀማጭ እና ወጪ (Weekly Transfers Report)*"
+    )
+    if is_live:
+        header_title += " ⚡ _[የቀጥታ መረጃ]_"
+
     deposits = data.get("deposits") or {}
     dep_accounts = deposits.get("by_account") or []
     tot_dep_amt = float(deposits.get("total_amount") or 0.0)
     tot_dep_cnt = int(deposits.get("total_count") or 0)
 
-    lines.append("")
-    lines.append("📥 *ጠቅላላ ገቢ በየአካውንቱ (Deposits by Account):*")
+    withdrawals = data.get("withdrawals") or {}
+    wd_accounts = withdrawals.get("by_account") or []
+    tot_wd_amt = float(withdrawals.get("total_amount") or 0.0)
+    tot_wd_cnt = int(withdrawals.get("total_count") or 0)
+
+    net_flow = tot_dep_amt - tot_wd_amt
+    net_sign = "+" if net_flow >= 0 else ""
+
+    lines = [
+        header_title,
+        f"📅 *ጊዜ:* {window_label}",
+        f"🕒 *ሰዓት (EAT):* `{start_str}` — `{end_str}`",
+        "",
+        "📥 *ጠቅላላ ገቢ በየአካውንቱ (Deposits by Account):*",
+    ]
     if dep_accounts:
         for acc in dep_accounts:
             lbl = acc.get("label", "Telebirr")
@@ -179,12 +214,6 @@ def format_revenue_report(
         lines.append(f"➡️ *አጠቃላይ የተቀማጭ ገንዘብ:* *{tot_dep_amt:,.2f} ETB* ({tot_dep_cnt} ተቀማጮች)")
     else:
         lines.append("• ምንም የተቀማጭ ገንዘብ እንቅስቃሴ አልነበረም (0.00 ETB)")
-
-    # Withdrawals Section
-    withdrawals = data.get("withdrawals") or {}
-    wd_accounts = withdrawals.get("by_account") or []
-    tot_wd_amt = float(withdrawals.get("total_amount") or 0.0)
-    tot_wd_cnt = int(withdrawals.get("total_count") or 0)
 
     lines.append("")
     lines.append("📤 *ጠቅላላ ወጪ በየአካውንቱ (Withdrawals by Account):*")
@@ -199,7 +228,28 @@ def format_revenue_report(
         lines.append("• ምንም የወጪ ገንዘብ እንቅስቃሴ አልነበረም (0.00 ETB)")
 
     lines.append("━━━━━━━━━━━━━━━━━━━━")
+    lines.append(f"⚖️ *የዝውውር ልዩነት (Net Flow):* *{net_sign}{net_flow:,.2f} ETB*")
+    lines.append("━━━━━━━━━━━━━━━━━━━━")
     return "\n".join(lines)
+
+
+def format_revenue_report(
+    data: dict[str, Any],
+    start_eat: datetime,
+    end_eat: datetime,
+    window_label: str,
+    report_type: str = "daily",
+    is_live: bool = False,
+    section: str = "both",
+) -> str:
+    """Format report metrics. Supports section='revenue', section='transfers', or section='both'."""
+    if section in ("rev", "revenue", "game"):
+        return format_game_revenue_report(data, start_eat, end_eat, window_label, report_type=report_type, is_live=is_live)
+    if section in ("tx", "transfers", "transfer"):
+        return format_transfers_report(data, start_eat, end_eat, window_label, report_type=report_type, is_live=is_live)
+    rev_part = format_game_revenue_report(data, start_eat, end_eat, window_label, report_type=report_type, is_live=is_live)
+    tx_part = format_transfers_report(data, start_eat, end_eat, window_label, report_type=report_type, is_live=is_live)
+    return f"{rev_part}\n\n{tx_part}"
 
 
 async def get_report_recipients() -> set[int]:
@@ -265,27 +315,33 @@ async def send_report_to_recipients(bot: Bot, message_text: str) -> dict[str, in
 
 
 async def trigger_scheduled_daily_report(bot: Bot, now: datetime | None = None) -> bool:
-    """Generate and dispatch the scheduled 24-hour daily report."""
+    """Generate and dispatch separate scheduled 24-hour daily reports (revenue & transfers)."""
     if now is None:
         now = get_eat_now()
 
     start_eat, end_eat, window_label = get_daily_window(now, is_live=False)
     data = await db.get_revenue_report_data(start_eat, end_eat)
-    report_text = format_revenue_report(data, start_eat, end_eat, window_label, report_type="daily", is_live=False)
-    res = await send_report_to_recipients(bot, report_text)
-    return res["sent"] > 0
+    rev_text = format_game_revenue_report(data, start_eat, end_eat, window_label, report_type="daily", is_live=False)
+    tx_text = format_transfers_report(data, start_eat, end_eat, window_label, report_type="daily", is_live=False)
+
+    res1 = await send_report_to_recipients(bot, rev_text)
+    res2 = await send_report_to_recipients(bot, tx_text)
+    return res1["sent"] > 0 or res2["sent"] > 0
 
 
 async def trigger_scheduled_weekly_report(bot: Bot, now: datetime | None = None) -> bool:
-    """Generate and dispatch the scheduled 7-day weekly report."""
+    """Generate and dispatch separate scheduled 7-day weekly reports (revenue & transfers)."""
     if now is None:
         now = get_eat_now()
 
     start_eat, end_eat, window_label = get_weekly_window(now, is_live=False)
     data = await db.get_revenue_report_data(start_eat, end_eat)
-    report_text = format_revenue_report(data, start_eat, end_eat, window_label, report_type="weekly", is_live=False)
-    res = await send_report_to_recipients(bot, report_text)
-    return res["sent"] > 0
+    rev_text = format_game_revenue_report(data, start_eat, end_eat, window_label, report_type="weekly", is_live=False)
+    tx_text = format_transfers_report(data, start_eat, end_eat, window_label, report_type="weekly", is_live=False)
+
+    res1 = await send_report_to_recipients(bot, rev_text)
+    res2 = await send_report_to_recipients(bot, tx_text)
+    return res1["sent"] > 0 or res2["sent"] > 0
 
 
 async def run_revenue_report_scheduler(bot: Bot) -> None:
@@ -376,27 +432,62 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if sub in ("daily", "day", "d"):
             start_eat, end_eat, label = get_daily_window(now, is_live=True)
             data = await db.get_revenue_report_data(start_eat, end_eat)
-            text = format_revenue_report(data, start_eat, end_eat, label, report_type="daily", is_live=True)
-            await message.reply_text(text, parse_mode="Markdown")
+            target = args[1] if len(args) > 1 else "all"
+            if target in ("rev", "revenue", "game"):
+                rev_text = format_game_revenue_report(data, start_eat, end_eat, label, report_type="daily", is_live=True)
+                await message.reply_text(rev_text, parse_mode="Markdown")
+            elif target in ("tx", "transfers", "transfer", "bank"):
+                tx_text = format_transfers_report(data, start_eat, end_eat, label, report_type="daily", is_live=True)
+                await message.reply_text(tx_text, parse_mode="Markdown")
+            else:
+                rev_text = format_game_revenue_report(data, start_eat, end_eat, label, report_type="daily", is_live=True)
+                tx_text = format_transfers_report(data, start_eat, end_eat, label, report_type="daily", is_live=True)
+                await message.reply_text(rev_text, parse_mode="Markdown")
+                await message.reply_text(tx_text, parse_mode="Markdown")
 
         elif sub in ("weekly", "week", "w"):
             start_eat, end_eat, label = get_weekly_window(now, is_live=True)
             data = await db.get_revenue_report_data(start_eat, end_eat)
-            text = format_revenue_report(data, start_eat, end_eat, label, report_type="weekly", is_live=True)
-            await message.reply_text(text, parse_mode="Markdown")
+            target = args[1] if len(args) > 1 else "all"
+            if target in ("rev", "revenue", "game"):
+                rev_text = format_game_revenue_report(data, start_eat, end_eat, label, report_type="weekly", is_live=True)
+                await message.reply_text(rev_text, parse_mode="Markdown")
+            elif target in ("tx", "transfers", "transfer", "bank"):
+                tx_text = format_transfers_report(data, start_eat, end_eat, label, report_type="weekly", is_live=True)
+                await message.reply_text(tx_text, parse_mode="Markdown")
+            else:
+                rev_text = format_game_revenue_report(data, start_eat, end_eat, label, report_type="weekly", is_live=True)
+                tx_text = format_transfers_report(data, start_eat, end_eat, label, report_type="weekly", is_live=True)
+                await message.reply_text(rev_text, parse_mode="Markdown")
+                await message.reply_text(tx_text, parse_mode="Markdown")
 
-        else:
-            # Default "all": show both daily live and weekly live
+        elif sub in ("rev", "revenue", "game"):
             start_d, end_d, label_d = get_daily_window(now, is_live=True)
             data_d = await db.get_revenue_report_data(start_d, end_d)
-            text_d = format_revenue_report(data_d, start_d, end_d, label_d, report_type="daily", is_live=True)
+            rev_d = format_game_revenue_report(data_d, start_d, end_d, label_d, report_type="daily", is_live=True)
+            await message.reply_text(rev_d, parse_mode="Markdown")
+
+        elif sub in ("tx", "transfers", "transfer", "bank"):
+            start_d, end_d, label_d = get_daily_window(now, is_live=True)
+            data_d = await db.get_revenue_report_data(start_d, end_d)
+            tx_d = format_transfers_report(data_d, start_d, end_d, label_d, report_type="daily", is_live=True)
+            await message.reply_text(tx_d, parse_mode="Markdown")
+
+        else:
+            # Default "all": show separated Daily reports, and separated Weekly reports
+            start_d, end_d, label_d = get_daily_window(now, is_live=True)
+            data_d = await db.get_revenue_report_data(start_d, end_d)
+            rev_d = format_game_revenue_report(data_d, start_d, end_d, label_d, report_type="daily", is_live=True)
+            tx_d = format_transfers_report(data_d, start_d, end_d, label_d, report_type="daily", is_live=True)
+            await message.reply_text(rev_d, parse_mode="Markdown")
+            await message.reply_text(tx_d, parse_mode="Markdown")
 
             start_w, end_w, label_w = get_weekly_window(now, is_live=True)
             data_w = await db.get_revenue_report_data(start_w, end_w)
-            text_w = format_revenue_report(data_w, start_w, end_w, label_w, report_type="weekly", is_live=True)
-
-            await message.reply_text(text_d, parse_mode="Markdown")
-            await message.reply_text(text_w, parse_mode="Markdown")
+            rev_w = format_game_revenue_report(data_w, start_w, end_w, label_w, report_type="weekly", is_live=True)
+            tx_w = format_transfers_report(data_w, start_w, end_w, label_w, report_type="weekly", is_live=True)
+            await message.reply_text(rev_w, parse_mode="Markdown")
+            await message.reply_text(tx_w, parse_mode="Markdown")
 
     except Exception as exc:
         logger.error("Failed to generate on-demand report: %s", exc, exc_info=True)

@@ -1,13 +1,16 @@
-"""Unit tests for automated and on-demand daily/weekly revenue reporting."""
+"""Unit tests for automated and on-demand daily/weekly revenue and transfers reporting."""
 
 import asyncio
 from datetime import datetime, timedelta, timezone
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from bot.reports import (
     EAT,
     DEFAULT_OWNER_ID,
     add_report_recipient,
+    format_game_revenue_report,
+    format_transfers_report,
     format_revenue_report,
     get_daily_window,
     get_report_recipients,
@@ -61,7 +64,7 @@ class TestRevenueReportingWindows(unittest.TestCase):
 
 
 class TestRevenueReportFormatting(unittest.TestCase):
-    def test_format_daily_report(self):
+    def test_format_game_revenue_report_daily(self):
         data = {
             "games_10": 15,
             "cards_10": 45,
@@ -76,9 +79,9 @@ class TestRevenueReportFormatting(unittest.TestCase):
         start = datetime(2026, 10, 26, 21, 0, tzinfo=EAT)
         end = datetime(2026, 10, 27, 21, 0, tzinfo=EAT)
         label = "ከትላንት ማታ 3:00 እስከ ዛሬ ማታ 3:00 (24 ሰዓት)"
-        text = format_revenue_report(data, start, end, label, report_type="daily", is_live=False)
+        text = format_game_revenue_report(data, start, end, label, report_type="daily", is_live=False)
 
-        self.assertIn("ዕለታዊ የገቢ ሪፖርት", text)
+        self.assertIn("ዕለታዊ የጨዋታ ገቢ ሪፖርት", text)
         self.assertIn("የ 10 ብር ጨዋታ", text)
         self.assertIn("• የተካሄዱ ጨዋታዎች: *15*", text)
         self.assertIn("• የተሸጡ ካርቴላዎች: *45*", text)
@@ -87,7 +90,7 @@ class TestRevenueReportFormatting(unittest.TestCase):
         self.assertIn("300.00 ETB", text)
         self.assertIn("አጠቃላይ የተጣራ የቤት ገቢ (Grand Total):* *390.00 ETB*", text)
 
-    def test_format_weekly_report(self):
+    def test_format_game_revenue_report_weekly(self):
         data = {
             "games_10": 100,
             "cards_10": 300,
@@ -102,22 +105,15 @@ class TestRevenueReportFormatting(unittest.TestCase):
         start = datetime(2026, 10, 18, 21, 0, tzinfo=EAT)
         end = datetime(2026, 10, 25, 21, 0, tzinfo=EAT)
         label = "ካለፈው እሁድ ማታ 3:00 እስከ ዛሬ እሁድ ማታ 3:00 (7 ቀናት)"
-        text = format_revenue_report(data, start, end, label, report_type="weekly", is_live=False)
+        text = format_game_revenue_report(data, start, end, label, report_type="weekly", is_live=False)
 
-        self.assertIn("ሳምንታዊ የገቢ ሪፖርት", text)
+        self.assertIn("ሳምንታዊ የጨዋታ ገቢ ሪፖርት", text)
         self.assertIn("2,700.00 ETB", text)
         self.assertIn("600.00 ETB", text)
         self.assertIn("2,100.00 ETB", text)
 
-    def test_format_report_with_deposits_and_withdrawals(self):
+    def test_format_transfers_report(self):
         data = {
-            "games_10": 10,
-            "cards_10": 30,
-            "cut_10": 60.0,
-            "games_50": 2,
-            "cards_50": 40,
-            "cut_50": 400.0,
-            "grand_total": 460.0,
             "deposits": {
                 "total_amount": 10600.0,
                 "total_count": 8,
@@ -139,8 +135,9 @@ class TestRevenueReportFormatting(unittest.TestCase):
         start = datetime(2026, 10, 26, 21, 0, tzinfo=EAT)
         end = datetime(2026, 10, 27, 21, 0, tzinfo=EAT)
         label = "ከትላንት ማታ 3:00 እስከ ዛሬ ማታ 3:00 (24 ሰዓት)"
-        text = format_revenue_report(data, start, end, label, report_type="daily", is_live=False)
+        text = format_transfers_report(data, start, end, label, report_type="daily", is_live=False)
 
+        self.assertIn("ዕለታዊ የዝውውር ሪፖርት - ተቀማጭ እና ወጪ", text)
         self.assertIn("ጠቅላላ ገቢ በየአካውንቱ (Deposits by Account)", text)
         self.assertIn("Telebirr (09***1111): *5,200.00 ETB* (4 ተቀማጭ)", text)
         self.assertIn("Telebirr (09***2222): *3,400.00 ETB* (2 ተቀማጭ)", text)
@@ -151,10 +148,48 @@ class TestRevenueReportFormatting(unittest.TestCase):
         self.assertIn("Telebirr: *3,000.00 ETB* (2 ወጪ)", text)
         self.assertIn("CBE Birr: *1,500.00 ETB* (1 ወጪ)", text)
         self.assertIn("አጠቃላይ የተከፈለ ገንዘብ:* *4,500.00 ETB* (3 ክፍያዎች)", text)
+        self.assertIn("የዝውውር ልዩነት (Net Flow):* *+6,100.00 ETB*", text)
+
+    def test_default_channels_always_present(self):
+        """Verify that Telebirr, CBE Birr, and CBE Mobile Banking are always in the report, even with 0 activity."""
+        data = {
+            "deposits": {
+                "total_amount": 0.0,
+                "total_count": 0,
+                "by_account": [
+                    {"label": "Telebirr", "amount": 0.0, "count": 0},
+                    {"label": "CBE Birr", "amount": 0.0, "count": 0},
+                    {"label": "CBE Mobile Banking", "amount": 0.0, "count": 0},
+                ]
+            },
+            "withdrawals": {
+                "total_amount": 0.0,
+                "total_count": 0,
+                "by_account": [
+                    {"label": "Telebirr", "amount": 0.0, "count": 0},
+                    {"label": "CBE Birr", "amount": 0.0, "count": 0},
+                    {"label": "CBE Mobile Banking", "amount": 0.0, "count": 0},
+                ]
+            }
+        }
+        start = datetime(2026, 10, 26, 21, 0, tzinfo=EAT)
+        end = datetime(2026, 10, 27, 21, 0, tzinfo=EAT)
+        label = "ከትላንት ማታ 3:00 እስከ ዛሬ ማታ 3:00 (24 ሰዓት)"
+        text = format_transfers_report(data, start, end, label, report_type="daily", is_live=False)
+
+        # Confirm all 3 accounts appear under both Deposits and Withdrawals
+        self.assertIn("• Telebirr: *0.00 ETB* (0 ተቀማጭ)", text)
+        self.assertIn("• CBE Birr: *0.00 ETB* (0 ተቀማጭ)", text)
+        self.assertIn("• CBE Mobile Banking: *0.00 ETB* (0 ተቀማጭ)", text)
+        self.assertIn("• Telebirr: *0.00 ETB* (0 ወጪ)", text)
+        self.assertIn("• CBE Birr: *0.00 ETB* (0 ወጪ)", text)
+        self.assertIn("• CBE Mobile Banking: *0.00 ETB* (0 ወጪ)", text)
 
 
 class TestRevenueReportRecipients(unittest.IsolatedAsyncioTestCase):
-    async def test_owner_authorized(self):
+    @patch("bot.reports.get_report_recipients", new_callable=AsyncMock)
+    async def test_owner_authorized(self, mock_recipients):
+        mock_recipients.return_value = {DEFAULT_OWNER_ID}
         class MockUser:
             id = DEFAULT_OWNER_ID
             username = "Ettmol"
@@ -162,7 +197,11 @@ class TestRevenueReportRecipients(unittest.IsolatedAsyncioTestCase):
         is_auth = await _is_authorized_reporter(MockUser())
         self.assertTrue(is_auth)
 
-    async def test_username_case_insensitive_authorization(self):
+    @patch("bot.reports.add_report_recipient", new_callable=AsyncMock)
+    @patch("bot.reports.get_report_recipients", new_callable=AsyncMock)
+    async def test_username_case_insensitive_authorization(self, mock_recipients, mock_add):
+        mock_recipients.return_value = {DEFAULT_OWNER_ID}
+        mock_add.return_value = True
         class MockUser:
             id = 9999999999
             username = "ettmol"
@@ -170,7 +209,9 @@ class TestRevenueReportRecipients(unittest.IsolatedAsyncioTestCase):
         is_auth = await _is_authorized_reporter(MockUser())
         self.assertTrue(is_auth)
 
-    async def test_unauthorized_user(self):
+    @patch("bot.reports.get_report_recipients", new_callable=AsyncMock)
+    async def test_unauthorized_user(self, mock_recipients):
+        mock_recipients.return_value = {DEFAULT_OWNER_ID}
         class MockUser:
             id = 123456
             username = "random_user"
@@ -343,45 +384,6 @@ class TestDatabaseRevenueQuery(unittest.TestCase):
         self.assertEqual(wd_totals["cbe"], 700.0)
 
         db.close()
-
-    def test_default_channels_always_present(self):
-        """Verify that Telebirr, CBE Birr, and CBE Mobile Banking are always in the report, even with 0 activity."""
-        from bot.reports import format_revenue_report
-        data = {
-            "games_10": 0, "cards_10": 0, "cut_10": 0.0,
-            "games_50": 0, "cards_50": 0, "cut_50": 0.0,
-            "grand_total": 0.0,
-            "deposits": {
-                "total_amount": 0.0,
-                "total_count": 0,
-                "by_account": [
-                    {"label": "Telebirr", "amount": 0.0, "count": 0},
-                    {"label": "CBE Birr", "amount": 0.0, "count": 0},
-                    {"label": "CBE Mobile Banking", "amount": 0.0, "count": 0},
-                ]
-            },
-            "withdrawals": {
-                "total_amount": 0.0,
-                "total_count": 0,
-                "by_account": [
-                    {"label": "Telebirr", "amount": 0.0, "count": 0},
-                    {"label": "CBE Birr", "amount": 0.0, "count": 0},
-                    {"label": "CBE Mobile Banking", "amount": 0.0, "count": 0},
-                ]
-            }
-        }
-        start = datetime(2026, 10, 26, 21, 0, tzinfo=EAT)
-        end = datetime(2026, 10, 27, 21, 0, tzinfo=EAT)
-        label = "ከትላንት ማታ 3:00 እስከ ዛሬ ማታ 3:00 (24 ሰዓት)"
-        text = format_revenue_report(data, start, end, label, report_type="daily", is_live=False)
-
-        # Confirm all 3 accounts appear under both Deposits and Withdrawals
-        self.assertIn("• Telebirr: *0.00 ETB* (0 ተቀማጭ)", text)
-        self.assertIn("• CBE Birr: *0.00 ETB* (0 ተቀማጭ)", text)
-        self.assertIn("• CBE Mobile Banking: *0.00 ETB* (0 ተቀማጭ)", text)
-        self.assertIn("• Telebirr: *0.00 ETB* (0 ወጪ)", text)
-        self.assertIn("• CBE Birr: *0.00 ETB* (0 ወጪ)", text)
-        self.assertIn("• CBE Mobile Banking: *0.00 ETB* (0 ወጪ)", text)
 
 
 if __name__ == "__main__":
