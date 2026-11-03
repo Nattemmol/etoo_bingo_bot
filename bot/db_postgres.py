@@ -803,6 +803,15 @@ async def capture_peerpay_withdrawal_once(payment_id: str) -> tuple[bool, int]:
                 """,
                 payment_id,
             )
+            # Mark transaction as completed in transactions table
+            await conn.execute(
+                """
+                UPDATE transactions
+                SET status = 'completed'
+                WHERE (description LIKE $1 OR fingerprint = $2) AND status = 'pending'
+                """,
+                f"%{payment_id}%", f"peerpay_wd:{payment_id}",
+            )
             return True, int(row["telegram_id"])
 
 
@@ -864,6 +873,15 @@ async def release_peerpay_withdrawal_once(payment_id: str) -> tuple[bool, float]
                   AND released = FALSE
                 """,
                 payment_id,
+            )
+            # Mark pending transaction as cancelled
+            await conn.execute(
+                """
+                UPDATE transactions
+                SET status = 'cancelled'
+                WHERE (description LIKE $1 OR fingerprint = $2) AND status = 'pending'
+                """,
+                f"%{payment_id}%", f"peerpay_wd:{payment_id}",
             )
             return True, new_balance
 
@@ -984,7 +1002,9 @@ async def get_revenue_report_data(start_time, end_time) -> dict:
             COUNT(*) as dep_count,
             COALESCE(SUM(amount), 0.0) as total_amount
         FROM peerpay_deposits
-        WHERE credited = TRUE
+        WHERE (credited = TRUE OR status IN ('succeeded', 'manually_succeeded', 'approved', 'completed'))
+          AND status NOT IN ('failed', 'manually_failed', 'cancelled', 'expired', 'review_required', 'pending', 'created', 'awaiting_transfer')
+          AND amount > 0
           AND updated_at >= $1 AND updated_at < $2
         GROUP BY payment_method, account_identifier
         """
@@ -1028,7 +1048,8 @@ async def get_revenue_report_data(start_time, end_time) -> dict:
         FROM transactions
         WHERE type = 'deposit' AND status = 'completed'
           AND created_at >= $1 AND created_at < $2
-          AND (fingerprint IS NULL OR NOT fingerprint LIKE 'peerpay_dep:%')
+          AND (fingerprint IS NULL OR (NOT fingerprint LIKE 'peerpay_dep:%' AND NOT fingerprint LIKE 'peerpay_wd_refund:%'))
+          AND (description IS NULL OR (NOT description LIKE '%refund%' AND NOT description LIKE '%bonus%'))
         """
         tx_rows = await pool.fetch(tx_dep_query, start_utc, end_utc)
 
@@ -1091,7 +1112,10 @@ async def get_revenue_report_data(start_time, end_time) -> dict:
             COUNT(*) as wd_count,
             COALESCE(SUM(amount), 0.0) as total_amount
         FROM peerpay_withdrawals
-        WHERE captured = TRUE
+        WHERE (captured = TRUE OR status IN ('succeeded', 'captured', 'completed', 'approved', 'manually_succeeded'))
+          AND released = FALSE
+          AND status NOT IN ('held', 'created', 'pending', 'released', 'failed', 'cancelled', 'expired', 'review_required')
+          AND amount > 0
           AND updated_at >= $1 AND updated_at < $2
         GROUP BY bank_code
         """
@@ -1125,6 +1149,8 @@ async def get_revenue_report_data(start_time, end_time) -> dict:
         SELECT description, amount
         FROM transactions
         WHERE type IN ('withdraw', 'withdrawal')
+          AND status IN ('completed', 'succeeded', 'approved')
+          AND status NOT IN ('pending', 'held', 'cancelled', 'failed', 'released')
           AND created_at >= $1 AND created_at < $2
         """
         tx_wd_rows = await pool.fetch(tx_wd_query, start_utc, end_utc)

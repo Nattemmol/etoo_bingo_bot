@@ -317,6 +317,7 @@ class TestDatabaseRevenueQuery(unittest.TestCase):
                 telegram_id INTEGER,
                 amount REAL,
                 captured INTEGER DEFAULT 0,
+                released INTEGER DEFAULT 0,
                 status TEXT,
                 updated_at TEXT,
                 bank_code TEXT DEFAULT 'telebirr',
@@ -352,11 +353,14 @@ class TestDatabaseRevenueQuery(unittest.TestCase):
         start_str = "2026-10-26 18:00:00"
         end_str = "2026-10-27 18:00:00"
 
-        # Query deposits
+        # Query deposits (using production WHERE clause)
         dep_query = """
         SELECT payment_method, account_identifier, COUNT(*) as dep_count, COALESCE(SUM(amount), 0.0) as total_amount
         FROM peerpay_deposits
-        WHERE credited = 1 AND updated_at >= ? AND updated_at < ?
+        WHERE (credited = 1 OR status IN ('succeeded', 'manually_succeeded', 'approved', 'completed'))
+          AND status NOT IN ('failed', 'manually_failed', 'cancelled', 'expired', 'review_required', 'pending', 'created', 'awaiting_transfer')
+          AND amount > 0
+          AND updated_at >= ? AND updated_at < ?
         GROUP BY payment_method, account_identifier
         """
         cursor = db.execute(dep_query, (start_str, end_str))
@@ -368,11 +372,15 @@ class TestDatabaseRevenueQuery(unittest.TestCase):
         self.assertEqual(totals_by_acc["telebirr_0988776655"], 2000.0)
         self.assertEqual(totals_by_acc["cbebirr_"], 500.0)
 
-        # Query withdrawals
+        # Query withdrawals (using production WHERE clause)
         wd_query = """
         SELECT bank_code, COUNT(*) as wd_count, COALESCE(SUM(amount), 0.0) as total_amount
         FROM peerpay_withdrawals
-        WHERE captured = 1 AND updated_at >= ? AND updated_at < ?
+        WHERE (captured = 1 OR status IN ('succeeded', 'captured', 'completed', 'approved', 'manually_succeeded'))
+          AND released = 0
+          AND status NOT IN ('held', 'created', 'pending', 'released', 'failed', 'cancelled', 'expired', 'review_required')
+          AND amount > 0
+          AND updated_at >= ? AND updated_at < ?
         GROUP BY bank_code
         """
         cursor = db.execute(wd_query, (start_str, end_str))
@@ -382,6 +390,175 @@ class TestDatabaseRevenueQuery(unittest.TestCase):
         wd_totals = {r["bank_code"]: r["total_amount"] for r in wd_rows}
         self.assertEqual(wd_totals["telebirr"], 300.0)
         self.assertEqual(wd_totals["cbe"], 700.0)
+
+        db.close()
+
+    def test_approved_and_successful_transfers_filtering(self):
+        """Verify that pending, failed, cancelled, and refund records are strictly excluded from transfers report."""
+        import sqlite3
+        db = sqlite3.connect(":memory:")
+        db.row_factory = sqlite3.Row
+
+        db.execute("""
+            CREATE TABLE peerpay_deposits (
+                payment_id TEXT PRIMARY KEY,
+                amount REAL,
+                credited INTEGER DEFAULT 0,
+                status TEXT,
+                updated_at TEXT,
+                payment_method TEXT DEFAULT 'telebirr',
+                account_identifier TEXT DEFAULT ''
+            );
+        """)
+        db.execute("""
+            CREATE TABLE peerpay_withdrawals (
+                payment_id TEXT PRIMARY KEY,
+                amount REAL,
+                captured INTEGER DEFAULT 0,
+                released INTEGER DEFAULT 0,
+                status TEXT,
+                updated_at TEXT,
+                bank_code TEXT DEFAULT 'telebirr',
+                account_number TEXT DEFAULT ''
+            );
+        """)
+        db.execute("""
+            CREATE TABLE transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                type TEXT,
+                amount REAL,
+                status TEXT,
+                description TEXT,
+                fingerprint TEXT,
+                created_at TEXT
+            );
+        """)
+
+        # 1. Deposits test data:
+        # A. Succeeded deposit -> SHOULD BE INCLUDED (500 ETB)
+        db.execute(
+            "INSERT INTO peerpay_deposits VALUES ('dep_ok', 500.0, 1, 'succeeded', '2026-10-27 10:00:00', 'telebirr', '')"
+        )
+        # B. Manually approved deposit -> SHOULD BE INCLUDED (300 ETB)
+        db.execute(
+            "INSERT INTO peerpay_deposits VALUES ('dep_manual', 300.0, 1, 'manually_succeeded', '2026-10-27 11:00:00', 'cbebirr', '')"
+        )
+        # C. Pending deposit -> MUST BE EXCLUDED (1000 ETB)
+        db.execute(
+            "INSERT INTO peerpay_deposits VALUES ('dep_pending', 1000.0, 0, 'awaiting_transfer', '2026-10-27 12:00:00', 'telebirr', '')"
+        )
+        # D. Review required / uncredited deposit -> MUST BE EXCLUDED (250 ETB)
+        db.execute(
+            "INSERT INTO peerpay_deposits VALUES ('dep_review', 250.0, 0, 'review_required', '2026-10-27 12:30:00', 'telebirr', '')"
+        )
+        # E. Failed deposit -> MUST BE EXCLUDED (400 ETB)
+        db.execute(
+            "INSERT INTO peerpay_deposits VALUES ('dep_fail', 400.0, 0, 'failed', '2026-10-27 13:00:00', 'telebirr', '')"
+        )
+
+        # 2. Withdrawals test data:
+        # A. Succeeded withdrawal -> SHOULD BE INCLUDED (200 ETB)
+        db.execute(
+            "INSERT INTO peerpay_withdrawals VALUES ('wd_ok', 200.0, 1, 0, 'succeeded', '2026-10-27 14:00:00', 'telebirr', '')"
+        )
+        # B. Manually approved / succeeded withdrawal -> SHOULD BE INCLUDED (150 ETB)
+        db.execute(
+            "INSERT INTO peerpay_withdrawals VALUES ('wd_man_appr', 150.0, 1, 0, 'approved', '2026-10-27 14:30:00', 'cbe', '')"
+        )
+        # C. Created / pending withdrawal hold -> MUST BE EXCLUDED (800 ETB)
+        db.execute(
+            "INSERT INTO peerpay_withdrawals VALUES ('wd_pending', 800.0, 0, 0, 'created', '2026-10-27 15:00:00', 'telebirr', '')"
+        )
+        # D. Released / cancelled withdrawal -> MUST BE EXCLUDED (600 ETB)
+        db.execute(
+            "INSERT INTO peerpay_withdrawals VALUES ('wd_released', 600.0, 0, 1, 'released', '2026-10-27 16:00:00', 'cbebirr', '')"
+        )
+
+        # 3. Transactions fallback test data:
+        # A. Completed manual deposit -> SHOULD BE INCLUDED (100 ETB)
+        db.execute(
+            "INSERT INTO transactions VALUES (1, 'deposit', 100.0, 'completed', 'Manual telebirr topup', NULL, '2026-10-27 10:15:00')"
+        )
+        # B. Pending deposit -> MUST BE EXCLUDED (90 ETB)
+        db.execute(
+            "INSERT INTO transactions VALUES (2, 'deposit', 90.0, 'pending', 'Pending telebirr deposit', NULL, '2026-10-27 10:20:00')"
+        )
+        # C. Withdrawal refund deposit -> MUST BE EXCLUDED (600 ETB)
+        db.execute(
+            "INSERT INTO transactions VALUES (3, 'deposit', 600.0, 'completed', 'PeerPay withdrawal refund — wd_released', 'peerpay_wd_refund:wd_released', '2026-10-27 16:00:00')"
+        )
+        # D. Pending withdrawal transaction -> MUST BE EXCLUDED (800 ETB)
+        db.execute(
+            "INSERT INTO transactions VALUES (4, 'withdraw', 800.0, 'pending', 'PeerPay withdrawal hold — wd_pending (telebirr)', NULL, '2026-10-27 15:00:00')"
+        )
+        # E. Completed withdrawal transaction -> SHOULD BE INCLUDED (50 ETB)
+        db.execute(
+            "INSERT INTO transactions VALUES (5, 'withdraw', 50.0, 'completed', 'Completed manual withdrawal (Telebirr)', NULL, '2026-10-27 15:30:00')"
+        )
+
+        db.commit()
+
+        start_str = "2026-10-26 18:00:00"
+        end_str = "2026-10-27 18:00:00"
+
+        # Test deposits query
+        dep_query = """
+        SELECT payment_method, account_identifier, COUNT(*) as dep_count, COALESCE(SUM(amount), 0.0) as total_amount
+        FROM peerpay_deposits
+        WHERE (credited = 1 OR status IN ('succeeded', 'manually_succeeded', 'approved', 'completed'))
+          AND status NOT IN ('failed', 'manually_failed', 'cancelled', 'expired', 'review_required', 'pending', 'created', 'awaiting_transfer')
+          AND amount > 0
+          AND updated_at >= ? AND updated_at < ?
+        GROUP BY payment_method, account_identifier
+        """
+        dep_rows = db.execute(dep_query, (start_str, end_str)).fetchall()
+        tot_dep = sum(r["total_amount"] for r in dep_rows)
+        # Only dep_ok (500) and dep_manual (300) = 800 ETB
+        self.assertEqual(tot_dep, 800.0)
+        self.assertEqual(sum(r["dep_count"] for r in dep_rows), 2)
+
+        # Test fallback deposits query (refund excluded, pending excluded)
+        tx_dep_query = """
+        SELECT description, amount
+        FROM transactions
+        WHERE type = 'deposit' AND status = 'completed'
+          AND created_at >= ? AND created_at < ?
+          AND (fingerprint IS NULL OR (NOT fingerprint LIKE 'peerpay_dep:%' AND NOT fingerprint LIKE 'peerpay_wd_refund:%'))
+          AND (description IS NULL OR (NOT description LIKE '%refund%' AND NOT description LIKE '%bonus%'))
+        """
+        tx_dep_rows = db.execute(tx_dep_query, (start_str, end_str)).fetchall()
+        self.assertEqual(len(tx_dep_rows), 1)
+        self.assertEqual(tx_dep_rows[0]["amount"], 100.0)
+
+        # Test withdrawals query
+        wd_query = """
+        SELECT bank_code, COUNT(*) as wd_count, COALESCE(SUM(amount), 0.0) as total_amount
+        FROM peerpay_withdrawals
+        WHERE (captured = 1 OR status IN ('succeeded', 'captured', 'completed', 'approved', 'manually_succeeded'))
+          AND released = 0
+          AND status NOT IN ('held', 'created', 'pending', 'released', 'failed', 'cancelled', 'expired', 'review_required')
+          AND amount > 0
+          AND updated_at >= ? AND updated_at < ?
+        GROUP BY bank_code
+        """
+        wd_rows = db.execute(wd_query, (start_str, end_str)).fetchall()
+        tot_wd = sum(r["total_amount"] for r in wd_rows)
+        # Only wd_ok (200) and wd_man_appr (150) = 350 ETB
+        self.assertEqual(tot_wd, 350.0)
+        self.assertEqual(sum(r["wd_count"] for r in wd_rows), 2)
+
+        # Test fallback withdrawals query (pending excluded)
+        tx_wd_query = """
+        SELECT description, amount
+        FROM transactions
+        WHERE type IN ('withdraw', 'withdrawal')
+          AND status IN ('completed', 'succeeded', 'approved')
+          AND status NOT IN ('pending', 'held', 'cancelled', 'failed', 'released')
+          AND created_at >= ? AND created_at < ?
+        """
+        tx_wd_rows = db.execute(tx_wd_query, (start_str, end_str)).fetchall()
+        self.assertEqual(len(tx_wd_rows), 1)
+        self.assertEqual(tx_wd_rows[0]["amount"], 50.0)
 
         db.close()
 

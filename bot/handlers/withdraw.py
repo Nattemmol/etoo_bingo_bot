@@ -340,6 +340,8 @@ async def withdraw_account_handler(update: Update, context: ContextTypes.DEFAULT
         telegram_id=user.id,
         amount=amount,
         status="created",
+        bank_code=peerpay_bank_code,
+        account_number=clean_dest_account,
     )
     await db.add_transaction(
         telegram_id=user.id,
