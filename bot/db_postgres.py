@@ -747,6 +747,24 @@ async def get_peerpay_withdrawal(payment_id: str) -> dict | None:
     return _record_to_dict(row)
 
 
+async def get_active_peerpay_withdrawal(telegram_id: int) -> dict | None:
+    """Return the currently pending/held withdrawal for a user, if any."""
+    pool = await _get_pool()
+    row = await pool.fetchrow(
+        """
+        SELECT * FROM peerpay_withdrawals
+        WHERE telegram_id = $1
+          AND captured = FALSE
+          AND released = FALSE
+          AND status NOT IN ('failed', 'expired', 'cancelled', 'released', 'succeeded')
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        telegram_id,
+    )
+    return _record_to_dict(row)
+
+
 async def update_peerpay_withdrawal_progress(
     payment_id: str,
     status: str,

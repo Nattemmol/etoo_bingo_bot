@@ -2690,7 +2690,22 @@ async def api_user_me(request: Request):
             pass
         user = await db.get_user(tg_id)
         balance = float(user["balance"]) if user else 0.0
-        return JSONResponse({"ok": True, "telegram_id": tg_id, "balance": balance, "registered": user is not None})
+        active_wd = await db.get_active_peerpay_withdrawal(tg_id)
+        active_wd_data = None
+        if active_wd:
+            active_wd_data = {
+                "id": active_wd["payment_id"],
+                "amount": float(active_wd["amount"]),
+                "status": active_wd.get("status", "created"),
+                "bank": active_wd.get("bank_code", "telebirr"),
+            }
+        return JSONResponse({
+            "ok": True,
+            "telegram_id": tg_id,
+            "balance": balance,
+            "registered": user is not None,
+            "active_withdrawal": active_wd_data,
+        })
     except Exception as exc:
         return JSONResponse(status_code=401, content={"error": str(exc)})
 
@@ -2962,6 +2977,14 @@ async def api_deposit_submit_reference(request: Request):
 
 
 
+_user_withdraw_locks: dict[int, asyncio.Lock] = {}
+
+def _get_user_withdraw_lock(telegram_id: int) -> asyncio.Lock:
+    if telegram_id not in _user_withdraw_locks:
+        _user_withdraw_locks[telegram_id] = asyncio.Lock()
+    return _user_withdraw_locks[telegram_id]
+
+
 @app.post("/api/withdraw/create")
 async def api_withdraw_create(request: Request):
     """Request a withdrawal from the Mini App."""
@@ -2980,112 +3003,139 @@ async def api_withdraw_create(request: Request):
     except Exception as exc:
         return JSONResponse(status_code=401, content={"error": str(exc)})
 
-    try:
-        amount = float(body.get("amount", 0))
-    except (TypeError, ValueError):
-        return JSONResponse(status_code=400, content={"error": "Invalid amount"})
-
-    if amount < 10.0:
-        return JSONResponse(status_code=400, content={"error": "Minimum withdrawal is 10 ETB"})
-
-    user = await db.get_user(tg_id)
-    if not user:
-        return JSONResponse(status_code=400, content={"error": "User not registered"})
-
-    balance = float(user["balance"])
-    if balance < amount:
-        return JSONResponse(status_code=400, content={"error": "Insufficient balance"})
-
-    destination = body.get("destination") or {}
-    bank_raw = str(destination.get("bank", "telebirr")).lower()
-    peerpay_bank_code = "telebirr" if bank_raw == "telebirr" else ("cbebirr" if bank_raw == "cbebirr" else "cbe")
-    account_raw = str(destination.get("account_number", "")).strip()
-
-    clean_account = None
-    if peerpay_bank_code in ("telebirr", "cbebirr"):
-        digits = re.sub(r"\D", "", account_raw)
-        if digits.startswith("251") and len(digits) == 12:
-            digits = "0" + digits[3:]
-        elif digits.startswith("9") and len(digits) == 9:
-            digits = "0" + digits
-        elif digits.startswith("7") and len(digits) == 9:
-            digits = "0" + digits
-
-        if not (len(digits) == 10 and (digits.startswith("09") or digits.startswith("07"))):
-            method_name = "Telebirr" if peerpay_bank_code == "telebirr" else "CBE Birr"
-            return JSONResponse(
-                status_code=400,
-                content={"error": f"Invalid {method_name} phone number. Please provide a 10-digit number (e.g. 0911223344)."},
-            )
-        clean_account = digits
-    else:  # cbe bank
-        digits = re.sub(r"\D", "", account_raw)
-        if not (10 <= len(digits) <= 16):
-            return JSONResponse(
-                status_code=400,
-                content={"error": "Invalid CBE Bank account number. Please provide a valid 10-16 digit account number (e.g. 1000123456789)."},
-            )
-        clean_account = digits
-
-    clean_dest = {"bank": peerpay_bank_code, "account_number": clean_account}
-    payment_id = f"wd_{uuid.uuid4().hex[:12]}"
-    idempotency_key = f"etoobingo-withdrawal-{uuid.uuid4().hex}"
-    checkout_url = ""
-
-    try:
-        res = await peerpay_client.create_withdrawal(
-            merchant_customer_id=f"tg_{tg_id}",
-            amount=amount,
-            destination=clean_dest,
-            idempotency_key=idempotency_key,
+    lock = _get_user_withdraw_lock(tg_id)
+    if lock.locked():
+        return JSONResponse(
+            status_code=429,
+            content={"error": "A withdrawal request is already being processed. Please wait a moment."},
         )
-        wd_data = res.get("data", {})
-        if wd_data.get("id"):
-            payment_id = wd_data["id"]
-        checkout_url = wd_data.get("checkout_url") or ""
-        if checkout_url:
-            try:
-                await peerpay_client.confirm_withdrawal_destination(
-                    checkout_token_or_url=checkout_url,
-                    bank=peerpay_bank_code,
-                    account_number=clean_account,
+
+    async with lock:
+        try:
+            amount = float(body.get("amount", 0))
+        except (TypeError, ValueError):
+            return JSONResponse(status_code=400, content={"error": "Invalid amount"})
+
+        if amount < 10.0:
+            return JSONResponse(status_code=400, content={"error": "Minimum withdrawal is 10 ETB"})
+
+        user = await db.get_user(tg_id)
+        if not user:
+            return JSONResponse(status_code=400, content={"error": "User not registered"})
+
+        # Prevent multiple active/pending withdrawals
+        active_wd = await db.get_active_peerpay_withdrawal(tg_id)
+        if active_wd:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": (
+                        f"ቀደም ሲል የጠየቁት የ {float(active_wd['amount']):.2f} ETB የገንዘብ ማውጣት ጥያቄ በሂደት ላይ ይገኛል። "
+                        "እባክዎ ያ ጥያቄ እስኪጠናቀቅ ወይም ውድቅ እስኪሆን ድረስ አዲስ ጥያቄ ማቅረብ አይችሉም።"
+                    ),
+                    "active_withdrawal": {
+                        "id": active_wd["payment_id"],
+                        "amount": float(active_wd["amount"]),
+                        "status": active_wd.get("status", "created"),
+                        "bank": active_wd.get("bank_code", "telebirr"),
+                    },
+                },
+            )
+
+        balance = float(user["balance"])
+        if balance < amount:
+            return JSONResponse(status_code=400, content={"error": "Insufficient balance"})
+
+        destination = body.get("destination") or {}
+        bank_raw = str(destination.get("bank", "telebirr")).lower()
+        peerpay_bank_code = "telebirr" if bank_raw == "telebirr" else ("cbebirr" if bank_raw == "cbebirr" else "cbe")
+        account_raw = str(destination.get("account_number", "")).strip()
+    
+        clean_account = None
+        if peerpay_bank_code in ("telebirr", "cbebirr"):
+            digits = re.sub(r"\D", "", account_raw)
+            if digits.startswith("251") and len(digits) == 12:
+                digits = "0" + digits[3:]
+            elif digits.startswith("9") and len(digits) == 9:
+                digits = "0" + digits
+            elif digits.startswith("7") and len(digits) == 9:
+                digits = "0" + digits
+    
+            if not (len(digits) == 10 and (digits.startswith("09") or digits.startswith("07"))):
+                method_name = "Telebirr" if peerpay_bank_code == "telebirr" else "CBE Birr"
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": f"Invalid {method_name} phone number. Please provide a 10-digit number (e.g. 0911223344)."},
                 )
-                logger.info("Auto-confirmed withdrawal %s destination on checkout API", payment_id)
-            except Exception as conf_err:
-                logger.warning("Auto-confirm destination in API error: %s", conf_err)
-    except Exception as exc:
-        logger.exception("Failed to create PeerPay withdrawal: %s", exc)
-
-    new_balance = round(balance - amount, 2)
-    await db.update_balance(tg_id, new_balance)
-    await db.create_peerpay_withdrawal_hold(
-        payment_id=payment_id,
-        telegram_id=tg_id,
-        amount=amount,
-        status="created",
-        bank_code=peerpay_bank_code,
-        account_number=clean_account,
-    )
-    await db.add_transaction(
-        telegram_id=tg_id,
-        tx_type="withdraw",
-        amount=amount,
-        status="pending",
-        description=f"PeerPay withdrawal hold — {payment_id} ({peerpay_bank_code}: {clean_account})",
-    )
-
-    # Push updated balance to open WebSocket sessions immediately
-    await broadcast_user_balance(tg_id, new_balance)
-
-    return JSONResponse({
-        "ok": True,
-        "withdrawal_id": payment_id,
-        "checkout_url": checkout_url,
-        "amount": amount,
-        "new_balance": new_balance,
-        "method": peerpay_bank_code,
-        "account_number": clean_account,
-    })
+            clean_account = digits
+        else:  # cbe bank
+            digits = re.sub(r"\D", "", account_raw)
+            if not (10 <= len(digits) <= 16):
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Invalid CBE Bank account number. Please provide a valid 10-16 digit account number (e.g. 1000123456789)."},
+                )
+            clean_account = digits
+    
+        clean_dest = {"bank": peerpay_bank_code, "account_number": clean_account}
+        payment_id = f"wd_{uuid.uuid4().hex[:12]}"
+        idempotency_key = f"etoobingo-withdrawal-{uuid.uuid4().hex}"
+        checkout_url = ""
+    
+        try:
+            res = await peerpay_client.create_withdrawal(
+                merchant_customer_id=f"tg_{tg_id}",
+                amount=amount,
+                destination=clean_dest,
+                idempotency_key=idempotency_key,
+            )
+            wd_data = res.get("data", {})
+            if wd_data.get("id"):
+                payment_id = wd_data["id"]
+            checkout_url = wd_data.get("checkout_url") or ""
+            if checkout_url:
+                try:
+                    await peerpay_client.confirm_withdrawal_destination(
+                        checkout_token_or_url=checkout_url,
+                        bank=peerpay_bank_code,
+                        account_number=clean_account,
+                    )
+                    logger.info("Auto-confirmed withdrawal %s destination on checkout API", payment_id)
+                except Exception as conf_err:
+                    logger.warning("Auto-confirm destination in API error: %s", conf_err)
+        except Exception as exc:
+            logger.exception("Failed to create PeerPay withdrawal: %s", exc)
+    
+        new_balance = round(balance - amount, 2)
+        await db.update_balance(tg_id, new_balance)
+        await db.create_peerpay_withdrawal_hold(
+            payment_id=payment_id,
+            telegram_id=tg_id,
+            amount=amount,
+            status="created",
+            bank_code=peerpay_bank_code,
+            account_number=clean_account,
+        )
+        await db.add_transaction(
+            telegram_id=tg_id,
+            tx_type="withdraw",
+            amount=amount,
+            status="pending",
+            description=f"PeerPay withdrawal hold — {payment_id} ({peerpay_bank_code}: {clean_account})",
+        )
+    
+        # Push updated balance to open WebSocket sessions immediately
+        await broadcast_user_balance(tg_id, new_balance)
+    
+        return JSONResponse({
+            "ok": True,
+            "withdrawal_id": payment_id,
+            "checkout_url": checkout_url,
+            "amount": amount,
+            "new_balance": new_balance,
+            "method": peerpay_bank_code,
+            "account_number": clean_account,
+        })
 
 
 @app.get("/api/withdraw/status/{withdrawal_id}")

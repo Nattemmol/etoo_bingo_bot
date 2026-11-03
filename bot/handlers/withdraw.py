@@ -97,6 +97,24 @@ async def withdraw_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             )
         return ConversationHandler.END
 
+    # Check if user already has an active pending withdrawal
+    active_wd = await db.get_active_peerpay_withdrawal(user.id)
+    if active_wd:
+        amt = float(active_wd["amount"])
+        bcode = active_wd.get("bank_code", "telebirr")
+        lbl = METHOD_LABELS.get(bcode, bcode)
+        message = update.message or (update.callback_query.message if update.callback_query else None)
+        if message:
+            await message.reply_text(
+                f"⚠️ *በሂደት ላይ ያለ የገንዘብ ማውጣት ጥያቄ አለዎት!*\n\n"
+                f"💰 መጠን: *{amt:.2f} ETB*\n"
+                f"🏦 መንገድ: *{lbl}*\n"
+                f"🆔 Withdrawal ID: `{active_wd['payment_id']}`\n\n"
+                "ቀደም ሲል የጠየቁት ጥያቄ እስኪጠናቀቅ ወይም ውድቅ እስኪሆን ድረስ አዲስ ጥያቄ ማቅረብ አይችሉም። እባክዎ በትዕግስት ይጠብቁ።",
+                parse_mode="Markdown",
+            )
+        return ConversationHandler.END
+
     text = (
         "💸 *ገንዘብ ማውጣት (Withdraw via PeerPay)*\n\n"
         f"💵 ወቅታዊ ቀሪ ሂሳብ: *{balance:.2f} ETB*\n\n"
@@ -298,6 +316,16 @@ async def withdraw_account_handler(update: Update, context: ContextTypes.DEFAULT
     amount = float(context.user_data.get("withdraw_amount", 0.0))
     user_data = await db.get_user(user.id)
     balance = float(user_data["balance"]) if user_data else 0.0
+
+    # Ensure no active pending withdrawal exists
+    active_wd = await db.get_active_peerpay_withdrawal(user.id)
+    if active_wd:
+        amt = float(active_wd["amount"])
+        await update.message.reply_text(
+            f"⚠️ በሂደት ላይ ያለ የ {amt:.2f} ETB የገንዘብ ማውጣት ጥያቄ አለዎት። እባክዎ እስኪጠናቀቅ ይጠብቁ።",
+            parse_mode="Markdown",
+        )
+        return ConversationHandler.END
 
     if amount <= 0 or amount > balance:
         await update.message.reply_text(msg.INSUFFICIENT_BALANCE, parse_mode="Markdown")

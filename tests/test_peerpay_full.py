@@ -347,5 +347,101 @@ class TestPeerPayFullIntegration(unittest.TestCase):
             self.assertEqual(dep["status"], "awaiting_transfer")
 
 
+    def test_cannot_create_multiple_concurrent_withdrawals_api(self):
+        init_data = generate_valid_init_data(self.bot_token, user_id=888222)
+        run(db.ensure_user(888222, "+251911888222", "user888", "User", 1000.0))
+
+        with patch("bot.peerpay.PeerPayClient.create_withdrawal", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = {
+                "data": {
+                    "id": "wd_first_888",
+                    "checkout_url": "https://checkout.peerpayment.org/w/ptk_first",
+                }
+            }
+            # 1. First withdrawal succeeds
+            resp1 = self.client.post(
+                "/api/withdraw/create",
+                json={
+                    "init_data": init_data,
+                    "amount": 300.0,
+                    "destination": {"bank": "telebirr", "account_number": "0911888222"},
+                },
+            )
+            self.assertEqual(resp1.status_code, 200)
+            self.assertAlmostEqual(run(db.get_balance(888222)), 700.0)
+
+            # 2. Second withdrawal while first is pending -> MUST BE REJECTED with 400
+            resp2 = self.client.post(
+                "/api/withdraw/create",
+                json={
+                    "init_data": init_data,
+                    "amount": 300.0,
+                    "destination": {"bank": "telebirr", "account_number": "0911888222"},
+                },
+            )
+            self.assertEqual(resp2.status_code, 400)
+            data2 = resp2.json()
+            self.assertIn("error", data2)
+            self.assertIn("active_withdrawal", data2)
+            self.assertEqual(data2["active_withdrawal"]["id"], "wd_first_888")
+            # Balance remains 700.0 (no extra deduction)
+            self.assertAlmostEqual(run(db.get_balance(888222)), 700.0)
+
+            # 3. /api/user/me returns active_withdrawal
+            resp_me = self.client.get("/api/user/me", headers={"X-Telegram-Init-Data": init_data})
+            self.assertEqual(resp_me.status_code, 200)
+            me_data = resp_me.json()
+            self.assertIsNotNone(me_data.get("active_withdrawal"))
+            self.assertEqual(me_data["active_withdrawal"]["id"], "wd_first_888")
+
+            # 4. First withdrawal succeeds (is captured)
+            captured, _ = run(db.capture_peerpay_withdrawal_once("wd_first_888"))
+            self.assertTrue(captured)
+
+            # 5. Now user can initiate a new withdrawal!
+            mock_create.return_value = {
+                "data": {
+                    "id": "wd_second_888",
+                    "checkout_url": "https://checkout.peerpayment.org/w/ptk_second",
+                }
+            }
+            resp3 = self.client.post(
+                "/api/withdraw/create",
+                json={
+                    "init_data": init_data,
+                    "amount": 200.0,
+                    "destination": {"bank": "telebirr", "account_number": "0911888222"},
+                },
+            )
+            self.assertEqual(resp3.status_code, 200)
+            self.assertAlmostEqual(run(db.get_balance(888222)), 500.0)
+
+    def test_cannot_create_multiple_concurrent_withdrawals_bot(self):
+        from bot.handlers.withdraw import withdraw_command, withdraw_account_handler, ConversationHandler
+        run(db.ensure_user(888333, "+251911888333", "user8883", "User", 600.0))
+
+        # Create active withdrawal in DB
+        run(db.create_peerpay_withdrawal_hold(
+            payment_id="wd_bot_pending_1",
+            telegram_id=888333,
+            amount=200.0,
+            status="created",
+            bank_code="telebirr",
+            account_number="0911888333",
+        ))
+
+        # Calling /withdraw must be blocked immediately
+        update = MagicMock()
+        update.effective_user.id = 888333
+        update.effective_user.full_name = "User 8883"
+        update.message.reply_text = AsyncMock()
+
+        res = run(withdraw_command(update, MagicMock()))
+        self.assertEqual(res, ConversationHandler.END)
+        update.message.reply_text.assert_awaited()
+        call_text = update.message.reply_text.call_args[0][0]
+        self.assertIn("በሂደት ላይ ያለ የገንዘብ ማውጣት ጥያቄ አለዎት", call_text)
+
+
 if __name__ == "__main__":
     unittest.main()

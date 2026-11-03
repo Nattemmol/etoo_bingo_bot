@@ -59,6 +59,7 @@ if _is_valid_postgres_url(settings.database_url):
         credit_peerpay_deposit_once,
         create_peerpay_withdrawal_hold,
         get_peerpay_withdrawal,
+        get_active_peerpay_withdrawal,
         update_peerpay_withdrawal_progress,
         capture_peerpay_withdrawal_once,
         release_peerpay_withdrawal_once,
@@ -875,6 +876,25 @@ async def get_peerpay_withdrawal(payment_id: str) -> dict | None:
     db = await get_db()
     async with db.execute(
         "SELECT * FROM peerpay_withdrawals WHERE payment_id = ?", (payment_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def get_active_peerpay_withdrawal(telegram_id: int) -> dict | None:
+    """Return the currently pending/held withdrawal for a user, if any."""
+    db = await get_db()
+    async with db.execute(
+        """
+        SELECT * FROM peerpay_withdrawals
+        WHERE telegram_id = ?
+          AND captured = 0
+          AND released = 0
+          AND status NOT IN ('failed', 'expired', 'cancelled', 'released', 'succeeded')
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (telegram_id,),
     ) as cursor:
         row = await cursor.fetchone()
         return dict(row) if row else None
