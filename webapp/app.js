@@ -61,6 +61,8 @@ const state = {
 
 const els = {
   userBalance: document.getElementById("user-balance"),
+  userDepositBalance: document.getElementById("user-deposit-balance"),
+  userWinBalance: document.getElementById("user-win-balance"),
   rolePill: document.getElementById("role-pill"),
   roleText: document.getElementById("role-text"),
   scheduleBanner: document.getElementById("schedule-banner"),
@@ -191,8 +193,17 @@ function wsUrl() {
   return `${proto}//${location.host}/ws/${roomId}`;
 }
 
-function updateBalanceDisplay(amount) {
-  state.balance = amount;
+function updateBalanceDisplay(amount, depositAmount, winAmount) {
+  state.balance = Number(amount);
+  if (depositAmount != null) state.depositBalance = Number(depositAmount);
+  if (winAmount != null) state.winBalance = Number(winAmount);
+
+  if (els.userDepositBalance && state.depositBalance != null) {
+    els.userDepositBalance.textContent = Number(state.depositBalance).toFixed(2);
+  }
+  if (els.userWinBalance && state.winBalance != null) {
+    els.userWinBalance.textContent = Number(state.winBalance).toFixed(2);
+  }
   if (els.userBalance) {
     els.userBalance.textContent = Number(amount).toFixed(2);
   }
@@ -1419,7 +1430,7 @@ function handleMessage(socket, msg) {
       state.currentNumber = msg.room.latest_call ? msg.room.latest_call.number : (state.called.length ? state.called[state.called.length - 1] : null);
       if (msg.user) {
         state.myId = msg.user.id || state.myId;
-        updateBalanceDisplay(msg.user.balance);
+        updateBalanceDisplay(msg.user.balance, msg.user.deposit_balance, msg.user.win_balance);
       }
 
       state.cardIds = Array.isArray(msg.card_ids) ? msg.card_ids.map(Number) : [];
@@ -1527,7 +1538,7 @@ function handleMessage(socket, msg) {
       state.takenCards[cid] = state.myId;
       state.isPlayer = true;
       updateRoleDisplay(true);
-      updateBalanceDisplay(msg.balance);
+      updateBalanceDisplay(msg.balance, msg.deposit_balance, msg.win_balance);
       renderPool();
       setTimeout(() => {
         updatePoolChip(cid);
@@ -1553,7 +1564,7 @@ function handleMessage(socket, msg) {
       updatePoolChip(cid);
       state.isPlayer = Boolean(msg.is_player);
       updateRoleDisplay(state.isPlayer);
-      updateBalanceDisplay(msg.balance);
+      updateBalanceDisplay(msg.balance, msg.deposit_balance, msg.win_balance);
       renderPool();
       if (msg.pot != null) {
         els.lobbyPot.textContent = Number(msg.pot).toFixed(0);
@@ -1640,7 +1651,7 @@ function handleMessage(socket, msg) {
 
     case "card_error":
       showCardError(msg.message);
-      if (msg.balance != null) updateBalanceDisplay(msg.balance);
+      if (msg.balance != null) updateBalanceDisplay(msg.balance, msg.deposit_balance, msg.win_balance);
       tg.HapticFeedback?.notificationOccurred("error");
       break;
 
@@ -2029,7 +2040,7 @@ async function syncUserBalance() {
     if (data.ok && data.balance != null) {
       const oldBal = state.balance;
       const newBal = Number(data.balance);
-      updateBalanceDisplay(newBal);
+      updateBalanceDisplay(newBal, data.deposit_balance, data.win_balance);
       if (oldBal > 0 && newBal > oldBal) {
         onDepositSuccess(newBal - oldBal, newBal);
       }

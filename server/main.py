@@ -455,14 +455,32 @@ async def send(ws: WebSocket, message: dict) -> None:
     await asyncio.wait_for(ws.send_json(message), timeout=SOCKET_SEND_TIMEOUT_SECONDS)
 
 
-async def broadcast_user_balance(telegram_id: int, new_balance: float) -> None:
+async def broadcast_user_balance(
+    telegram_id: int,
+    new_balance: float,
+    deposit_balance: float | None = None,
+    win_balance: float | None = None,
+) -> None:
     """Broadcast real-time balance update to all open WebSockets for this user."""
     if not telegram_id:
         return
+    if deposit_balance is None or win_balance is None:
+        user = await db.get_user(telegram_id)
+        if user:
+            deposit_balance = float(user.get("deposit_balance", 0.0))
+            win_balance = float(user.get("win_balance", 0.0))
+        else:
+            deposit_balance = 0.0
+            win_balance = 0.0
     ws_ids = user_ws.get(telegram_id, set())
     if not ws_ids:
         return
-    msg = {"type": "balance", "balance": float(new_balance)}
+    msg = {
+        "type": "balance",
+        "balance": float(new_balance),
+        "deposit_balance": float(deposit_balance),
+        "win_balance": float(win_balance),
+    }
     for wid in list(ws_ids):
         ws = connections.get(wid)
         if ws:
@@ -1478,12 +1496,16 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                 # Balance validation (one card at a time)
                 if FREE_PLAY:
                     new_balance = balance  # no deduction while testing
+                    dep_bal = 0.0
+                    win_bal = balance
                 else:
-                    ok, new_balance = await db.deduct_balance(
+                    deduct_res = await db.deduct_balance(
                         telegram_id,
                         room.entry_fee,
                         f"{room.name} card #{card_id}",
                     )
+                    ok = deduct_res[0]
+                    new_balance = deduct_res[1]
                     if not ok:
                         user_data = await db.get_user(telegram_id)
                         current_balance = float(user_data["balance"]) if user_data else 0.0
@@ -1499,6 +1521,13 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                             },
                         )
                         continue
+
+                    split_info = getattr(deduct_res, "details", {"deposit_deducted": room.entry_fee, "win_deducted": 0.0})
+                    room.card_deductions[card_id] = split_info
+
+                    user_data = await db.get_user(telegram_id)
+                    dep_bal = float(user_data.get("deposit_balance", 0.0)) if user_data else 0.0
+                    win_bal = float(user_data.get("win_balance", 0.0)) if user_data else 0.0
 
                 # Assign card to player
                 now_ts = time.time()
@@ -1651,14 +1680,28 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                 # Refund player full entry fee
                 if FREE_PLAY:
                     new_balance = balance
+                    dep_bal = 0.0
+                    win_bal = balance
                 else:
-                    await db.credit_balance(
-                        telegram_id,
-                        room.entry_fee,
-                        f"Refund — unselected {room.name} card #{card_id}",
-                    )
+                    split_info = room.card_deductions.pop(card_id, None)
+                    if split_info:
+                        dep_ref = float(split_info.get("deposit_deducted", 0.0))
+                        win_ref = float(split_info.get("win_deducted", 0.0))
+                        new_balance = await db.refund_balance(
+                            telegram_id,
+                            dep_ref,
+                            win_ref,
+                            f"Refund — unselected {room.name} card #{card_id}",
+                        )
+                    else:
+                        new_balance = await db.credit_balance(
+                            telegram_id,
+                            room.entry_fee,
+                            f"Refund — unselected {room.name} card #{card_id}",
+                        )
                     user_data = await db.get_user(telegram_id)
-                    new_balance = float(user_data["balance"]) if user_data else 0.0
+                    dep_bal = float(user_data.get("deposit_balance", 0.0)) if user_data else 0.0
+                    win_bal = float(user_data.get("win_balance", 0.0)) if user_data else 0.0
 
                 is_player = len(player.card_ids) > 0
                 if not is_player:
@@ -1673,6 +1716,8 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                         "cards": {str(cid): c for cid, c in player.cards.items()} if is_player else {},
                         "is_player": is_player,
                         "balance": new_balance,
+                        "deposit_balance": dep_bal,
+                        "win_balance": win_bal,
                         "pot": room.pot,
                         "players": len(room.taken_cards),
                         "refund_amount": room.entry_fee,
@@ -1796,6 +1841,8 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                 # 2. Assign new card with the inherited original selection timestamp
                 room.taken_cards[new_card_id] = telegram_id
                 room.card_selection_times[new_card_id] = orig_selected_at
+                if old_card_id in room.card_deductions:
+                    room.card_deductions[new_card_id] = room.card_deductions.pop(old_card_id)
                 player.cards[new_card_id] = new_card
                 player.marks[new_card_id] = set()
 
@@ -2693,6 +2740,8 @@ async def api_user_me(request: Request):
             pass
         user = await db.get_user(tg_id)
         balance = float(user["balance"]) if user else 0.0
+        deposit_balance = float(user.get("deposit_balance", 0.0)) if user else 0.0
+        win_balance = float(user.get("win_balance", 0.0)) if user else 0.0
         active_wd = await db.get_active_peerpay_withdrawal(tg_id)
         active_wd_data = None
         if active_wd:
@@ -2706,6 +2755,8 @@ async def api_user_me(request: Request):
             "ok": True,
             "telegram_id": tg_id,
             "balance": balance,
+            "deposit_balance": deposit_balance,
+            "win_balance": win_balance,
             "registered": user is not None,
             "active_withdrawal": active_wd_data,
         })

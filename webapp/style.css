@@ -139,11 +139,34 @@ body {
   gap: 6px;
   font-weight: 800;
   font-size: 0.95rem;
+  padding: 3px 8px;
 }
 
-.balance-pill .currency {
-  font-size: 0.75rem;
-  color: var(--hint);
+.balance-vertical-group {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  line-height: 1.15;
+}
+
+.balance-line {
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.balance-line.deposit-line {
+  color: var(--text, #ffffff);
+}
+
+.balance-line.win-line {
+  color: #38ef7d;
+}
+
+.balance-line .currency {
+  font-size: 0.62rem;
+  color: var(--hint, #888888);
   font-weight: 600;
 }
 

@@ -113,9 +113,11 @@ INSTRUCTIONS_GENERAL = (
 # ---------------------------------------------------------------------------
 
 BALANCE = (
-    "💰 *የእርስዎ ወቅታዊ ቀሪ ሂሳብ:*\n\n"
-    "💵 ቀሪ ገንዘብ: *{balance:.2f} ETB*\n\n"
-    "👇 ከታች ያሉትን አማራጮች በመጠቀም መጫወት ወይም ገንዘብ ማስገባት/ማውጣት ይችላሉ:"
+    "\U0001f4b0 *የእርስዎ ወቅታዊ ቀሪ ሂሳብ:*\n\n"
+    "\U0001f4b5 አጠቓላይ ቀሪ ቈንዘብ: *{balance:.2f} ETB*\n"
+    "\U0001f4b3 ተቀማጭ/ቦነስ (ለመጫወቻ ብፃ): *{deposit_balance:.2f} ETB*\n"
+    "\U0001f3c6 ሊወጣ የሚችል አሸናፊነት: *{win_balance:.2f} ETB*\n\n"
+    "\U0001f447 ከታች ያሉትን አማራጮች በመጠቀም መጫወት ወይም ቈንዘብ ማስገባት/ማወጣት ይችላሉ:"
 )
 
 NO_HISTORY = "📭 *እስካሁን ምንም የሂሳብ እንቅስቃሴ አልተመዘገበም።*"
@@ -189,6 +191,15 @@ MOBILE_BANKING_DEPOSIT_INSTRUCTIONS = (
 )
 
 DEPOSIT_SMS_PROMPT = "💳 *ክፍያዎን በ PeerPay ማስፈንጠሪያ ይፈጽሙና Transaction ID በ PeerPay ገጽ ላይ ያስገቡ።*"
+
+DEPOSIT_AUTO_APPROVED_WITH_BONUS = (
+    "\U0001f389 *ክፍያዎ በተሳካ ሁኔታ ተረጋግጧል! + 50% ቦነስ ተበርክቶልዎታል!*\n\n"
+    "\U0001f4b0 ያስገቡት መጠን: *{amount:.2f} ETB*\n"
+    "\U0001f381 የመጀመሪያ ተቀማጭ ቦነስ (50%): *{bonus:.2f} ETB*\n"
+    "\U0001f4b3 አጠቓላይ ተቈመረ: *{total_credited:.2f} ETB*\n"
+    "\U0001f4b5 አዲስ አጠቓላይ ቀሪ ሂሳብ: *{balance:.2f} ETB*\n\n"
+    "*(ማስታወሻ: ቦነስ እና ተቀማጭ ለመጫወቻ ብፃ የሚያገለግል ሲሆን አሸንፈወ ሲወጡ ሙሉውን ማወጣት ይችላሉ!)* \U0001f3b1"
+)
 
 DEPOSIT_AUTO_APPROVED = (
     "✅ *ክፍያዎ በተሳካ ሁኔታ ተረጋግጧል!*\n\n"
@@ -265,4 +276,3 @@ def format_super_bingo_winner_announcement(winners: list[dict], pot: float) -> s
         prize_str = format_amharic_prize(float(prize_val))
         lines.append(f"{idx}. {name} ፡ {prize_str}")
     return "\n".join(lines)
-

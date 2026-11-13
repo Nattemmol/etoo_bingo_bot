@@ -25,7 +25,15 @@
       <div class="user-bar-left">
         <div class="balance-pill" id="balance-pill-display" title="Balance">
           <span class="wallet-icon">💰</span>
-          <span id="user-balance">0.00</span> <span class="currency">ETB</span>
+          <div class="balance-vertical-group">
+            <div class="balance-line deposit-line">
+              <span id="user-deposit-balance">0.00</span> <span class="currency">ETB</span>
+            </div>
+            <div class="balance-line win-line">
+              <span id="user-win-balance">0.00</span> <span class="currency">ETB</span>
+            </div>
+          </div>
+          <span id="user-balance" style="display: none;">0.00</span>
         </div>
         <button type="button" class="btn-top-auto active" id="btn-auto-mode" title="Toggle Auto Mark & Bingo" aria-pressed="true">
           <span class="auto-indicator-dot"></span>

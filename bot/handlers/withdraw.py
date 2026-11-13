@@ -44,11 +44,11 @@ METHOD_LABELS = {
 }
 
 
-async def _broadcast_balance(telegram_id: int, new_balance: float) -> None:
+async def _broadcast_balance(telegram_id: int, new_balance: float, deposit_balance: float | None = None, win_balance: float | None = None) -> None:
     """Push real-time balance update to all open WebSocket sessions for this user."""
     try:
         import server.main as srv
-        await srv.broadcast_user_balance(telegram_id, new_balance)
+        await srv.broadcast_user_balance(telegram_id, new_balance, deposit_balance, win_balance)
     except Exception:
         pass
 
@@ -85,14 +85,18 @@ async def withdraw_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     user_data = await db.get_user(user.id)
     balance = float(user_data["balance"]) if user_data else 0.0
+    win_balance = float(user_data.get("win_balance", 0.0)) if user_data else 0.0
+    deposit_balance = float(user_data.get("deposit_balance", 0.0)) if user_data else 0.0
 
-    if balance < MIN_WITHDRAWAL_AMOUNT:
+    if win_balance < MIN_WITHDRAWAL_AMOUNT:
         message = update.message or (update.callback_query.message if update.callback_query else None)
         if message:
             await message.reply_text(
-                f"❌ *ለማውጣት በቂ ሂሳብ የሎትም!*\n\n"
-                f"💵 ወቅታዊ ቀሪ ሂሳብ: *{balance:.2f} ETB*\n"
-                f"⚠️ ዝቅተኛው የማውጣት መጠን: *{MIN_WITHDRAWAL_AMOUNT:.0f} ETB* ነው።",
+                f"\u274c *ለማውጣት በቂ የአሸናፊነት ሂሳብ የሎትም!*\n\n"
+                f"\U0001f3c6 ሊወጣ የሚችል አሸናፊነት: *{win_balance:.2f} ETB*\n"
+                f"\U0001f4b3 የተቀማጭ/ቦነስ ሂሳብ: *{deposit_balance:.2f} ETB*\n\n"
+                f"\u26a0\ufe0f ዝቅተኛው የማውጣት መጠን: *{MIN_WITHDRAWAL_AMOUNT:.0f} ETB* ሲሆን፣ ማውጣት የሚቻለው በጨዋታ ያሸነፉትን ገንዘብ ብቻ ነው።\n"
+                "ያለዎትን ተቀማጭ ሂሳብ ተጠቅመው በጨዋታ በመሳተፍ ሲያሸንፉ ማውጣት ይችላሉ! \U0001f3b1",
                 parse_mode="Markdown",
             )
         return ConversationHandler.END
@@ -117,7 +121,7 @@ async def withdraw_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     text = (
         "💸 *ገንዘብ ማውጣት (Withdraw via PeerPay)*\n\n"
-        f"💵 ወቅታዊ ቀሪ ሂሳብ: *{balance:.2f} ETB*\n\n"
+        f"\U0001f3c6 ሊወጣ የሚችል አሸናፊነት: *{win_balance:.2f} ETB*\n" f"\U0001f4b3 የተቀማጭ/ቦነስ ሂሳብ: *{deposit_balance:.2f} ETB*\n\n*(ማስታወሻ: ማውጣት የሚቻለው ያሸነፉትን ገንዘብ ብቻ ነው።)*\n\n"
         "ገንዘብ የሚቀበሉበትን መንገድ ይምረጡ:\n"
         "1️⃣ 🔵 Telebirr (ቴሌብር)\n"
         "2️⃣ 🟢 CBE Birr (ሲቢኢ ብር)\n"
@@ -152,13 +156,13 @@ async def withdraw_method_callback(update: Update, context: ContextTypes.DEFAULT
     assert user is not None
 
     user_data = await db.get_user(user.id)
-    balance = float(user_data["balance"]) if user_data else 0.0
+    win_balance = float(user_data.get("win_balance", 0.0)) if user_data else 0.0
 
-    if balance < MIN_WITHDRAWAL_AMOUNT:
+    if win_balance < MIN_WITHDRAWAL_AMOUNT:
         await query.message.reply_text(
-            f"❌ *ለማውጣት በቂ ሂሳብ የሎትም!*\n\n"
-            f"💵 ወቅታዊ ቀሪ ሂሳብ: *{balance:.2f} ETB*\n"
-            f"⚠️ ዝቅተኛው የማውጣት መጠን: *{MIN_WITHDRAWAL_AMOUNT:.0f} ETB* ነው።",
+            f"\u274c *ለማውጣት በቂ የአሸናፊነት ሂሳብ የሎትም!*\n\n"
+            f"\U0001f3c6 ሊወጣ የሚችል አሸናፊነት: *{win_balance:.2f} ETB*\n"
+            f"\u26a0\ufe0f ዝቅተኛው የማውጣት መጠን: *{MIN_WITHDRAWAL_AMOUNT:.0f} ETB* ሲሆን፣ ማውጣት የሚቻለው ያሸነፉትን ገንዘብ ብቻ ነው።",
             parse_mode="Markdown",
         )
         return ConversationHandler.END
@@ -168,7 +172,7 @@ async def withdraw_method_callback(update: Update, context: ContextTypes.DEFAULT
 
     await query.message.reply_text(
         f"✅ የተመረጠው መንገድ: *{method_label}*\n"
-        f"💵 ወቅታዊ ቀሪ ሂሳብ: *{balance:.2f} ETB*\n\n"
+        f"\U0001f3c6 ሊወጣ የሚችል አሸናፊነት: *{win_balance:.2f} ETB*\n" f"\U0001f4b3 የተቀማጭ/ቦነስ ሂሳብ: *{deposit_balance:.2f} ETB*\n\n*(ማስታወሻ: ማውጣት የሚቻለው ያሸነፉትን ገንዘብ ብቻ ነው።)*\n\n"
         "💰 *የሚያወጡትን የብር መጠን ይምረጡ ወይም በቁጥር ይጻፉ:*\n"
         f"(ዝቅተኛ: {MIN_WITHDRAWAL_AMOUNT:.0f} ETB)",
         reply_markup=withdraw_amount_keyboard(method),
@@ -244,13 +248,14 @@ async def _process_selected_withdraw_amount(
         return WD_AWAITING_AMOUNT
 
     user_data = await db.get_user(user_id)
-    balance = float(user_data["balance"]) if user_data else 0.0
+    win_balance = float(user_data.get("win_balance", 0.0)) if user_data else 0.0
 
-    if amount > balance:
+    if amount > win_balance:
         await message.reply_text(
-            f"❌ *በቂ ቀሪ ሂሳብ የሎትም!*\n\n"
-            f"የእርስዎ ቀሪ ሂሳብ: *{balance:.2f} ETB*\n"
-            f"የጠየቁት: *{amount:.2f} ETB*",
+            f"\u274c *የጠየቁት መጠን ካሸነፉት ሂሳብ ይበልጣል!*\n\n"
+            f"\U0001f3c6 ሊወጣ የሚችል አሸናፊነት: *{win_balance:.2f} ETB*\n"
+            f"የጠየቁት መጠን: *{amount:.2f} ETB*\n\n"
+            "ማውጣት የሚቻለው በጨዋታ ያሸነፉትን መጠን ብቻ ነው።",
             parse_mode="Markdown",
         )
         return ConversationHandler.END
@@ -315,20 +320,15 @@ async def withdraw_account_handler(update: Update, context: ContextTypes.DEFAULT
 
     amount = float(context.user_data.get("withdraw_amount", 0.0))
     user_data = await db.get_user(user.id)
-    balance = float(user_data["balance"]) if user_data else 0.0
+    win_balance = float(user_data.get("win_balance", 0.0)) if user_data else 0.0
 
-    # Ensure no active pending withdrawal exists
-    active_wd = await db.get_active_peerpay_withdrawal(user.id)
-    if active_wd:
-        amt = float(active_wd["amount"])
+    if amount <= 0 or amount > win_balance:
         await update.message.reply_text(
-            f"⚠️ በሂደት ላይ ያለ የ {amt:.2f} ETB የገንዘብ ማውጣት ጥያቄ አለዎት። እባክዎ እስኪጠናቀቅ ይጠብቁ።",
+            f"\u274c *ለማውጣት በቂ የአሸናፊነት ሂሳብ የሎትም!*\n\n"
+            f"\U0001f3c6 ሊወጣ የሚችል አሸናፊነት: *{win_balance:.2f} ETB*\n"
+            "ማውጣት የሚቻለው ያሸነፉትን ገንዘብ ብቻ ነው።",
             parse_mode="Markdown",
         )
-        return ConversationHandler.END
-
-    if amount <= 0 or amount > balance:
-        await update.message.reply_text(msg.INSUFFICIENT_BALANCE, parse_mode="Markdown")
         return ConversationHandler.END
 
     new_balance = round(balance - amount, 2)
@@ -362,7 +362,10 @@ async def withdraw_account_handler(update: Update, context: ContextTypes.DEFAULT
         logger.exception("Error creating PeerPay withdrawal: %s", exc)
 
     # Place reversible hold and update balance atomically
-    await db.update_balance(user.id, new_balance)
+    ok, new_balance = await db.hold_withdrawal_balance(user.id, amount)
+    if not ok:
+        await update.message.reply_text(msg.INSUFFICIENT_BALANCE, parse_mode="Markdown")
+        return ConversationHandler.END
     await db.create_peerpay_withdrawal_hold(
         payment_id=payment_id,
         telegram_id=user.id,

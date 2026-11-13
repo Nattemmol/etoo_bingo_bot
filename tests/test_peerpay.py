@@ -165,6 +165,11 @@ class TestPeerPayDatabase(unittest.TestCase):
         db.settings = SimpleNamespace(database_path=Path(self._tmp) / "test_peerpay.db")
         run(db.init_db())
         run(db.create_user(777001, "251911000001", "player1", "Player One"))
+        async def _claim():
+            conn = await db.get_db()
+            await conn.execute("UPDATE users SET first_deposit_bonus_claimed = 1 WHERE telegram_id = 777001")
+            await conn.commit()
+        run(_claim())
 
     def tearDown(self):
         db._db_conn = None
@@ -263,6 +268,11 @@ class TestPeerPayWebhookEndpoint(unittest.TestCase):
 
         run(db.init_db())
         run(db.create_user(777111, "251911000002", "webhook_user", "Webhook User"))
+        async def _claim():
+            conn = await db.get_db()
+            await conn.execute("UPDATE users SET first_deposit_bonus_claimed = 1 WHERE telegram_id = 777111")
+            await conn.commit()
+        run(_claim())
         self.client = TestClient(app)
 
     def tearDown(self):

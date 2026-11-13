@@ -73,6 +73,19 @@ def _numeric(value: Any) -> float:
         return 0.0
     return float(value)
 
+class DeductResult(tuple):
+    """2-tuple (success, new_balance) subclass with deduction breakdown attributes."""
+    def __new__(cls, success: bool, new_balance: float, details: dict | None = None):
+        return super().__new__(cls, (bool(success), float(new_balance)))
+
+    def __init__(self, success: bool, new_balance: float, details: dict | None = None):
+        self.success = bool(success)
+        self.new_balance = float(new_balance)
+        self.details = details or {"deposit_deducted": 0.0, "win_deducted": 0.0}
+        self.deposit_deducted = float(self.details.get("deposit_deducted", 0.0))
+        self.win_deducted = float(self.details.get("win_deducted", 0.0))
+
+
 
 # ---------------------------------------------------------------------------
 # Lifecycle
@@ -110,6 +123,21 @@ async def init_db() -> None:
                 ALTER TABLE peerpay_deposits ADD COLUMN IF NOT EXISTS account_identifier TEXT NOT NULL DEFAULT '';
                 ALTER TABLE peerpay_withdrawals ADD COLUMN IF NOT EXISTS bank_code TEXT NOT NULL DEFAULT 'telebirr';
                 ALTER TABLE peerpay_withdrawals ADD COLUMN IF NOT EXISTS account_number TEXT NOT NULL DEFAULT '';
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS deposit_balance NUMERIC(14,2) NOT NULL DEFAULT 0.00;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS win_balance NUMERIC(14,2) NOT NULL DEFAULT 0.00;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS first_deposit_bonus_claimed BOOLEAN NOT NULL DEFAULT FALSE;
+
+                -- Policy B: Grandfather existing balances to win_balance (withdrawable)
+                UPDATE users
+                SET win_balance = balance, deposit_balance = 0.00
+                WHERE balance > 0 AND deposit_balance = 0.00 AND win_balance = 0.00;
+
+                UPDATE users
+                SET first_deposit_bonus_claimed = TRUE
+                WHERE total_deposited > 0
+                   OR telegram_id IN (
+                       SELECT DISTINCT telegram_id FROM transactions WHERE type = 'deposit' AND status = 'completed'
+                   );
             """)
         logger.info("Schema migration %s applied.", _MIGRATIONS_FILE.name)
     else:
@@ -192,13 +220,45 @@ async def ensure_user(
     username: str | None = None,
     first_name: str | None = None,
     balance: float | None = None,
+    deposit_balance: float | None = None,
+    win_balance: float | None = None,
 ) -> dict:
     """Ensure a user exists (create if missing) and optionally set balance."""
     user = await create_user(telegram_id, phone_number, username, first_name)
-    if balance is not None:
+    if deposit_balance is not None or win_balance is not None:
+        dep = deposit_balance if deposit_balance is not None else _numeric(user.get("deposit_balance"))
+        win = win_balance if win_balance is not None else _numeric(user.get("win_balance"))
+        tot = round(dep + win, 2)
+        pool = await _get_pool()
+        await pool.execute(
+            "UPDATE users SET deposit_balance = $1, win_balance = $2, balance = $3, updated_at = NOW() WHERE telegram_id = $4",
+            dep, win, tot, telegram_id,
+        )
+        user["deposit_balance"] = dep
+        user["win_balance"] = win
+        user["balance"] = tot
+    elif balance is not None:
         await update_balance(telegram_id, balance)
         user["balance"] = balance
     return user
+
+
+async def update_user_balances(
+    telegram_id: int,
+    deposit_balance: float,
+    win_balance: float,
+) -> None:
+    """Set deposit_balance and win_balance explicitly for a user."""
+    pool = await _get_pool()
+    total = round(deposit_balance + win_balance, 2)
+    await pool.execute(
+        """
+        UPDATE users
+        SET deposit_balance = $1, win_balance = $2, balance = $3, updated_at = NOW()
+        WHERE telegram_id = $4
+        """,
+        round(deposit_balance, 2), round(win_balance, 2), total, telegram_id,
+    )
 
 
 async def get_balance(telegram_id: int) -> float:
@@ -226,15 +286,16 @@ async def add_transaction(
     amount: float,
     status: str = "completed",
     description: str | None = None,
+    fingerprint: str | None = None,
 ) -> None:
     """Insert a new transaction record."""
     pool = await _get_pool()
     await pool.execute(
         """
-        INSERT INTO transactions (telegram_id, type, amount, status, description)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO transactions (telegram_id, type, amount, status, description, fingerprint)
+        VALUES ($1, $2, $3, $4, $5, $6)
         """,
-        telegram_id, tx_type, amount, status, description,
+        telegram_id, tx_type, amount, status, description, fingerprint,
     )
 
 
@@ -258,33 +319,57 @@ async def deduct_balance(
 ) -> tuple[bool, float]:
     """Atomically deduct *amount* if sufficient balance.
 
-    Returns ``(success, new_balance)``.  Uses a single ``UPDATE … WHERE
-    balance >= amount RETURNING`` inside a transaction — no application-level
-    locks required.
+    Priority:
+    1. Deducts first from deposit_balance.
+    2. If deposit_balance < amount, takes all of deposit_balance and remaining from win_balance.
+    Returns DeductResult(success, new_balance, {"deposit_deducted": dep_used, "win_deducted": win_used}).
     """
     pool = await _get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
-            row = await conn.fetchrow(
+            user_row = await conn.fetchrow(
+                "SELECT balance, deposit_balance, win_balance FROM users WHERE telegram_id = $1 FOR UPDATE",
+                telegram_id,
+            )
+            if user_row is None:
+                return DeductResult(False, 0.0)
+
+            dep_bal = _numeric(user_row.get("deposit_balance"))
+            win_bal = _numeric(user_row.get("win_balance"))
+            total_bal = _numeric(user_row.get("balance"))
+
+            # Safety fallback if columns were uninitialized
+            if dep_bal == 0.0 and win_bal == 0.0 and total_bal > 0.0:
+                win_bal = total_bal
+
+            if (dep_bal + win_bal) < amount:
+                return DeductResult(False, total_bal)
+
+            if dep_bal >= amount:
+                dep_used = amount
+                win_used = 0.0
+                new_dep = round(dep_bal - amount, 2)
+                new_win = win_bal
+            else:
+                dep_used = dep_bal
+                win_used = round(amount - dep_bal, 2)
+                new_dep = 0.0
+                new_win = round(win_bal - win_used, 2)
+
+            new_balance = round(new_dep + new_win, 2)
+
+            await conn.execute(
                 """
                 UPDATE users
-                SET balance    = balance - $1,
+                SET deposit_balance = $1,
+                    win_balance = $2,
+                    balance = $3,
                     updated_at = NOW()
-                WHERE telegram_id = $2
-                  AND balance >= $1
-                RETURNING balance
+                WHERE telegram_id = $4
                 """,
-                amount, telegram_id,
+                new_dep, new_win, new_balance, telegram_id,
             )
-            if row is None:
-                # Either the user doesn't exist or insufficient funds.
-                bal_row = await conn.fetchrow(
-                    "SELECT balance FROM users WHERE telegram_id = $1",
-                    telegram_id,
-                )
-                return False, _numeric(bal_row["balance"]) if bal_row else 0.0
 
-            new_balance = _numeric(row["balance"])
             await conn.execute(
                 """
                 INSERT INTO transactions
@@ -293,34 +378,153 @@ async def deduct_balance(
                 """,
                 telegram_id, amount, description,
             )
-            return True, round(new_balance, 2)
+            return DeductResult(
+                True,
+                new_balance,
+                {"deposit_deducted": dep_used, "win_deducted": win_used},
+            )
 
 
 async def credit_balance(
-    telegram_id: int, amount: float, description: str = "Balance credit",
+    telegram_id: int,
+    amount: float,
+    description: str = "Balance credit",
+    to_balance: str = "deposit",
 ) -> float:
-    """Credit winnings to user balance atomically.
+    """Credit funds to user balance atomically.
 
-    Returns the new balance.  Both the ``UPDATE`` and the transaction record
-    are committed together.
+    If to_balance == 'win', credits win_balance; otherwise credits deposit_balance.
     """
     pool = await _get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
-            row = await conn.fetchrow(
-                """
-                UPDATE users
-                SET balance    = balance + $1,
-                    updated_at = NOW()
-                WHERE telegram_id = $2
-                RETURNING balance
-                """,
-                amount, telegram_id,
+            user_row = await conn.fetchrow(
+                "SELECT balance, deposit_balance, win_balance FROM users WHERE telegram_id = $1 FOR UPDATE",
+                telegram_id,
             )
-            if row is None:
+            if user_row is None:
                 return 0.0
 
-            new_balance = _numeric(row["balance"])
+            dep_bal = _numeric(user_row.get("deposit_balance"))
+            win_bal = _numeric(user_row.get("win_balance"))
+
+            if to_balance == "win":
+                new_win = round(win_bal + amount, 2)
+                new_dep = dep_bal
+            else:
+                new_dep = round(dep_bal + amount, 2)
+                new_win = win_bal
+
+            new_balance = round(new_dep + new_win, 2)
+
+            await conn.execute(
+                """
+                UPDATE users
+                SET deposit_balance = $1,
+                    win_balance = $2,
+                    balance = $3,
+                    updated_at = NOW()
+                WHERE telegram_id = $4
+                """,
+                new_dep, new_win, new_balance, telegram_id,
+            )
+
+            tx_type = "win" if to_balance == "win" else "credit"
+            await conn.execute(
+                """
+                INSERT INTO transactions
+                    (telegram_id, type, amount, status, description)
+                VALUES ($1, $2, $3, 'completed', $4)
+                """,
+                telegram_id, tx_type, amount, description,
+            )
+            return new_balance
+
+
+async def refund_balance(
+    telegram_id: int,
+    deposit_amount: float,
+    win_amount: float,
+    description: str = "Balance refund",
+) -> float:
+    """Refund split amounts back to deposit_balance and win_balance atomically."""
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            user_row = await conn.fetchrow(
+                "SELECT balance, deposit_balance, win_balance FROM users WHERE telegram_id = $1 FOR UPDATE",
+                telegram_id,
+            )
+            if user_row is None:
+                return 0.0
+
+            dep_bal = _numeric(user_row.get("deposit_balance"))
+            win_bal = _numeric(user_row.get("win_balance"))
+
+            new_dep = round(dep_bal + max(0.0, deposit_amount), 2)
+            new_win = round(win_bal + max(0.0, win_amount), 2)
+            new_balance = round(new_dep + new_win, 2)
+            total_refund = round(deposit_amount + win_amount, 2)
+
+            await conn.execute(
+                """
+                UPDATE users
+                SET deposit_balance = $1,
+                    win_balance = $2,
+                    balance = $3,
+                    updated_at = NOW()
+                WHERE telegram_id = $4
+                """,
+                new_dep, new_win, new_balance, telegram_id,
+            )
+
+            await conn.execute(
+                """
+                INSERT INTO transactions
+                    (telegram_id, type, amount, status, description)
+                VALUES ($1, 'refund', $2, 'completed', $3)
+                """,
+                telegram_id, total_refund, description,
+            )
+            return new_balance
+
+
+async def credit_win(
+    telegram_id: int,
+    amount: float,
+    description: str = "Game win",
+) -> float:
+    """Credit game winnings 100% to win_balance and update total_won."""
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            user_row = await conn.fetchrow(
+                "SELECT balance, deposit_balance, win_balance, total_won FROM users WHERE telegram_id = $1 FOR UPDATE",
+                telegram_id,
+            )
+            if user_row is None:
+                return 0.0
+
+            dep_bal = _numeric(user_row.get("deposit_balance"))
+            win_bal = _numeric(user_row.get("win_balance"))
+            tot_won = _numeric(user_row.get("total_won"))
+
+            new_win = round(win_bal + amount, 2)
+            new_balance = round(dep_bal + new_win, 2)
+            new_total_won = round(tot_won + amount, 2)
+
+            await conn.execute(
+                """
+                UPDATE users
+                SET win_balance = $1,
+                    balance = $2,
+                    total_won = $3,
+                    updated_at = NOW()
+                WHERE telegram_id = $4
+                """,
+                new_win, new_balance, new_total_won, telegram_id,
+            )
+
             await conn.execute(
                 """
                 INSERT INTO transactions
@@ -329,7 +533,45 @@ async def credit_balance(
                 """,
                 telegram_id, amount, description,
             )
-            return round(new_balance, 2)
+            return new_balance
+
+
+async def hold_withdrawal_balance(
+    telegram_id: int,
+    amount: float,
+) -> tuple[bool, float]:
+    """Atomically deduct withdrawal amount strictly from win_balance."""
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            user_row = await conn.fetchrow(
+                "SELECT balance, deposit_balance, win_balance FROM users WHERE telegram_id = $1 FOR UPDATE",
+                telegram_id,
+            )
+            if user_row is None:
+                return False, 0.0
+
+            win_bal = _numeric(user_row.get("win_balance"))
+            dep_bal = _numeric(user_row.get("deposit_balance"))
+            total_bal = _numeric(user_row.get("balance"))
+
+            if win_bal < amount:
+                return False, total_bal
+
+            new_win = round(win_bal - amount, 2)
+            new_balance = round(dep_bal + new_win, 2)
+
+            await conn.execute(
+                """
+                UPDATE users
+                SET win_balance = $1,
+                    balance = $2,
+                    updated_at = NOW()
+                WHERE telegram_id = $3
+                """,
+                new_win, new_balance, telegram_id,
+            )
+            return True, new_balance
 
 
 # ---------------------------------------------------------------------------
@@ -383,10 +625,31 @@ async def auto_credit_deposit(
             if existing:
                 return False, _numeric(user_row["balance"]), True
 
-            new_balance = round(_numeric(user_row["balance"]) + amount, 2)
+            tot_dep = _numeric(user_row.get("total_deposited"))
+            bonus_claimed = bool(user_row.get("first_deposit_bonus_claimed"))
+            is_first_deposit = (not bonus_claimed) and (tot_dep == 0.0)
+
+            bonus_amount = round(amount * 0.50, 2) if is_first_deposit else 0.0
+            total_credited = round(amount + bonus_amount, 2)
+
+            cur_dep = _numeric(user_row.get("deposit_balance"))
+            cur_win = _numeric(user_row.get("win_balance"))
+
+            new_dep = round(cur_dep + total_credited, 2)
+            new_balance = round(new_dep + cur_win, 2)
+            new_tot_dep = round(tot_dep + amount, 2)
+
             await conn.execute(
-                "UPDATE users SET balance = $1, updated_at = NOW() WHERE telegram_id = $2",
-                new_balance, telegram_id,
+                """
+                UPDATE users
+                SET deposit_balance = $1,
+                    balance = $2,
+                    total_deposited = $3,
+                    first_deposit_bonus_claimed = TRUE,
+                    updated_at = NOW()
+                WHERE telegram_id = $4
+                """,
+                new_dep, new_balance, new_tot_dep, telegram_id,
             )
             await conn.execute(
                 """
@@ -396,6 +659,15 @@ async def auto_credit_deposit(
                 """,
                 telegram_id, amount, description, fingerprint,
             )
+            if bonus_amount > 0:
+                await conn.execute(
+                    """
+                    INSERT INTO transactions
+                        (telegram_id, type, amount, status, description, fingerprint)
+                    VALUES ($1, 'bonus', $2, 'completed', $3, $4)
+                    """,
+                    telegram_id, bonus_amount, f"የመጀመሪያ ተቀማጭ 50% ቦነስ — {fingerprint}", f"bonus:{fingerprint}",
+                )
             return True, new_balance, False
 
 
@@ -469,15 +741,35 @@ async def complete_telebirr_order(
             if not user_row:
                 return False, 0.0, tid
 
-            new_balance = round(_numeric(user_row["balance"]) + amt, 2)
+            tot_dep = _numeric(user_row.get("total_deposited"))
+            bonus_claimed = bool(user_row.get("first_deposit_bonus_claimed"))
+            is_first_deposit = (not bonus_claimed) and (tot_dep == 0.0)
+
+            bonus_amount = round(amt * 0.50, 2) if is_first_deposit else 0.0
+            total_credited = round(amt + bonus_amount, 2)
+
+            cur_dep = _numeric(user_row.get("deposit_balance"))
+            cur_win = _numeric(user_row.get("win_balance"))
+
+            new_dep = round(cur_dep + total_credited, 2)
+            new_balance = round(new_dep + cur_win, 2)
+            new_tot_dep = round(tot_dep + amt, 2)
 
             await conn.execute(
                 "UPDATE telebirr_orders SET status = 'completed' WHERE merch_order_id = $1",
                 merch_order_id,
             )
             await conn.execute(
-                "UPDATE users SET balance = $1, updated_at = NOW() WHERE telegram_id = $2",
-                new_balance, tid,
+                """
+                UPDATE users
+                SET deposit_balance = $1,
+                    balance = $2,
+                    total_deposited = $3,
+                    first_deposit_bonus_claimed = TRUE,
+                    updated_at = NOW()
+                WHERE telegram_id = $4
+                """,
+                new_dep, new_balance, new_tot_dep, tid,
             )
             await conn.execute(
                 """
@@ -487,6 +779,15 @@ async def complete_telebirr_order(
                 """,
                 tid, amt, f"Telebirr deposit — order {merch_order_id}",
             )
+            if bonus_amount > 0:
+                await conn.execute(
+                    """
+                    INSERT INTO transactions
+                        (telegram_id, type, amount, status, description)
+                    VALUES ($1, 'bonus', $2, 'completed', $3)
+                    """,
+                    tid, bonus_amount, f"የመጀመሪያ ተቀማጭ 50% ቦነስ — order {merch_order_id}",
+                )
             return True, new_balance, tid
 
 
@@ -682,12 +983,32 @@ async def credit_peerpay_deposit_once(
             if effective_amount <= 0:
                 effective_amount = 0.0
 
-            new_balance = round(current_balance + effective_amount, 2)
+            tot_dep = _numeric(user_row.get("total_deposited"))
+            bonus_claimed = bool(user_row.get("first_deposit_bonus_claimed"))
+            is_first_deposit = (not bonus_claimed) and (tot_dep == 0.0)
+
+            bonus_amount = round(effective_amount * 0.50, 2) if is_first_deposit else 0.0
+            total_credited = round(effective_amount + bonus_amount, 2)
+
+            cur_dep = _numeric(user_row.get("deposit_balance"))
+            cur_win = _numeric(user_row.get("win_balance"))
+
+            new_dep = round(cur_dep + total_credited, 2)
+            new_balance = round(new_dep + cur_win, 2)
+            new_tot_dep = round(tot_dep + effective_amount, 2)
             fingerprint = f"peerpay_dep:{payment_id}"
 
             await conn.execute(
-                "UPDATE users SET balance = $1, updated_at = NOW() WHERE telegram_id = $2",
-                new_balance, target_id,
+                """
+                UPDATE users
+                SET deposit_balance = $1,
+                    balance = $2,
+                    total_deposited = $3,
+                    first_deposit_bonus_claimed = TRUE,
+                    updated_at = NOW()
+                WHERE telegram_id = $4
+                """,
+                new_dep, new_balance, new_tot_dep, target_id,
             )
             await conn.execute(
                 """
@@ -697,6 +1018,15 @@ async def credit_peerpay_deposit_once(
                 """,
                 target_id, effective_amount, f"PeerPay deposit — {payment_id}", fingerprint,
             )
+            if bonus_amount > 0:
+                await conn.execute(
+                    """
+                    INSERT INTO transactions
+                        (telegram_id, type, amount, status, description, fingerprint)
+                    VALUES ($1, 'bonus', $2, 'completed', $3, $4)
+                    """,
+                    target_id, bonus_amount, f"የመጀመሪያ ተቀማጭ 50% ቦነስ — {payment_id}", f"bonus:{payment_id}",
+                )
             await conn.execute(
                 """
                 UPDATE peerpay_deposits
@@ -796,7 +1126,7 @@ async def capture_peerpay_withdrawal_once(payment_id: str) -> tuple[bool, int]:
         async with conn.transaction():
             row = await conn.fetchrow(
                 """
-                SELECT telegram_id, captured, released
+                SELECT telegram_id, amount, captured, released
                 FROM peerpay_withdrawals
                 WHERE payment_id = $1
                 FOR UPDATE
@@ -829,6 +1159,10 @@ async def capture_peerpay_withdrawal_once(payment_id: str) -> tuple[bool, int]:
                 WHERE (description LIKE $1 OR fingerprint = $2) AND status = 'pending'
                 """,
                 f"%{payment_id}%", f"peerpay_wd:{payment_id}",
+            )
+            await conn.execute(
+                "UPDATE users SET total_withdrawn = total_withdrawn + $1 WHERE telegram_id = $2",
+                _numeric(row.get("amount")), int(row["telegram_id"]),
             )
             return True, int(row["telegram_id"])
 
@@ -864,12 +1198,15 @@ async def release_peerpay_withdrawal_once(payment_id: str) -> tuple[bool, float]
             if not user_row:
                 return False, 0.0
 
-            new_balance = round(_numeric(user_row["balance"]) + amount, 2)
+            cur_win = _numeric(user_row.get("win_balance"))
+            cur_dep = _numeric(user_row.get("deposit_balance"))
+            new_win = round(cur_win + amount, 2)
+            new_balance = round(cur_dep + new_win, 2)
             fingerprint = f"peerpay_wd_refund:{payment_id}"
 
             await conn.execute(
-                "UPDATE users SET balance = $1, updated_at = NOW() WHERE telegram_id = $2",
-                new_balance, target_id,
+                "UPDATE users SET win_balance = $1, balance = $2, updated_at = NOW() WHERE telegram_id = $3",
+                new_win, new_balance, target_id,
             )
             await conn.execute(
                 """

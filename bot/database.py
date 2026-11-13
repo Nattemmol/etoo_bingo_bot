@@ -72,10 +72,28 @@ if _is_valid_postgres_url(settings.database_url):
         record_game_round,
         set_game_metadata,
         get_game_metadata,
+        DeductResult,
+        update_user_balances,
+        refund_balance,
+        credit_win,
+        hold_withdrawal_balance,
     )
     logger.info("Database backend: PostgreSQL (asyncpg) — %s", settings.database_url.split("@")[-1] if "@" in settings.database_url else "configured")
 else:
     logger.info("Database backend: SQLite (aiosqlite) — %s", settings.database_path)
+
+class DeductResult(tuple):
+    """2-tuple (success, new_balance) subclass with deduction breakdown attributes."""
+    def __new__(cls, success: bool, new_balance: float, details: dict | None = None):
+        return super().__new__(cls, (bool(success), float(new_balance)))
+
+    def __init__(self, success: bool, new_balance: float, details: dict | None = None):
+        self.success = bool(success)
+        self.new_balance = float(new_balance)
+        self.details = details or {"deposit_deducted": 0.0, "win_deducted": 0.0}
+        self.deposit_deducted = float(self.details.get("deposit_deducted", 0.0))
+        self.win_deducted = float(self.details.get("win_deducted", 0.0))
+
 
 # ---------------------------------------------------------------------------
 # Schema DDL
@@ -88,6 +106,13 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT,
     first_name TEXT,
     balance REAL NOT NULL DEFAULT 0.0,
+    deposit_balance REAL NOT NULL DEFAULT 0.0,
+    win_balance REAL NOT NULL DEFAULT 0.0,
+    first_deposit_bonus_claimed INTEGER NOT NULL DEFAULT 0,
+    total_deposited REAL NOT NULL DEFAULT 0.0,
+    total_withdrawn REAL NOT NULL DEFAULT 0.0,
+    total_won REAL NOT NULL DEFAULT 0.0,
+    games_played INTEGER NOT NULL DEFAULT 0,
     registered_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -207,19 +232,48 @@ CREATE_INDEXES = [
 # Singleton connection & Write Lock for thread-safe async transaction atomicity
 # ---------------------------------------------------------------------------
 
+class _LoopBoundLock:
+    def __init__(self):
+        self._locks = {}
+    def _get_lock(self):
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop not in self._locks:
+            self._locks[loop] = asyncio.Lock()
+        return self._locks[loop]
+    async def __aenter__(self):
+        return await self._get_lock().__aenter__()
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        return await self._get_lock().__aexit__(exc_type, exc_val, exc_tb)
+
 _db_conn: aiosqlite.Connection | None = None
-_db_lock = asyncio.Lock()
-_write_lock = asyncio.Lock()
+_db_lock = _LoopBoundLock()
+_write_lock = _LoopBoundLock()
 
 
 async def get_db() -> aiosqlite.Connection:
     """Return the singleton database connection, creating it if needed."""
     global _db_conn
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        current_loop = None
     if _db_conn is not None:
-        return _db_conn
+        conn_loop = getattr(_db_conn, "_loop", None)
+        if conn_loop is not None and (conn_loop != current_loop or conn_loop.is_closed()):
+            _db_conn = None
+        else:
+            return _db_conn
     async with _db_lock:
         if _db_conn is not None:
-            return _db_conn
+            conn_loop = getattr(_db_conn, "_loop", None)
+            if conn_loop is not None and (conn_loop != current_loop or conn_loop.is_closed()):
+                _db_conn = None
+            else:
+                return _db_conn
         conn = await aiosqlite.connect(settings.database_path)
         conn.row_factory = aiosqlite.Row
         # Performance pragmas
@@ -254,6 +308,43 @@ async def _ensure_user_metadata(db: aiosqlite.Connection) -> None:
             "UPDATE users SET updated_at = registered_at WHERE updated_at = ''"
         )
         await db.commit()
+
+
+async def _ensure_dual_balance_columns(db: aiosqlite.Connection) -> None:
+    """Non-destructive migration for deposit/win balances and welcome bonus."""
+    async with db.execute("PRAGMA table_info(users)") as cursor:
+        columns = {row[1] for row in await cursor.fetchall()}
+    if "deposit_balance" not in columns:
+        await db.execute("ALTER TABLE users ADD COLUMN deposit_balance REAL NOT NULL DEFAULT 0.0")
+    if "win_balance" not in columns:
+        await db.execute("ALTER TABLE users ADD COLUMN win_balance REAL NOT NULL DEFAULT 0.0")
+    if "first_deposit_bonus_claimed" not in columns:
+        await db.execute("ALTER TABLE users ADD COLUMN first_deposit_bonus_claimed INTEGER NOT NULL DEFAULT 0")
+    if "total_deposited" not in columns:
+        await db.execute("ALTER TABLE users ADD COLUMN total_deposited REAL NOT NULL DEFAULT 0.0")
+    if "total_withdrawn" not in columns:
+        await db.execute("ALTER TABLE users ADD COLUMN total_withdrawn REAL NOT NULL DEFAULT 0.0")
+    if "total_won" not in columns:
+        await db.execute("ALTER TABLE users ADD COLUMN total_won REAL NOT NULL DEFAULT 0.0")
+
+    # Policy B: Grandfather existing balances to win_balance (withdrawable)
+    await db.execute("""
+        UPDATE users
+        SET win_balance = balance, deposit_balance = 0.0
+        WHERE balance > 0 AND deposit_balance = 0.0 AND win_balance = 0.0
+    """)
+    try:
+        await db.execute("""
+            UPDATE users
+            SET first_deposit_bonus_claimed = 1
+            WHERE total_deposited > 0
+               OR telegram_id IN (
+                   SELECT DISTINCT telegram_id FROM transactions WHERE type = 'deposit' AND status = 'completed'
+               )
+        """)
+    except Exception:
+        pass
+    await db.commit()
 
 async def _ensure_transaction_fingerprint(db: aiosqlite.Connection) -> None:
     """Add the fingerprint column (dedup key for auto-approved deposits)."""
@@ -300,6 +391,7 @@ async def init_db() -> None:
         await db.execute(CREATE_GAME_METADATA)
         await _ensure_transaction_fingerprint(db)
         await _ensure_peerpay_account_columns(db)
+        await _ensure_dual_balance_columns(db)
         for idx_sql in CREATE_INDEXES:
             await db.execute(idx_sql)
         await db.commit()
@@ -363,9 +455,25 @@ async def ensure_user(
     username: str | None = None,
     first_name: str | None = None,
     balance: float | None = None,
+    deposit_balance: float | None = None,
+    win_balance: float | None = None,
 ) -> dict:
     user = await create_user(telegram_id, phone_number, username, first_name)
-    if balance is not None:
+    if deposit_balance is not None or win_balance is not None:
+        dep = deposit_balance if deposit_balance is not None else float(user.get("deposit_balance", 0.0))
+        win = win_balance if win_balance is not None else float(user.get("win_balance", 0.0))
+        tot = round(dep + win, 2)
+        db = await get_db()
+        async with _write_lock:
+            await db.execute(
+                "UPDATE users SET deposit_balance = ?, win_balance = ?, balance = ? WHERE telegram_id = ?",
+                (dep, win, tot, telegram_id),
+            )
+            await db.commit()
+        user["deposit_balance"] = dep
+        user["win_balance"] = win
+        user["balance"] = tot
+    elif balance is not None:
         await update_balance(telegram_id, balance)
         user["balance"] = balance
     return user
@@ -380,8 +488,33 @@ async def update_balance(telegram_id: int, new_balance: float) -> None:
     db = await get_db()
     async with _write_lock:
         await db.execute(
-            "UPDATE users SET balance = ? WHERE telegram_id = ?",
-            (new_balance, telegram_id),
+            """
+            UPDATE users 
+            SET balance = ?,
+                win_balance = CASE WHEN deposit_balance = 0.0 THEN ? ELSE win_balance END
+            WHERE telegram_id = ?
+            """,
+            (new_balance, new_balance, telegram_id),
+        )
+        await db.commit()
+
+
+async def update_user_balances(
+    telegram_id: int,
+    deposit_balance: float,
+    win_balance: float,
+) -> None:
+    """Set deposit_balance and win_balance explicitly for a user in SQLite."""
+    db = await get_db()
+    total = round(deposit_balance + win_balance, 2)
+    async with _write_lock:
+        await db.execute(
+            """
+            UPDATE users
+            SET deposit_balance = ?, win_balance = ?, balance = ?
+            WHERE telegram_id = ?
+            """,
+            (round(deposit_balance, 2), round(win_balance, 2), total, telegram_id),
         )
         await db.commit()
 
@@ -392,15 +525,16 @@ async def add_transaction(
     amount: float,
     status: str = "completed",
     description: str | None = None,
+    fingerprint: str | None = None,
 ) -> None:
     db = await get_db()
     async with _write_lock:
         await db.execute(
             """
-            INSERT INTO transactions (telegram_id, type, amount, status, description)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO transactions (telegram_id, type, amount, status, description, fingerprint)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (telegram_id, tx_type, amount, status, description),
+            (telegram_id, tx_type, amount, status, description, fingerprint),
         )
         await db.commit()
 
@@ -423,27 +557,50 @@ async def get_transactions(telegram_id: int, limit: int = 20) -> list[dict]:
 async def deduct_balance(
     telegram_id: int, amount: float, description: str
 ) -> tuple[bool, float]:
-    """Deduct amount if sufficient balance. Returns (success, new_balance).
+    """Deduct amount if sufficient balance. Returns DeductResult(success, new_balance, details).
 
-    Serialized via _write_lock for strict atomicity under high concurrency.
+    Priority:
+    1. Deducts first from deposit_balance.
+    2. If deposit_balance < amount, takes all of deposit_balance and remaining from win_balance.
     """
     db = await get_db()
     async with _write_lock:
         async with db.execute(
-            "SELECT balance FROM users WHERE telegram_id = ?", (telegram_id,)
+            "SELECT balance, deposit_balance, win_balance FROM users WHERE telegram_id = ?", (telegram_id,)
         ) as cursor:
             row = await cursor.fetchone()
         if not row:
-            return False, 0.0
+            return DeductResult(False, 0.0)
 
-        balance = float(row["balance"])
-        if balance < amount:
-            return False, balance
+        dep_bal = float(row["deposit_balance"]) if "deposit_balance" in row.keys() else 0.0
+        win_bal = float(row["win_balance"]) if "win_balance" in row.keys() else 0.0
+        total_bal = float(row["balance"])
 
-        new_balance = round(balance - amount, 2)
+        if dep_bal == 0.0 and win_bal == 0.0 and total_bal > 0.0:
+            win_bal = total_bal
+
+        if (dep_bal + win_bal) < amount:
+            return DeductResult(False, total_bal)
+
+        if dep_bal >= amount:
+            dep_used = amount
+            win_used = 0.0
+            new_dep = round(dep_bal - amount, 2)
+            new_win = win_bal
+        else:
+            dep_used = dep_bal
+            win_used = round(amount - dep_bal, 2)
+            new_dep = 0.0
+            new_win = round(win_bal - win_used, 2)
+
+        new_balance = round(new_dep + new_win, 2)
         await db.execute(
-            "UPDATE users SET balance = ? WHERE telegram_id = ?",
-            (new_balance, telegram_id),
+            """
+            UPDATE users 
+            SET deposit_balance = ?, win_balance = ?, balance = ? 
+            WHERE telegram_id = ?
+            """,
+            (new_dep, new_win, new_balance, telegram_id),
         )
         await db.execute(
             """
@@ -453,26 +610,136 @@ async def deduct_balance(
             (telegram_id, amount, description),
         )
         await db.commit()
-        return True, new_balance
+        return DeductResult(
+            True,
+            new_balance,
+            {"deposit_deducted": dep_used, "win_deducted": win_used},
+        )
 
 
 async def credit_balance(
-    telegram_id: int, amount: float, description: str = "Balance credit"
+    telegram_id: int,
+    amount: float,
+    description: str = "Balance credit",
+    to_balance: str = "deposit",
 ) -> float:
-    """Credit winnings to user balance. Serialized via _write_lock."""
+    """Credit funds to user balance atomically.
+
+    If to_balance == 'win', credits win_balance; otherwise credits deposit_balance.
+    """
     db = await get_db()
     async with _write_lock:
         async with db.execute(
-            "SELECT balance FROM users WHERE telegram_id = ?", (telegram_id,)
+            "SELECT balance, deposit_balance, win_balance FROM users WHERE telegram_id = ?", (telegram_id,)
         ) as cursor:
             row = await cursor.fetchone()
         if not row:
             return 0.0
 
-        new_balance = round(float(row["balance"]) + amount, 2)
+        dep_bal = float(row["deposit_balance"]) if "deposit_balance" in row.keys() else 0.0
+        win_bal = float(row["win_balance"]) if "win_balance" in row.keys() else 0.0
+
+        if to_balance == "win":
+            new_win = round(win_bal + amount, 2)
+            new_dep = dep_bal
+        else:
+            new_dep = round(dep_bal + amount, 2)
+            new_win = win_bal
+
+        new_balance = round(new_dep + new_win, 2)
         await db.execute(
-            "UPDATE users SET balance = ? WHERE telegram_id = ?",
-            (new_balance, telegram_id),
+            """
+            UPDATE users 
+            SET deposit_balance = ?, win_balance = ?, balance = ? 
+            WHERE telegram_id = ?
+            """,
+            (new_dep, new_win, new_balance, telegram_id),
+        )
+        tx_type = "win" if to_balance == "win" else "credit"
+        await db.execute(
+            """
+            INSERT INTO transactions (telegram_id, type, amount, status, description)
+            VALUES (?, ?, ?, 'completed', ?)
+            """,
+            (telegram_id, tx_type, amount, description),
+        )
+        await db.commit()
+        return new_balance
+
+
+async def refund_balance(
+    telegram_id: int,
+    deposit_amount: float,
+    win_amount: float,
+    description: str = "Balance refund",
+) -> float:
+    """Refund split amounts back to deposit_balance and win_balance atomically in SQLite."""
+    db = await get_db()
+    async with _write_lock:
+        async with db.execute(
+            "SELECT balance, deposit_balance, win_balance FROM users WHERE telegram_id = ?", (telegram_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            return 0.0
+
+        dep_bal = float(row["deposit_balance"]) if "deposit_balance" in row.keys() else 0.0
+        win_bal = float(row["win_balance"]) if "win_balance" in row.keys() else 0.0
+
+        new_dep = round(dep_bal + max(0.0, deposit_amount), 2)
+        new_win = round(win_bal + max(0.0, win_amount), 2)
+        new_balance = round(new_dep + new_win, 2)
+        total_refund = round(deposit_amount + win_amount, 2)
+
+        await db.execute(
+            """
+            UPDATE users 
+            SET deposit_balance = ?, win_balance = ?, balance = ? 
+            WHERE telegram_id = ?
+            """,
+            (new_dep, new_win, new_balance, telegram_id),
+        )
+        await db.execute(
+            """
+            INSERT INTO transactions (telegram_id, type, amount, status, description)
+            VALUES (?, 'refund', ?, 'completed', ?)
+            """,
+            (telegram_id, total_refund, description),
+        )
+        await db.commit()
+        return new_balance
+
+
+async def credit_win(
+    telegram_id: int,
+    amount: float,
+    description: str = "Game win",
+) -> float:
+    """Credit game winnings 100% to win_balance and update total_won in SQLite."""
+    db = await get_db()
+    async with _write_lock:
+        async with db.execute(
+            "SELECT balance, deposit_balance, win_balance, total_won FROM users WHERE telegram_id = ?", (telegram_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            return 0.0
+
+        dep_bal = float(row["deposit_balance"]) if "deposit_balance" in row.keys() else 0.0
+        win_bal = float(row["win_balance"]) if "win_balance" in row.keys() else 0.0
+        tot_won = float(row["total_won"]) if "total_won" in row.keys() else 0.0
+
+        new_win = round(win_bal + amount, 2)
+        new_balance = round(dep_bal + new_win, 2)
+        new_total_won = round(tot_won + amount, 2)
+
+        await db.execute(
+            """
+            UPDATE users 
+            SET win_balance = ?, balance = ?, total_won = ? 
+            WHERE telegram_id = ?
+            """,
+            (new_win, new_balance, new_total_won, telegram_id),
         )
         await db.execute(
             """
@@ -483,6 +750,42 @@ async def credit_balance(
         )
         await db.commit()
         return new_balance
+
+
+async def hold_withdrawal_balance(
+    telegram_id: int,
+    amount: float,
+) -> tuple[bool, float]:
+    """Atomically deduct withdrawal amount strictly from win_balance in SQLite."""
+    db = await get_db()
+    async with _write_lock:
+        async with db.execute(
+            "SELECT balance, deposit_balance, win_balance FROM users WHERE telegram_id = ?", (telegram_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            return False, 0.0
+
+        win_bal = float(row["win_balance"]) if "win_balance" in row.keys() else 0.0
+        dep_bal = float(row["deposit_balance"]) if "deposit_balance" in row.keys() else 0.0
+        total_bal = float(row["balance"])
+
+        if win_bal < amount:
+            return False, total_bal
+
+        new_win = round(win_bal - amount, 2)
+        new_balance = round(dep_bal + new_win, 2)
+
+        await db.execute(
+            """
+            UPDATE users 
+            SET win_balance = ?, balance = ? 
+            WHERE telegram_id = ?
+            """,
+            (new_win, new_balance, telegram_id),
+        )
+        await db.commit()
+        return True, new_balance
 
 
 async def get_deposit_by_fingerprint(fingerprint: str) -> dict | None:
@@ -532,16 +835,37 @@ async def auto_credit_deposit(
             return False, cur_bal, True
 
         async with db.execute(
-            "SELECT balance FROM users WHERE telegram_id = ?", (telegram_id,)
+            "SELECT * FROM users WHERE telegram_id = ?", (telegram_id,)
         ) as cursor:
             user_row = await cursor.fetchone()
         if not user_row:
             return False, 0.0, False
 
-        new_balance = round(float(user_row["balance"]) + amount, 2)
+        tot_dep = float(user_row["total_deposited"]) if "total_deposited" in user_row.keys() and user_row["total_deposited"] is not None else 0.0
+        bonus_claimed = bool(user_row["first_deposit_bonus_claimed"]) if "first_deposit_bonus_claimed" in user_row.keys() and user_row["first_deposit_bonus_claimed"] is not None else False
+        is_first_deposit = (not bonus_claimed) and (tot_dep == 0.0)
+
+        bonus_amount = round(amount * 0.50, 2) if is_first_deposit else 0.0
+        total_credited = round(amount + bonus_amount, 2)
+
+        cur_dep = float(user_row["deposit_balance"]) if "deposit_balance" in user_row.keys() and user_row["deposit_balance"] is not None else 0.0
+        cur_win = float(user_row["win_balance"]) if "win_balance" in user_row.keys() and user_row["win_balance"] is not None else 0.0
+
+        new_dep = round(cur_dep + total_credited, 2)
+        new_balance = round(new_dep + cur_win, 2)
+        new_tot_dep = round(tot_dep + amount, 2)
+
         await db.execute(
-            "UPDATE users SET balance = ? WHERE telegram_id = ?",
-            (new_balance, telegram_id),
+            """
+            UPDATE users
+            SET deposit_balance = ?,
+                balance = ?,
+                total_deposited = ?,
+                first_deposit_bonus_claimed = 1,
+                updated_at = datetime('now')
+            WHERE telegram_id = ?
+            """,
+            (new_dep, new_balance, new_tot_dep, telegram_id),
         )
         await db.execute(
             """
@@ -550,6 +874,14 @@ async def auto_credit_deposit(
             """,
             (telegram_id, amount, description, fingerprint),
         )
+        if bonus_amount > 0:
+            await db.execute(
+                """
+                INSERT INTO transactions (telegram_id, type, amount, status, description)
+                VALUES (?, 'deposit', ?, 'completed', 'First deposit 50% bonus')
+                """,
+                (telegram_id, bonus_amount),
+            )
         await db.commit()
         return True, new_balance, False
 
@@ -622,22 +954,42 @@ async def complete_telebirr_order(
         amount: float = order["amount"]
 
         async with db.execute(
-            "SELECT balance FROM users WHERE telegram_id = ?", (telegram_id,)
+            "SELECT * FROM users WHERE telegram_id = ?", (telegram_id,)
         ) as cursor:
             user_row = await cursor.fetchone()
 
         if not user_row:
             return False, 0.0, telegram_id
 
-        new_balance = round(float(user_row["balance"]) + amount, 2)
+        tot_dep = float(user_row["total_deposited"]) if "total_deposited" in user_row.keys() and user_row["total_deposited"] is not None else 0.0
+        bonus_claimed = bool(user_row["first_deposit_bonus_claimed"]) if "first_deposit_bonus_claimed" in user_row.keys() and user_row["first_deposit_bonus_claimed"] is not None else False
+        is_first_deposit = (not bonus_claimed) and (tot_dep == 0.0)
+
+        bonus_amount = round(amount * 0.50, 2) if is_first_deposit else 0.0
+        total_credited = round(amount + bonus_amount, 2)
+
+        cur_dep = float(user_row["deposit_balance"]) if "deposit_balance" in user_row.keys() and user_row["deposit_balance"] is not None else 0.0
+        cur_win = float(user_row["win_balance"]) if "win_balance" in user_row.keys() and user_row["win_balance"] is not None else 0.0
+
+        new_dep = round(cur_dep + total_credited, 2)
+        new_balance = round(new_dep + cur_win, 2)
+        new_tot_dep = round(tot_dep + amount, 2)
 
         await db.execute(
             "UPDATE telebirr_orders SET status = 'completed' WHERE merch_order_id = ?",
             (merch_order_id,),
         )
         await db.execute(
-            "UPDATE users SET balance = ? WHERE telegram_id = ?",
-            (new_balance, telegram_id),
+            """
+            UPDATE users
+            SET deposit_balance = ?,
+                balance = ?,
+                total_deposited = ?,
+                first_deposit_bonus_claimed = 1,
+                updated_at = datetime('now')
+            WHERE telegram_id = ?
+            """,
+            (new_dep, new_balance, new_tot_dep, telegram_id),
         )
         await db.execute(
             """
@@ -646,6 +998,14 @@ async def complete_telebirr_order(
             """,
             (telegram_id, amount, f"Telebirr deposit — order {merch_order_id}"),
         )
+        if bonus_amount > 0:
+            await db.execute(
+                """
+                INSERT INTO transactions (telegram_id, type, amount, status, description)
+                VALUES (?, 'deposit', ?, 'completed', 'First deposit 50% bonus')
+                """,
+                (telegram_id, bonus_amount),
+            )
         await db.commit()
         return True, new_balance, telegram_id
 
@@ -806,7 +1166,7 @@ async def credit_peerpay_deposit_once(
 
         target_id = int(rec["telegram_id"])
         async with db.execute(
-            "SELECT balance FROM users WHERE telegram_id = ?", (target_id,)
+            "SELECT * FROM users WHERE telegram_id = ?", (target_id,)
         ) as cursor:
             user_row = await cursor.fetchone()
         if not user_row:
@@ -820,12 +1180,32 @@ async def credit_peerpay_deposit_once(
         if effective_amount <= 0:
             effective_amount = 0.0
 
-        new_balance = round(current_balance + effective_amount, 2)
+        tot_dep = float(user_row["total_deposited"]) if "total_deposited" in user_row.keys() and user_row["total_deposited"] is not None else 0.0
+        bonus_claimed = bool(user_row["first_deposit_bonus_claimed"]) if "first_deposit_bonus_claimed" in user_row.keys() and user_row["first_deposit_bonus_claimed"] is not None else False
+        is_first_deposit = (not bonus_claimed) and (tot_dep == 0.0)
+
+        bonus_amount = round(effective_amount * 0.50, 2) if is_first_deposit else 0.0
+        total_credited = round(effective_amount + bonus_amount, 2)
+
+        cur_dep = float(user_row["deposit_balance"]) if "deposit_balance" in user_row.keys() and user_row["deposit_balance"] is not None else 0.0
+        cur_win = float(user_row["win_balance"]) if "win_balance" in user_row.keys() and user_row["win_balance"] is not None else 0.0
+
+        new_dep = round(cur_dep + total_credited, 2)
+        new_balance = round(new_dep + cur_win, 2)
+        new_tot_dep = round(tot_dep + effective_amount, 2)
         fingerprint = f"peerpay_dep:{payment_id}"
 
         await db.execute(
-            "UPDATE users SET balance = ? WHERE telegram_id = ?",
-            (new_balance, target_id),
+            """
+            UPDATE users
+            SET deposit_balance = ?,
+                balance = ?,
+                total_deposited = ?,
+                first_deposit_bonus_claimed = 1,
+                updated_at = datetime('now')
+            WHERE telegram_id = ?
+            """,
+            (new_dep, new_balance, new_tot_dep, target_id),
         )
         await db.execute(
             """
@@ -834,6 +1214,14 @@ async def credit_peerpay_deposit_once(
             """,
             (target_id, effective_amount, f"PeerPay deposit — {payment_id}", fingerprint),
         )
+        if bonus_amount > 0:
+            await db.execute(
+                """
+                INSERT INTO transactions (telegram_id, type, amount, status, description)
+                VALUES (?, 'deposit', ?, 'completed', 'First deposit 50% bonus')
+                """,
+                (target_id, bonus_amount),
+            )
         await db.execute(
             """
             UPDATE peerpay_deposits
@@ -928,7 +1316,7 @@ async def capture_peerpay_withdrawal_once(payment_id: str) -> tuple[bool, int]:
     async with _write_lock:
         async with db.execute(
             """
-            SELECT telegram_id, captured, released
+            SELECT telegram_id, amount, captured, released
             FROM peerpay_withdrawals WHERE payment_id = ?
             """,
             (payment_id,),
@@ -957,6 +1345,10 @@ async def capture_peerpay_withdrawal_once(payment_id: str) -> tuple[bool, int]:
             """,
             (f"%{payment_id}%", f"peerpay_wd:{payment_id}"),
         )
+        await db.execute(
+            "UPDATE users SET total_withdrawn = total_withdrawn + ? WHERE telegram_id = ?",
+            (float(row["amount"]), int(row["telegram_id"])),
+        )
         await db.commit()
         return True, int(row["telegram_id"])
 
@@ -980,18 +1372,21 @@ async def release_peerpay_withdrawal_once(payment_id: str) -> tuple[bool, float]
         amount = float(row["amount"])
 
         async with db.execute(
-            "SELECT balance FROM users WHERE telegram_id = ?", (target_id,)
+            "SELECT * FROM users WHERE telegram_id = ?", (target_id,)
         ) as cursor:
             user_row = await cursor.fetchone()
         if not user_row:
             return False, 0.0
 
-        new_balance = round(float(user_row["balance"]) + amount, 2)
+        cur_win = float(user_row["win_balance"]) if "win_balance" in user_row.keys() and user_row["win_balance"] is not None else 0.0
+        cur_dep = float(user_row["deposit_balance"]) if "deposit_balance" in user_row.keys() and user_row["deposit_balance"] is not None else 0.0
+        new_win = round(cur_win + amount, 2)
+        new_balance = round(cur_dep + new_win, 2)
         fingerprint = f"peerpay_wd_refund:{payment_id}"
 
         await db.execute(
-            "UPDATE users SET balance = ? WHERE telegram_id = ?",
-            (new_balance, target_id),
+            "UPDATE users SET win_balance = ?, balance = ? WHERE telegram_id = ?",
+            (new_win, new_balance, target_id),
         )
         await db.execute(
             """

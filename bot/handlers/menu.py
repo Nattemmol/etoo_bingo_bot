@@ -90,8 +90,15 @@ async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
     message = update.message or (update.callback_query.message if update.callback_query else None)
     if message:
+        dep_bal = float(user_data.get("deposit_balance", 0.0))
+        win_bal = float(user_data.get("win_balance", 0.0))
+        bal = float(user_data.get("balance", dep_bal + win_bal))
         await message.reply_text(
-            msg.BALANCE.format(balance=user_data["balance"]),
+            msg.BALANCE.format(
+                balance=bal,
+                deposit_balance=dep_bal,
+                win_balance=win_bal,
+            ),
             reply_markup=balance_action_keyboard(),
             parse_mode="Markdown",
         )

@@ -14,6 +14,11 @@ CREATE TABLE IF NOT EXISTS users (
     first_name        TEXT,
     balance           NUMERIC(14,2) NOT NULL DEFAULT 0.00
                                     CHECK (balance >= 0),
+    deposit_balance   NUMERIC(14,2) NOT NULL DEFAULT 0.00
+                                    CHECK (deposit_balance >= 0),
+    win_balance       NUMERIC(14,2) NOT NULL DEFAULT 0.00
+                                    CHECK (win_balance >= 0),
+    first_deposit_bonus_claimed BOOLEAN NOT NULL DEFAULT FALSE,
     total_deposited   NUMERIC(14,2) DEFAULT 0.00,
     total_withdrawn   NUMERIC(14,2) DEFAULT 0.00,
     total_won         NUMERIC(14,2) DEFAULT 0.00,
