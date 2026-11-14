@@ -132,6 +132,11 @@ async def init_db() -> None:
                 SET win_balance = balance, deposit_balance = 0.00
                 WHERE balance > 0 AND deposit_balance = 0.00 AND win_balance = 0.00;
 
+                -- If non-depositors had funds in deposit_balance (e.g. from game wins), transfer to win_balance
+                UPDATE users
+                SET win_balance = win_balance + deposit_balance, deposit_balance = 0.00
+                WHERE total_deposited = 0.00 AND deposit_balance > 0.00;
+
                 UPDATE users
                 SET first_deposit_bonus_claimed = TRUE
                 WHERE total_deposited > 0
@@ -179,7 +184,11 @@ async def get_user(telegram_id: int) -> dict | None:
     row = await pool.fetchrow(
         "SELECT * FROM users WHERE telegram_id = $1", telegram_id
     )
-    return _record_to_dict(row)
+    user = _record_to_dict(row)
+    if user:
+        if _numeric(user.get("deposit_balance")) == 0.0 and _numeric(user.get("win_balance")) == 0.0 and _numeric(user.get("balance")) > 0.0:
+            user["win_balance"] = user["balance"]
+    return user
 
 
 async def get_all_user_ids() -> list[int]:

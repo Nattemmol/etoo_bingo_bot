@@ -1197,12 +1197,15 @@ async def finalize_bingo(room_id: str) -> None:
         prize = room.pot
         share = round(prize / len(winners), 2)
         for w in winners:
-            new_bal = await db.credit_balance(
+            new_bal = await db.credit_win(
                 w["telegram_id"],
                 share,
                 f"Won {room.name} with Card #{w['card_id']} — {w['pattern']}",
             )
-            await broadcast_user_balance(w["telegram_id"], new_bal)
+            w_user = await db.get_user(w["telegram_id"])
+            w_dep = float(w_user.get("deposit_balance", 0.0)) if w_user else 0.0
+            w_win = float(w_user.get("win_balance", 0.0)) if w_user else new_bal
+            await broadcast_user_balance(w["telegram_id"], new_bal, deposit_balance=w_dep, win_balance=w_win)
             w["prize"] = share
             w["card"] = generate_card_by_id(w["card_id"])
 
@@ -1340,6 +1343,10 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
 
         user_db = await db.get_user(telegram_id)
         balance = float(user_db["balance"]) if user_db else 0.0
+        dep_balance = float(user_db.get("deposit_balance", 0.0)) if user_db else 0.0
+        win_balance = float(user_db.get("win_balance", 0.0)) if user_db else 0.0
+        if dep_balance == 0.0 and win_balance == 0.0 and balance > 0.0:
+            win_balance = balance
 
         # Check if this player is already registered with cards in this round
         player = None
@@ -1399,6 +1406,8 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                     "id": telegram_id,
                     "name": display_name,
                     "balance": balance,
+                    "deposit_balance": dep_balance,
+                    "win_balance": win_balance,
                 },
                 "is_player": is_player,
                 "card_ids": user_card_ids,
@@ -2742,6 +2751,8 @@ async def api_user_me(request: Request):
         balance = float(user["balance"]) if user else 0.0
         deposit_balance = float(user.get("deposit_balance", 0.0)) if user else 0.0
         win_balance = float(user.get("win_balance", 0.0)) if user else 0.0
+        if deposit_balance == 0.0 and win_balance == 0.0 and balance > 0.0:
+            win_balance = balance
         active_wd = await db.get_active_peerpay_withdrawal(tg_id)
         active_wd_data = None
         if active_wd:

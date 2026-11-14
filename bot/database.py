@@ -333,6 +333,11 @@ async def _ensure_dual_balance_columns(db: aiosqlite.Connection) -> None:
         SET win_balance = balance, deposit_balance = 0.0
         WHERE balance > 0 AND deposit_balance = 0.0 AND win_balance = 0.0
     """)
+    await db.execute("""
+        UPDATE users
+        SET win_balance = win_balance + deposit_balance, deposit_balance = 0.0
+        WHERE total_deposited = 0.0 AND deposit_balance > 0.0
+    """)
     try:
         await db.execute("""
             UPDATE users
@@ -411,7 +416,14 @@ async def get_user(telegram_id: int) -> dict | None:
         "SELECT * FROM users WHERE telegram_id = ?", (telegram_id,)
     ) as cursor:
         row = await cursor.fetchone()
-        return dict(row) if row else None
+        user = dict(row) if row else None
+        if user:
+            dep = float(user.get("deposit_balance", 0.0) or 0.0)
+            win = float(user.get("win_balance", 0.0) or 0.0)
+            bal = float(user.get("balance", 0.0) or 0.0)
+            if dep == 0.0 and win == 0.0 and bal > 0.0:
+                user["win_balance"] = bal
+        return user
 
 
 async def get_all_user_ids() -> list[int]:

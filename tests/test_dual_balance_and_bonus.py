@@ -148,5 +148,48 @@ class TestDualBalanceAndBonus(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(ok_fail)
 
 
+    async def test_game_win_credits_win_balance_strictly(self):
+        """Game winnings MUST go 100% into win_balance (withdrawable), never deposit_balance."""
+        from server.main import finalize_bingo, get_room
+        from server.game import GamePhase
+        uid = 9988005
+        await db.create_user(uid, "+251911000005", "game_winner", "Winner")
+        # Player has 50 ETB in deposit_balance, 0 in win_balance
+        await db.update_user_balances(uid, deposit_balance=50.0, win_balance=0.0)
+
+        # Set up a room where this player wins
+        room = get_room("classic")
+        room.phase = GamePhase.PLAYING
+        room.pot = 100.0
+        room.bingo_claimants = [{
+            "telegram_id": uid,
+            "name": "Winner",
+            "card_id": 1,
+            "pattern": "Line 1",
+            "called_count": 15,
+        }]
+
+        # Finalize bingo (run without 5s delay by calling db.credit_win as finalize_bingo does)
+        new_bal = await db.credit_win(uid, 100.0, "Won classic with Card #1")
+        self.assertEqual(new_bal, 150.0)
+
+        user = await db.get_user(uid)
+        # deposit_balance must still be 50.0!
+        self.assertEqual(float(user["deposit_balance"]), 50.0)
+        # win_balance must be 100.0!
+        self.assertEqual(float(user["win_balance"]), 100.0)
+        self.assertEqual(float(user["balance"]), 150.0)
+        self.assertEqual(float(user["total_won"]), 100.0)
+
+        # Player can withdraw from the 100 ETB won
+        ok, bal_after = await db.hold_withdrawal_balance(uid, 100.0)
+        self.assertTrue(ok)
+        self.assertEqual(bal_after, 50.0)
+        user_after = await db.get_user(uid)
+        self.assertEqual(float(user_after["win_balance"]), 0.0)
+        self.assertEqual(float(user_after["deposit_balance"]), 50.0)
+
+
 if __name__ == "__main__":
     unittest.main()
+

@@ -194,18 +194,31 @@ function wsUrl() {
 }
 
 function updateBalanceDisplay(amount, depositAmount, winAmount) {
-  state.balance = Number(amount);
-  if (depositAmount != null) state.depositBalance = Number(depositAmount);
-  if (winAmount != null) state.winBalance = Number(winAmount);
-
-  if (els.userDepositBalance && state.depositBalance != null) {
-    els.userDepositBalance.textContent = Number(state.depositBalance).toFixed(2);
+  if (amount != null && !isNaN(Number(amount))) {
+    state.balance = Number(amount);
   }
-  if (els.userWinBalance && state.winBalance != null) {
-    els.userWinBalance.textContent = Number(state.winBalance).toFixed(2);
+  if (depositAmount != null && !isNaN(Number(depositAmount))) {
+    state.depositBalance = Number(depositAmount);
+  }
+  if (winAmount != null && !isNaN(Number(winAmount))) {
+    state.winBalance = Number(winAmount);
+  }
+
+  // Fallback under Policy B grandfathering:
+  // If individual balances are unknown but total balance is known, existing balance belongs in winBalance
+  if (state.depositBalance == null && state.winBalance == null && state.balance != null) {
+    state.depositBalance = 0;
+    state.winBalance = state.balance;
+  }
+
+  if (els.userDepositBalance) {
+    els.userDepositBalance.textContent = Number(state.depositBalance != null ? state.depositBalance : 0).toFixed(2);
+  }
+  if (els.userWinBalance) {
+    els.userWinBalance.textContent = Number(state.winBalance != null ? state.winBalance : 0).toFixed(2);
   }
   if (els.userBalance) {
-    els.userBalance.textContent = Number(amount).toFixed(2);
+    els.userBalance.textContent = Number(state.balance != null ? state.balance : 0).toFixed(2);
   }
 }
 
@@ -1406,7 +1419,7 @@ function handleMessage(socket, msg) {
       if (msg.balance != null) {
         const oldBal = state.balance;
         const newBal = Number(msg.balance);
-        updateBalanceDisplay(newBal);
+        updateBalanceDisplay(newBal, msg.deposit_balance, msg.win_balance);
         // If balance went up, show success feedback (deposit credited)
         if (newBal > oldBal) {
           onDepositSuccess(newBal - oldBal, newBal);
@@ -1872,7 +1885,10 @@ function openWinnerModal(msg) {
       els.winnerMessage.textContent = `በ Card #${mine.card_id} (${mine.pattern}) ${Number(mine.prize).toFixed(2)} ETB አሸንፈዋል!`;
     }
     if (state.balance != null && Number(mine.prize) > 0) {
-      updateBalanceDisplay(state.balance + Number(mine.prize));
+      const prizeAmt = Number(mine.prize);
+      const newWin = (state.winBalance != null ? state.winBalance : 0) + prizeAmt;
+      const newTot = (state.balance != null ? state.balance : 0) + prizeAmt;
+      updateBalanceDisplay(newTot, state.depositBalance, newWin);
     }
   } else if (winners.length > 0) {
     if (badgeIcon) badgeIcon.textContent = "🏆";
