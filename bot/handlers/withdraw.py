@@ -87,6 +87,8 @@ async def withdraw_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     balance = float(user_data["balance"]) if user_data else 0.0
     win_balance = float(user_data.get("win_balance", 0.0)) if user_data else 0.0
     deposit_balance = float(user_data.get("deposit_balance", 0.0)) if user_data else 0.0
+    if win_balance == 0.0 and deposit_balance == 0.0 and balance > 0.0:
+        win_balance = balance
 
     if win_balance < MIN_WITHDRAWAL_AMOUNT:
         message = update.message or (update.callback_query.message if update.callback_query else None)
@@ -156,7 +158,11 @@ async def withdraw_method_callback(update: Update, context: ContextTypes.DEFAULT
     assert user is not None
 
     user_data = await db.get_user(user.id)
+    balance = float(user_data["balance"]) if user_data else 0.0
     win_balance = float(user_data.get("win_balance", 0.0)) if user_data else 0.0
+    deposit_balance = float(user_data.get("deposit_balance", 0.0)) if user_data else 0.0
+    if win_balance == 0.0 and deposit_balance == 0.0 and balance > 0.0:
+        win_balance = balance
 
     if win_balance < MIN_WITHDRAWAL_AMOUNT:
         await query.message.reply_text(
@@ -248,7 +254,11 @@ async def _process_selected_withdraw_amount(
         return WD_AWAITING_AMOUNT
 
     user_data = await db.get_user(user_id)
+    balance = float(user_data["balance"]) if user_data else 0.0
     win_balance = float(user_data.get("win_balance", 0.0)) if user_data else 0.0
+    deposit_balance = float(user_data.get("deposit_balance", 0.0)) if user_data else 0.0
+    if win_balance == 0.0 and deposit_balance == 0.0 and balance > 0.0:
+        win_balance = balance
 
     if amount > win_balance:
         await message.reply_text(
@@ -320,7 +330,11 @@ async def withdraw_account_handler(update: Update, context: ContextTypes.DEFAULT
 
     amount = float(context.user_data.get("withdraw_amount", 0.0))
     user_data = await db.get_user(user.id)
+    balance = float(user_data["balance"]) if user_data else 0.0
     win_balance = float(user_data.get("win_balance", 0.0)) if user_data else 0.0
+    deposit_balance = float(user_data.get("deposit_balance", 0.0)) if user_data else 0.0
+    if win_balance == 0.0 and deposit_balance == 0.0 and balance > 0.0:
+        win_balance = balance
 
     if amount <= 0 or amount > win_balance:
         await update.message.reply_text(
@@ -331,7 +345,6 @@ async def withdraw_account_handler(update: Update, context: ContextTypes.DEFAULT
         )
         return ConversationHandler.END
 
-    new_balance = round(balance - amount, 2)
     idempotency_key = f"etoobingo-withdrawal-{uuid.uuid4().hex}"
     payment_id = f"wd_{uuid.uuid4().hex[:12]}"
     peerpay_bank_code = "telebirr" if method == "telebirr" else ("cbebirr" if method == "cbebirr" else "cbe")
@@ -344,7 +357,21 @@ async def withdraw_account_handler(update: Update, context: ContextTypes.DEFAULT
             destination={"bank": peerpay_bank_code, "account_number": clean_dest_account},
             idempotency_key=idempotency_key,
         )
-        wd_data = res.get("data", {})
+        if isinstance(res, dict) and res.get("error"):
+            err = res.get("error", {})
+            err_code = err.get("code", "withdrawal_failed")
+            err_msg = err.get("message", "የገንዘብ ማውጣት ጥያቄው በክፍያ ስርዓቱ ተቀባይነት አላገኘም።")
+            logger.warning("PeerPay create_withdrawal returned error: %s - %s", err_code, err_msg)
+            if err_code == "insufficient_float":
+                msg_text = "⚠️ በአሁኑ ወቅት የክፍያ ስርዓቱ በቂ ቀሪ ሂሳብ ስለሌለው ጥያቄዎ አልተሳካም። እባክዎ ከጥቂት ደቂቃዎች በኋላ እንደገና ይሞክሩ።"
+            elif err_code == "agent_unavailable":
+                msg_text = "⚠️ በአሁኑ ወቅት ክፍያ ፈጻሚ ወኪል ባለመኖሩ ጥያቄዎ አልተሳካም። እባክዎ ከጥቂት ደቂቃዎች በኋላ እንደገና ይሞክሩ።"
+            else:
+                msg_text = f"❌ የገንዘብ ማውጣት ጥያቄው አልተሳካም:\n`{err_msg}`\n\nእባክዎ እንደገና ይሞክሩ ወይም አስተዳዳሪን ያነጋግሩ።"
+            await update.message.reply_text(msg_text, parse_mode="Markdown")
+            return ConversationHandler.END
+
+        wd_data = res.get("data", {}) if isinstance(res, dict) else {}
         if wd_data.get("id"):
             payment_id = wd_data["id"]
         checkout_url = wd_data.get("checkout_url") or ""
@@ -383,7 +410,10 @@ async def withdraw_account_handler(update: Update, context: ContextTypes.DEFAULT
     )
 
     # Broadcast updated balance to Mini App WebSocket immediately
-    await _broadcast_balance(user.id, new_balance)
+    user_after = await db.get_user(user.id)
+    cur_dep = float(user_after.get("deposit_balance", 0.0)) if user_after else 0.0
+    cur_win = float(user_after.get("win_balance", 0.0)) if user_after else 0.0
+    await _broadcast_balance(user.id, new_balance, deposit_balance=cur_dep, win_balance=cur_win)
 
     method_label = METHOD_LABELS.get(method, method)
     acct_label = "ስልክ ቁጥር" if method in ("telebirr", "cbebirr") else "የባንክ ሂሳብ"

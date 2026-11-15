@@ -190,6 +190,29 @@ class TestDualBalanceAndBonus(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(float(user_after["deposit_balance"]), 50.0)
 
 
+    async def test_grandfathered_user_can_withdraw_immediately(self):
+        """A pre-existing user with balance=200, deposit_balance=0, win_balance=0 can withdraw immediately."""
+        uid = 9988006
+        await db.create_user(uid, "+251911000006", "gf_user", "GF")
+        conn = await db.get_db()
+        await conn.execute("UPDATE users SET balance = 200.0, deposit_balance = 0.0, win_balance = 0.0 WHERE telegram_id = ?", (uid,))
+        await conn.commit()
+
+        user = await db.get_user(uid)
+        self.assertEqual(float(user["balance"]), 200.0)
+        self.assertEqual(float(user["win_balance"]), 200.0)
+
+        # Hold 80 ETB for withdrawal
+        ok, bal_after = await db.hold_withdrawal_balance(uid, 80.0)
+        self.assertTrue(ok)
+        self.assertEqual(bal_after, 120.0)
+
+        user_after = await db.get_user(uid)
+        self.assertEqual(float(user_after["win_balance"]), 120.0)
+        self.assertEqual(float(user_after["balance"]), 120.0)
+
+
 if __name__ == "__main__":
     unittest.main()
+
 

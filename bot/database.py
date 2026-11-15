@@ -782,6 +782,10 @@ async def hold_withdrawal_balance(
         dep_bal = float(row["deposit_balance"]) if "deposit_balance" in row.keys() else 0.0
         total_bal = float(row["balance"])
 
+        # Safety fallback for Policy B grandfathering
+        if dep_bal == 0.0 and win_bal == 0.0 and total_bal > 0.0:
+            win_bal = total_bal
+
         if win_bal < amount:
             return False, total_bal
 
