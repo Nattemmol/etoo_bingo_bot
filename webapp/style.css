@@ -124,8 +124,8 @@ body {
   justify-content: space-between;
   align-items: center;
   width: 100%;
-  margin-bottom: 6px;
-  padding: 4px 10px;
+  margin-bottom: 4px;
+  padding: 2px 8px;
   background: var(--secondary);
   border: 1px solid var(--border-light);
   border-radius: 12px;
@@ -136,10 +136,21 @@ body {
 .balance-pill {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   font-weight: 800;
-  font-size: 0.95rem;
-  padding: 2px 8px;
+  font-size: 0.90rem;
+  padding: 0 4px;
+  margin: 0;
+  line-height: 1;
+}
+
+.balance-pill .wallet-icon {
+  font-size: 0.85rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
 }
 
 .balance-vertical-group {
@@ -147,33 +158,39 @@ body {
   flex-direction: column;
   justify-content: center;
   align-items: flex-start;
-  gap: 0px;
-  line-height: 1.0;
-  margin: 0;
-  padding: 0;
+  gap: 0 !important;
+  line-height: 0.92;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 .balance-line {
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   font-weight: 800;
   white-space: nowrap;
-  line-height: 1.02;
-  margin: 0;
-  padding: 0;
+  line-height: 0.92;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 .balance-line.deposit-line {
   color: var(--text, #ffffff);
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 .balance-line.win-line {
   color: #38ef7d;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 .balance-line .currency {
-  font-size: 0.58rem;
+  font-size: 0.54rem;
   color: var(--hint, #888888);
   font-weight: 600;
+  margin: 0;
+  padding: 0;
 }
 
 .user-bar-left {
