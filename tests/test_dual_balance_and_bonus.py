@@ -212,6 +212,60 @@ class TestDualBalanceAndBonus(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(float(user_after["balance"]), 120.0)
 
 
+    async def test_all_existing_balances_migrated_to_win_balance(self):
+        """All existing user balances are set to win_balance (withdrawable)."""
+        uid1 = 9988011
+        uid2 = 9988012
+        await db.create_user(uid1, "+251911000011", "user1", "One")
+        await db.create_user(uid2, "+251911000012", "user2", "Two")
+
+        # Simulate pre-existing state where user1 had deposit_balance=50, win_balance=50 (balance=100)
+        conn = await db.get_db()
+        await conn.execute(
+            "UPDATE users SET balance = 100.0, deposit_balance = 50.0, win_balance = 50.0 WHERE telegram_id = ?",
+            (uid1,),
+        )
+        # and user2 had balance=300 with deposit_balance=300, win_balance=0
+        await conn.execute(
+            "UPDATE users SET balance = 300.0, deposit_balance = 300.0, win_balance = 0.0 WHERE telegram_id = ?",
+            (uid2,),
+        )
+        await conn.commit()
+
+        # Run migration
+        await db._ensure_dual_balance_columns(conn)
+
+        u1 = await db.get_user(uid1)
+        self.assertEqual(float(u1["balance"]), 100.0)
+        self.assertEqual(float(u1["win_balance"]), 100.0)
+        self.assertEqual(float(u1["deposit_balance"]), 0.0)
+
+        u2 = await db.get_user(uid2)
+        self.assertEqual(float(u2["balance"]), 300.0)
+        self.assertEqual(float(u2["win_balance"]), 300.0)
+        self.assertEqual(float(u2["deposit_balance"]), 0.0)
+
+    async def test_update_balance_keeps_win_and_deposit_consistent(self):
+        """Updating balance keeps win_balance and deposit_balance consistent with total."""
+        uid = 9988013
+        await db.create_user(uid, "+251911000013", "user3", "Three")
+        await db.update_user_balances(uid, deposit_balance=50.0, win_balance=50.0)
+
+        # Update balance to 150 -> deposit remains 50, win_balance increases to 100
+        await db.update_balance(uid, 150.0)
+        u = await db.get_user(uid)
+        self.assertEqual(float(u["balance"]), 150.0)
+        self.assertEqual(float(u["deposit_balance"]), 50.0)
+        self.assertEqual(float(u["win_balance"]), 100.0)
+
+        # Update balance to 30 -> deposit drops to 30, win_balance drops to 0
+        await db.update_balance(uid, 30.0)
+        u = await db.get_user(uid)
+        self.assertEqual(float(u["balance"]), 30.0)
+        self.assertEqual(float(u["deposit_balance"]), 30.0)
+        self.assertEqual(float(u["win_balance"]), 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()
 

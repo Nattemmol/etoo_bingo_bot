@@ -127,15 +127,10 @@ async def init_db() -> None:
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS win_balance NUMERIC(14,2) NOT NULL DEFAULT 0.00;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS first_deposit_bonus_claimed BOOLEAN NOT NULL DEFAULT FALSE;
 
-                -- Policy B: Grandfather existing balances to win_balance (withdrawable)
+                -- Policy B: Set all existing balances to win_balance (100% withdrawable)
                 UPDATE users
                 SET win_balance = balance, deposit_balance = 0.00
-                WHERE balance > 0 AND deposit_balance = 0.00 AND win_balance = 0.00;
-
-                -- If non-depositors had funds in deposit_balance (e.g. from game wins), transfer to win_balance
-                UPDATE users
-                SET win_balance = win_balance + deposit_balance, deposit_balance = 0.00
-                WHERE total_deposited = 0.00 AND deposit_balance > 0.00;
+                WHERE balance > 0;
 
                 UPDATE users
                 SET first_deposit_bonus_claimed = TRUE
@@ -277,11 +272,24 @@ async def get_balance(telegram_id: int) -> float:
 
 
 async def update_balance(telegram_id: int, new_balance: float) -> None:
-    """Set the balance for *telegram_id* to *new_balance*."""
+    """Set the balance for *telegram_id* to *new_balance*, keeping win_balance consistent."""
     pool = await _get_pool()
     await pool.execute(
-        "UPDATE users SET balance = $1, updated_at = NOW() WHERE telegram_id = $2",
-        new_balance, telegram_id,
+        """
+        UPDATE users
+        SET balance = $1,
+            win_balance = CASE
+                WHEN deposit_balance >= $1 THEN 0.00
+                ELSE round($1 - deposit_balance, 2)
+            END,
+            deposit_balance = CASE
+                WHEN deposit_balance >= $1 THEN $1
+                ELSE deposit_balance
+            END,
+            updated_at = NOW()
+        WHERE telegram_id = $2
+        """,
+        round(new_balance, 2), telegram_id,
     )
 
 
@@ -620,7 +628,7 @@ async def auto_credit_deposit(
         async with conn.transaction():
             # Lock the user row to prevent concurrent credits.
             user_row = await conn.fetchrow(
-                "SELECT balance FROM users WHERE telegram_id = $1 FOR UPDATE",
+                "SELECT balance, deposit_balance, win_balance, total_deposited, first_deposit_bonus_claimed FROM users WHERE telegram_id = $1 FOR UPDATE",
                 telegram_id,
             )
             if not user_row:
@@ -748,7 +756,7 @@ async def complete_telebirr_order(
 
             # Lock the user row & credit.
             user_row = await conn.fetchrow(
-                "SELECT balance FROM users WHERE telegram_id = $1 FOR UPDATE",
+                "SELECT balance, deposit_balance, win_balance, total_deposited, first_deposit_bonus_claimed FROM users WHERE telegram_id = $1 FOR UPDATE",
                 tid,
             )
             if not user_row:
@@ -981,7 +989,7 @@ async def credit_peerpay_deposit_once(
 
             target_id = int(dep["telegram_id"])
             user_row = await conn.fetchrow(
-                "SELECT balance FROM users WHERE telegram_id = $1 FOR UPDATE",
+                "SELECT balance, deposit_balance, win_balance, total_deposited, first_deposit_bonus_claimed FROM users WHERE telegram_id = $1 FOR UPDATE",
                 target_id,
             )
             if not user_row:
@@ -1205,7 +1213,7 @@ async def release_peerpay_withdrawal_once(payment_id: str) -> tuple[bool, float]
             amount = _numeric(row["amount"])
 
             user_row = await conn.fetchrow(
-                "SELECT balance FROM users WHERE telegram_id = $1 FOR UPDATE",
+                "SELECT balance, deposit_balance, win_balance FROM users WHERE telegram_id = $1 FOR UPDATE",
                 target_id,
             )
             if not user_row:

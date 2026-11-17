@@ -327,16 +327,11 @@ async def _ensure_dual_balance_columns(db: aiosqlite.Connection) -> None:
     if "total_won" not in columns:
         await db.execute("ALTER TABLE users ADD COLUMN total_won REAL NOT NULL DEFAULT 0.0")
 
-    # Policy B: Grandfather existing balances to win_balance (withdrawable)
+    # Policy B: Set all existing balances to win_balance (100% withdrawable)
     await db.execute("""
         UPDATE users
         SET win_balance = balance, deposit_balance = 0.0
-        WHERE balance > 0 AND deposit_balance = 0.0 AND win_balance = 0.0
-    """)
-    await db.execute("""
-        UPDATE users
-        SET win_balance = win_balance + deposit_balance, deposit_balance = 0.0
-        WHERE total_deposited = 0.0 AND deposit_balance > 0.0
+        WHERE balance > 0
     """)
     try:
         await db.execute("""
@@ -497,16 +492,25 @@ async def get_balance(telegram_id: int) -> float:
 
 
 async def update_balance(telegram_id: int, new_balance: float) -> None:
+    """Set the balance for *telegram_id* to *new_balance*, keeping win_balance consistent."""
     db = await get_db()
     async with _write_lock:
         await db.execute(
             """
-            UPDATE users 
+            UPDATE users
             SET balance = ?,
-                win_balance = CASE WHEN deposit_balance = 0.0 THEN ? ELSE win_balance END
+                win_balance = CASE
+                    WHEN deposit_balance >= ? THEN 0.0
+                    ELSE round(? - deposit_balance, 2)
+                END,
+                deposit_balance = CASE
+                    WHEN deposit_balance >= ? THEN ?
+                    ELSE deposit_balance
+                END,
+                updated_at = datetime('now')
             WHERE telegram_id = ?
             """,
-            (new_balance, new_balance, telegram_id),
+            (round(new_balance, 2), round(new_balance, 2), round(new_balance, 2), round(new_balance, 2), round(new_balance, 2), telegram_id),
         )
         await db.commit()
 

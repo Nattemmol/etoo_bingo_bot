@@ -651,11 +651,32 @@ async def run_playing_round(room: GameRoom) -> None:
                     user_refund = round(cards_count * room.entry_fee, 2)
                     if user_refund > 0:
                         try:
-                            new_balance = await db.credit_balance(
-                                tid,
-                                user_refund,
-                                f"Refund: All 75 numbers called without bingo in {room.name}",
-                            )
+                            dep_refund = 0.0
+                            win_refund = 0.0
+                            for cid, owner in list(room.taken_cards.items()):
+                                if owner == tid and cid in room.card_deductions:
+                                    split = room.card_deductions.pop(cid)
+                                    dep_refund += float(split.get("deposit_deducted", 0.0))
+                                    win_refund += float(split.get("win_deducted", 0.0))
+                            dep_refund = round(dep_refund, 2)
+                            win_refund = round(win_refund, 2)
+
+                            if (dep_refund + win_refund) > 0:
+                                rem = round(user_refund - (dep_refund + win_refund), 2)
+                                if rem > 0:
+                                    win_refund = round(win_refund + rem, 2)
+                                new_balance = await db.refund_balance(
+                                    tid,
+                                    dep_refund,
+                                    win_refund,
+                                    f"Refund: All 75 numbers called without bingo in {room.name}",
+                                )
+                            else:
+                                new_balance = await db.credit_win(
+                                    tid,
+                                    user_refund,
+                                    f"Refund: All 75 numbers called without bingo in {room.name}",
+                                )
                             total_refunded += user_refund
                             await db.add_transaction(
                                 tid,
@@ -1025,11 +1046,32 @@ async def handle_cards_locked(
         refund_amount = round(len(player.card_ids) * room.entry_fee, 2)
         new_balance = 0.0
         if not FREE_PLAY:
-            new_balance = await db.credit_balance(
-                player.telegram_id,
-                refund_amount,
-                f"Refund: Single player all cards locked in {room.name}",
-            )
+            dep_refund = 0.0
+            win_refund = 0.0
+            for cid in list(player.card_ids):
+                if cid in room.card_deductions:
+                    split = room.card_deductions.pop(cid)
+                    dep_refund += float(split.get("deposit_deducted", 0.0))
+                    win_refund += float(split.get("win_deducted", 0.0))
+            dep_refund = round(dep_refund, 2)
+            win_refund = round(win_refund, 2)
+
+            if (dep_refund + win_refund) > 0:
+                rem = round(refund_amount - (dep_refund + win_refund), 2)
+                if rem > 0:
+                    win_refund = round(win_refund + rem, 2)
+                new_balance = await db.refund_balance(
+                    player.telegram_id,
+                    dep_refund,
+                    win_refund,
+                    f"Refund: Single player all cards locked in {room.name}",
+                )
+            else:
+                new_balance = await db.credit_win(
+                    player.telegram_id,
+                    refund_amount,
+                    f"Refund: Single player all cards locked in {room.name}",
+                )
             try:
                 await db.add_transaction(
                     player.telegram_id,
@@ -1140,11 +1182,32 @@ async def handle_cards_locked(
                 if user_refund > 0:
                     total_refunded += user_refund
                     try:
-                        new_balance = await db.credit_balance(
-                            tid,
-                            user_refund,
-                            f"Refund: All players locked in {room.name}",
-                        )
+                        dep_refund = 0.0
+                        win_refund = 0.0
+                        for cid, owner in list(room.taken_cards.items()):
+                            if owner == tid and cid in room.card_deductions:
+                                split = room.card_deductions.pop(cid)
+                                dep_refund += float(split.get("deposit_deducted", 0.0))
+                                win_refund += float(split.get("win_deducted", 0.0))
+                        dep_refund = round(dep_refund, 2)
+                        win_refund = round(win_refund, 2)
+
+                        if (dep_refund + win_refund) > 0:
+                            rem = round(user_refund - (dep_refund + win_refund), 2)
+                            if rem > 0:
+                                win_refund = round(win_refund + rem, 2)
+                            new_balance = await db.refund_balance(
+                                tid,
+                                dep_refund,
+                                win_refund,
+                                f"Refund: All players locked in {room.name}",
+                            )
+                        else:
+                            new_balance = await db.credit_win(
+                                tid,
+                                user_refund,
+                                f"Refund: All players locked in {room.name}",
+                            )
                         await db.add_transaction(
                             tid,
                             "refund",
@@ -1703,7 +1766,7 @@ async def game_ws(websocket: WebSocket, room_id: str) -> None:
                             f"Refund — unselected {room.name} card #{card_id}",
                         )
                     else:
-                        new_balance = await db.credit_balance(
+                        new_balance = await db.credit_win(
                             telegram_id,
                             room.entry_fee,
                             f"Refund — unselected {room.name} card #{card_id}",
@@ -3107,9 +3170,19 @@ async def api_withdraw_create(request: Request):
                 },
             )
 
-        balance = float(user["balance"])
-        if balance < amount:
-            return JSONResponse(status_code=400, content={"error": "Insufficient balance"})
+        win_balance = float(user.get("win_balance", 0.0))
+        total_balance = float(user.get("balance", 0.0))
+        # Fallback for Policy B grandfathering if win_balance wasn't populated yet
+        if win_balance == 0.0 and float(user.get("deposit_balance", 0.0)) == 0.0 and total_balance > 0.0:
+            win_balance = total_balance
+
+        if win_balance < amount:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": f"Insufficient winning balance. Only won balance can be withdrawn (Withdrawable: {win_balance:.2f} ETB)."
+                },
+            )
 
         destination = body.get("destination") or {}
         bank_raw = str(destination.get("bank", "telebirr")).lower()
@@ -3171,8 +3244,12 @@ async def api_withdraw_create(request: Request):
         except Exception as exc:
             logger.exception("Failed to create PeerPay withdrawal: %s", exc)
     
-        new_balance = round(balance - amount, 2)
-        await db.update_balance(tg_id, new_balance)
+        ok, new_balance = await db.hold_withdrawal_balance(tg_id, amount)
+        if not ok:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Insufficient winning balance to initiate withdrawal."},
+            )
         await db.create_peerpay_withdrawal_hold(
             payment_id=payment_id,
             telegram_id=tg_id,
@@ -3188,16 +3265,22 @@ async def api_withdraw_create(request: Request):
             status="pending",
             description=f"PeerPay withdrawal hold — {payment_id} ({peerpay_bank_code}: {clean_account})",
         )
-    
+
+        user_after = await db.get_user(tg_id)
+        cur_dep = float(user_after.get("deposit_balance", 0.0)) if user_after else 0.0
+        cur_win = float(user_after.get("win_balance", 0.0)) if user_after else 0.0
+
         # Push updated balance to open WebSocket sessions immediately
-        await broadcast_user_balance(tg_id, new_balance)
-    
+        await broadcast_user_balance(tg_id, new_balance, deposit_balance=cur_dep, win_balance=cur_win)
+
         return JSONResponse({
             "ok": True,
             "withdrawal_id": payment_id,
             "checkout_url": checkout_url,
             "amount": amount,
             "new_balance": new_balance,
+            "deposit_balance": cur_dep,
+            "win_balance": cur_win,
             "method": peerpay_bank_code,
             "account_number": clean_account,
         })
